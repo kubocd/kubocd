@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- kubocd_v1alpha1_release.yaml
+- kubocd_v1alpha1_setting.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

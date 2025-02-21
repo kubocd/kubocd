@@ -1,0 +1,9 @@
+apiVersion: kubocd.kubotal.io/v1alpha1
+kind: Setting
+metadata:
+  labels:
+    app.kubernetes.io/name: kubocd
+    app.kubernetes.io/managed-by: kustomize
+  name: setting-sample
+spec:
+  # TODO(user): Add fields here
