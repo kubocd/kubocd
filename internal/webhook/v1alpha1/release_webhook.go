@@ -19,14 +19,13 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
-	kubocdv1alpha1 "kubocd/api/kubocd/v1alpha1"
 )
 
 // nolint:unused

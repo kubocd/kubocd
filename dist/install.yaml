@@ -1,0 +1,1030 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+  name: kubocd-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: releases.kubocd.kubotal.io
+spec:
+  group: kubocd.kubotal.io
+  names:
+    kind: Release
+    listKind: ReleaseList
+    plural: releases
+    singular: release
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.service.repository
+      name: Repository
+      type: string
+    - jsonPath: .spec.service.tag
+      name: Tag
+      type: string
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    - jsonPath: .spec.description
+      name: Description
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Release is the Schema for the releases API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ReleaseSpec defines the desired state of Release.
+            properties:
+              createNamespace:
+                description: |-
+                  If true, add  { install: { createNamespace: true } } to config map.
+                  Default: false
+                type: boolean
+              dependsOn:
+                description: |-
+                  The roles we depend on. (appended to the one of the underlying Service)
+                  Default: []
+                items:
+                  type: string
+                type: array
+              description:
+                description: Short description of this release. Single line only
+                type: string
+              enabled:
+                description: |-
+                  If false, this release is not deployed (And deleted if existing and unprotected)
+                  Default: true
+                type: boolean
+              namespace:
+                description: |-
+                  The namespace to deploy in. (May also be a partial name for a multi-namespaces service)
+                  Not required, as it can be setup another way, depending on the service
+                  (i.e the service has a fixed namespace, or several ones).
+                  Default: ""
+                type: string
+              parameters:
+                description: The Release configuration variables
+                x-kubernetes-preserve-unknown-fields: true
+              protected:
+                description: |-
+                  If true, HelmRelease will not be deleted by KuboCD
+                  Default: false
+                type: boolean
+              roles:
+                description: |-
+                  List of roles fulfilled by this release. (appended to the one of the underlying service)
+                  Default: []
+                items:
+                  type: string
+                type: array
+              service:
+                description: The service to deploy
+                properties:
+                  certSecretRef:
+                    description: |-
+                      CertSecretRef can be given the name of a Secret containing
+                      either or both of
+
+                      - a PEM-encoded client certificate (`tls.crt`) and private
+                      key (`tls.key`);
+                      - a PEM-encoded CA certificate (`ca.crt`)
+
+                      and whichever are supplied, will be used for connecting to the
+                      registry. The client cert and key are useful if you are
+                      authenticating with a certificate; the CA cert is useful if
+                      you are using a self-signed server certificate. The Secret must
+                      be of type `Opaque` or `kubernetes.io/tls`.
+
+                      Note: Support for the `caFile`, `certFile` and `keyFile` keys have
+                      been deprecated.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  ignore:
+                    description: |-
+                      Ignore overrides the set of excluded patterns in the .sourceignore format
+                      (which is the same as .gitignore). If not provided, a default will be used,
+                      consult the documentation for your version to find out what those are.
+                    type: string
+                  insecure:
+                    description: Insecure allows connecting to a non-TLS HTTP container
+                      registry.
+                    type: boolean
+                  interval:
+                    default: 5m
+                    description: |-
+                      Interval at which the OCIRepository URL is checked for updates.
+                      This interval is approximate and may be subject to jitter to ensure
+                      efficient use of resources.
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                    type: string
+                  provider:
+                    description: |-
+                      The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator
+                      All following fields will be replicated in this object
+                      The provider used for authentication, can be 'aws', 'azure', 'gcp' or 'generic'.
+                      When not specified, defaults to 'generic'.
+                      -kubebuilder:default:=generic
+                    enum:
+                    - generic
+                    - aws
+                    - azure
+                    - gcp
+                    type: string
+                  proxySecretRef:
+                    description: |-
+                      ProxySecretRef specifies the Secret containing the proxy configuration
+                      to use while communicating with the container registry.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  repository:
+                    description: Part of OCI url oci://<repository>:<tag>
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef contains the secret name containing the registry login
+                      credentials to resolve image metadata.
+                      The secret must be of type kubernetes.io/dockerconfigjson.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  serviceAccountName:
+                    description: |-
+                      ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
+                      the image pull if the service account has attached pull secrets. For more information:
+                      https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#add-imagepullsecrets-to-a-service-account
+                    type: string
+                  suspend:
+                    description: This flag tells the controller to suspend the reconciliation
+                      of this source.
+                    type: boolean
+                  tag:
+                    description: Part of OCI url oci://<repository>:<tag>
+                    type: string
+                  timeout:
+                    default: 60s
+                    description: The timeout for remote OCI Repository operations
+                      like pulling, defaults to 60s.
+                    pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
+                    type: string
+                  verify:
+                    description: |-
+                      Verify contains the secret name containing the trusted public keys
+                      used to verify the signature and specifies which provider to use to check
+                      whether OCI image is authentic.
+                    properties:
+                      matchOIDCIdentity:
+                        description: |-
+                          MatchOIDCIdentity specifies the identity matching criteria to use
+                          while verifying an OCI artifact which was signed using Cosign keyless
+                          signing. The artifact's identity is deemed to be verified if any of the
+                          specified matchers match against the identity.
+                        items:
+                          description: |-
+                            OIDCIdentityMatch specifies options for verifying the certificate identity,
+                            i.e. the issuer and the subject of the certificate.
+                          properties:
+                            issuer:
+                              description: |-
+                                Issuer specifies the regex pattern to match against to verify
+                                the OIDC issuer in the Fulcio certificate. The pattern must be a
+                                valid Go regular expression.
+                              type: string
+                            subject:
+                              description: |-
+                                Subject specifies the regex pattern to match against to verify
+                                the identity subject in the Fulcio certificate. The pattern must
+                                be a valid Go regular expression.
+                              type: string
+                          required:
+                          - issuer
+                          - subject
+                          type: object
+                        type: array
+                      provider:
+                        default: cosign
+                        description: Provider specifies the technology used to sign
+                          the OCI Artifact.
+                        enum:
+                        - cosign
+                        - notation
+                        type: string
+                      secretRef:
+                        description: |-
+                          SecretRef specifies the Kubernetes Secret containing the
+                          trusted public keys.
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - provider
+                    type: object
+                required:
+                - interval
+                - repository
+                - tag
+                type: object
+              settings:
+                description: |-
+                  To provide contextual variables
+                  Refer to Setting resource description for more explanation
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              suspended:
+                description: |-
+                  If true, HelmRelease update is suspended at KuboCD level
+                  (This is NOT the helmRelease.spec.suspend flag, which may be set by Config part)
+                  Default: false
+                type: boolean
+            required:
+            - service
+            type: object
+          status:
+            description: ReleaseStatus defines the observed state of Release.
+            properties:
+              phase:
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: settings.kubocd.kubotal.io
+spec:
+  group: kubocd.kubotal.io
+  names:
+    kind: Setting
+    listKind: SettingList
+    plural: settings
+    singular: setting
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Setting is the Schema for the settings API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SettingSpec defines the desired state of Setting.
+            properties:
+              abstract:
+                description: |-
+                  If true, to be used as a parent and not candidate to be referenced from a Release.
+                  This is NOT enforced by the controller, but just for the usage of a potential front end
+                  Default: false
+                type: boolean
+              clusterRoles:
+                description: |-
+                  Allow to define Roles already provided by the k8s cluster, independently of any KuboCD deployment.
+                  Default: []
+                items:
+                  type: string
+                type: array
+              context:
+                description: |-
+                  Context is a map of variables witches will be injected in the data model when rendering Service template.
+                  When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
+                  The 'oldest' are the deeper in the parents chain.
+                  Then merging is performed with the parent array order.
+                x-kubernetes-preserve-unknown-fields: true
+              description:
+                description: Short description. Single line only
+                type: string
+              ociRedirects:
+                description: |-
+                  Each entry allow substitution of oci data source.
+                  Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
+                  This will also allow to add authentication and proxy information.
+                  When merging settings, values are simply appended.
+                items:
+                  properties:
+                    certSecretRef:
+                      description: |-
+                        CertSecretRef can be given the name of a Secret containing
+                        either or both of
+
+                        - a PEM-encoded client certificate (`tls.crt`) and private
+                        key (`tls.key`);
+                        - a PEM-encoded CA certificate (`ca.crt`)
+
+                        and whichever are supplied, will be used for connecting to the
+                        registry. The client cert and key are useful if you are
+                        authenticating with a certificate; the CA cert is useful if
+                        you are using a self-signed server certificate. The Secret must
+                        be of type `Opaque` or `kubernetes.io/tls`.
+
+                        Note: Support for the `caFile`, `certFile` and `keyFile` keys have
+                        been deprecated.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    ignore:
+                      description: |-
+                        Ignore overrides the set of excluded patterns in the .sourceignore format
+                        (which is the same as .gitignore). If not provided, a default will be used,
+                        consult the documentation for your version to find out what those are.
+                      type: string
+                    insecure:
+                      description: Insecure allows connecting to a non-TLS HTTP container
+                        registry.
+                      type: boolean
+                    interval:
+                      default: 5m
+                      description: |-
+                        Interval at which the OCIRepository URL is checked for updates.
+                        This interval is approximate and may be subject to jitter to ensure
+                        efficient use of resources.
+                      pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                      type: string
+                    newRepositoryPrefix:
+                      description: The prefix part will be replaced by this value.
+                      type: string
+                    oldRepositoryPrefix:
+                      description: All OIC repo where the Url begin by this value
+                        will be impacted.
+                      type: string
+                    provider:
+                      description: |-
+                        The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator
+                        All following fields will be replicated in this object
+                        The provider used for authentication, can be 'aws', 'azure', 'gcp' or 'generic'.
+                        When not specified, defaults to 'generic'.
+                        -kubebuilder:default:=generic
+                      enum:
+                      - generic
+                      - aws
+                      - azure
+                      - gcp
+                      type: string
+                    proxySecretRef:
+                      description: |-
+                        ProxySecretRef specifies the Secret containing the proxy configuration
+                        to use while communicating with the container registry.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    secretRef:
+                      description: |-
+                        SecretRef contains the secret name containing the registry login
+                        credentials to resolve image metadata.
+                        The secret must be of type kubernetes.io/dockerconfigjson.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    serviceAccountName:
+                      description: |-
+                        ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
+                        the image pull if the service account has attached pull secrets. For more information:
+                        https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#add-imagepullsecrets-to-a-service-account
+                      type: string
+                    suspend:
+                      description: This flag tells the controller to suspend the reconciliation
+                        of this source.
+                      type: boolean
+                    tag:
+                      description: Part of OCI url oci://<repository>:<tag>
+                      type: string
+                    timeout:
+                      default: 60s
+                      description: The timeout for remote OCI Repository operations
+                        like pulling, defaults to 60s.
+                      pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
+                      type: string
+                    verify:
+                      description: |-
+                        Verify contains the secret name containing the trusted public keys
+                        used to verify the signature and specifies which provider to use to check
+                        whether OCI image is authentic.
+                      properties:
+                        matchOIDCIdentity:
+                          description: |-
+                            MatchOIDCIdentity specifies the identity matching criteria to use
+                            while verifying an OCI artifact which was signed using Cosign keyless
+                            signing. The artifact's identity is deemed to be verified if any of the
+                            specified matchers match against the identity.
+                          items:
+                            description: |-
+                              OIDCIdentityMatch specifies options for verifying the certificate identity,
+                              i.e. the issuer and the subject of the certificate.
+                            properties:
+                              issuer:
+                                description: |-
+                                  Issuer specifies the regex pattern to match against to verify
+                                  the OIDC issuer in the Fulcio certificate. The pattern must be a
+                                  valid Go regular expression.
+                                type: string
+                              subject:
+                                description: |-
+                                  Subject specifies the regex pattern to match against to verify
+                                  the identity subject in the Fulcio certificate. The pattern must
+                                  be a valid Go regular expression.
+                                type: string
+                            required:
+                            - issuer
+                            - subject
+                            type: object
+                          type: array
+                        provider:
+                          default: cosign
+                          description: Provider specifies the technology used to sign
+                            the OCI Artifact.
+                          enum:
+                          - cosign
+                          - notation
+                          type: string
+                        secretRef:
+                          description: |-
+                            SecretRef specifies the Kubernetes Secret containing the
+                            trusted public keys.
+                          properties:
+                            name:
+                              description: Name of the referent.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      required:
+                      - provider
+                      type: object
+                  required:
+                  - interval
+                  - newRepositoryPrefix
+                  - oldRepositoryPrefix
+                  - tag
+                  type: object
+                type: array
+              parents:
+                description: |-
+                  Settings can be merged together.
+                  See each property description for more detail.
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+            type: object
+          status:
+            description: SettingStatus defines the observed state of Setting.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-controller-manager
+  namespace: kubocd-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-leader-election-role
+  namespace: kubocd-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-release-admin-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases
+  verbs:
+  - '*'
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-release-editor-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-release-viewer-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-setting-admin-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings
+  verbs:
+  - '*'
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-setting-editor-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-kubocd-setting-viewer-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - settings/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubocd-manager-role
+rules:
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubocd-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubocd-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-leader-election-rolebinding
+  namespace: kubocd-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubocd-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: kubocd-controller-manager
+  namespace: kubocd-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubocd-manager-role
+subjects:
+- kind: ServiceAccount
+  name: kubocd-controller-manager
+  namespace: kubocd-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubocd-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubocd-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: kubocd-controller-manager
+  namespace: kubocd-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+  name: kubocd-controller-manager-metrics-service
+  namespace: kubocd-system
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-webhook-service
+  namespace: kubocd-system
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+  name: kubocd-controller-manager
+  namespace: kubocd-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubocd
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: kubocd
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --metrics-bind-address=:8443
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+        command:
+        - /manager
+        image: quay.io/kubocd/kcd-controller:0.1.0-snapshot
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: webhook-certs
+          readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: kubocd-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: webhook-server-cert
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: kubocd-mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: kubocd-webhook-service
+      namespace: kubocd-system
+      path: /mutate-kubocd-kubotal-io-v1alpha1-release
+  failurePolicy: Fail
+  name: mrelease-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - releases
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: kubocd-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: kubocd-webhook-service
+      namespace: kubocd-system
+      path: /validate-kubocd-kubotal-io-v1alpha1-release
+  failurePolicy: Fail
+  name: vrelease-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - releases
+  sideEffects: None

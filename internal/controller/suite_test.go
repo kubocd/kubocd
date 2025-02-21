@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kubocd
+package controller
 
 import (
 	"context"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	kubocdv1alpha1 "kubocd/api/kubocd/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 

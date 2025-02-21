@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kubocd
+package controller
 
 import (
 	"context"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,8 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	kubocdv1alpha1 "kubocd/api/kubocd/v1alpha1"
 )
 
 var _ = Describe("Release Controller", func() {

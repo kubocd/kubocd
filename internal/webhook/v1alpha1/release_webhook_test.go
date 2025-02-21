@@ -19,8 +19,7 @@ package v1alpha1
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	kubocdv1alpha1 "kubocd/api/kubocd/v1alpha1"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	// TODO (user): Add any additional imports if needed
 )
 

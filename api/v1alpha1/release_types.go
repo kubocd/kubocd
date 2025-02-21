@@ -1,0 +1,129 @@
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1alpha1
+
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+type ServiceSource struct {
+	// Part of OCI url oci://<repository>:<tag>
+	// +kubebuilder:validation:Required
+	Repository string `json:"repository"`
+
+	ServiceSourceAddOn `json:",inline"`
+}
+
+// ReleaseSpec defines the desired state of Release.
+type ReleaseSpec struct {
+
+	// Short description of this release. Single line only
+	// +kubebuilder:validation:Optional
+	Description string `json:"description,omitempty"`
+
+	// The service to deploy
+	// +kubebuilder:validation:Required
+	Service ServiceSource `json:"service"`
+
+	// To provide contextual variables
+	// Refer to Setting resource description for more explanation
+	// +kubebuilder:validation:Optional
+	// Default: []
+	Settings []NamespacedNameSpec `json:"settings,omitempty"`
+
+	// If false, this release is not deployed (And deleted if existing and unprotected)
+	// +kubebuilder:validation:Optional
+	// Default: true
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// If true, HelmRelease update is suspended at KuboCD level
+	// (This is NOT the helmRelease.spec.suspend flag, which may be set by Config part)
+	// +kubebuilder:validation:Optional
+	// Default: false
+	Suspended bool `json:"suspended,omitempty"`
+
+	// If true, HelmRelease will not be deleted by KuboCD
+	// +kubebuilder:validation:Optional
+	// Default: false
+	Protected bool `json:"protected,omitempty"`
+
+	// The Release configuration variables
+	// +kubebuilder:validation:Optional
+	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
+
+	// If true, add  { install: { createNamespace: true } } to config map.
+	// +kubebuilder:validation:Optional
+	// Default: false
+	CreateNamespace bool `json:"createNamespace,omitempty"`
+
+	// The namespace to deploy in. (May also be a partial name for a multi-namespaces service)
+	// Not required, as it can be setup another way, depending on the service
+	// (i.e the service has a fixed namespace, or several ones).
+	// +kubebuilder:validation:Optional
+	// Default: ""
+	Namespace string `json:"namespace,omitempty"`
+
+	// List of roles fulfilled by this release. (appended to the one of the underlying service)
+	// +kubebuilder:validation:Optional
+	// Default: []
+	Roles []string `json:"roles,omitempty"`
+
+	// The roles we depend on. (appended to the one of the underlying Service)
+	// +kubebuilder:validation:Optional
+	// Default: []
+	DependsOn []string `json:"dependsOn,omitempty"`
+}
+
+type ReleasePhase string
+
+const ReleasePhaseReady = ReleasePhase("READY")
+const ReleasePhaseError = ReleasePhase("ERROR")
+const ReleasePhaseWaitingOci = ReleasePhase("WAITING_OCI")
+
+// ReleaseStatus defines the observed state of Release.
+type ReleaseStatus struct {
+	Phase ReleasePhase `json:"phase"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.service.repository`
+// +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.service.tag`
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+
+// Release is the Schema for the releases API.
+type Release struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ReleaseSpec   `json:"spec,omitempty"`
+	Status ReleaseStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// ReleaseList contains a list of Release.
+type ReleaseList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Release `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&Release{}, &ReleaseList{})
+}

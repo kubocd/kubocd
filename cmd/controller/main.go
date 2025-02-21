@@ -1,5 +1,4 @@
 /*
-Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +17,12 @@ package main
 
 import (
 	"crypto/tls"
-	"flag"
-	kubocdv1alpha1 "kubocd/api/v1alpha1"
-	kubocdcontroller "kubocd/internal/controller"
-	webhookkubocdv1alpha1 "kubocd/internal/webhook/v1alpha1"
+	"fmt"
+	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/fluxcd/pkg/tar"
+	flag "github.com/spf13/pflag"
+	"kubocd/internal/global"
+	"kubocd/internal/misc"
 	"os"
 	"path/filepath"
 
@@ -29,16 +30,20 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/controller"
+	webhookkubocdv1alpha1 "kubocd/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -51,6 +56,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(kubocdv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(sourcev1b2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -63,31 +69,38 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var logConfig misc.LogConfig
+	var rootDataFolder string
+	var sourceControllerOverride string
+
 	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
-		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
-		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true, "If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
-		"The directory that contains the metrics server certificate.")
+	flag.StringVar(&metricsCertPath, "metrics-cert-path", "", "The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	flag.BoolVar(&enableHTTP2, "enable-http2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&logConfig.Level, "logLevel", "info", "Log level")
+	flag.StringVar(&logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
+	flag.StringVar(&rootDataFolder, "rootDataFolder", "./works", "Root data folder")
+	flag.StringVar(&sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
+
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	var err error
+	global.RootLog, err = misc.HandleLog(&logConfig)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Unable to set logging configuration: %v\n", err)
+		os.Exit(2)
+	}
+	ctrl.SetLogger(global.RootLog)
+
+	global.RootLog.Info("kubocd controller start", "version", global.Version, "build", global.BuildTs, "logLevel", logConfig.Level)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -184,7 +197,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "26cd80d1.kubotal.io",
+		LeaderElectionID:       "26cd80d1.kubocd.kubotal.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -202,9 +215,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&kubocdcontroller.ReleaseReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	fetchRetry := 9
+	archiveFetcher := fetch.New(fetch.WithRetries(fetchRetry), fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
+		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)), fetch.WithHostnameOverwrite(sourceControllerOverride))
+
+	if err = (&controller.ReleaseReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		EventRecorder:  mgr.GetEventRecorderFor("release"),
+		Logger:         global.RootLog.WithName("ReleaseReconciler"),
+		Fetcher:        archiveFetcher,
+		RootDataFolder: rootDataFolder,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Release")
 		os.Exit(1)

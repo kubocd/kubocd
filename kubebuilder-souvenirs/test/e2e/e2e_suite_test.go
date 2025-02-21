@@ -18,14 +18,13 @@ package e2e
 
 import (
 	"fmt"
+	"kubocd/kubebuilder-souvenirs/test/utils"
 	"os"
 	"os/exec"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"kubocd/test/utils"
 )
 
 var (

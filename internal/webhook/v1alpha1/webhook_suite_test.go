@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,8 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	kubocdv1alpha1 "kubocd/api/kubocd/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 

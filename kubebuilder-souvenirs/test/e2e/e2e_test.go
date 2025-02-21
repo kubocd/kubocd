@@ -19,6 +19,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"kubocd/kubebuilder-souvenirs/test/utils"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,8 +27,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"kubocd/test/utils"
 )
 
 // namespace where the project is deployed in
