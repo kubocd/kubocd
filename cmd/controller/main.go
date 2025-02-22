@@ -41,6 +41,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/controller"
 	webhookkubocdv1alpha1 "kubocd/internal/webhook/v1alpha1"
@@ -57,6 +58,7 @@ func init() {
 
 	utilruntime.Must(kubocdv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(sourcev1b2.AddToScheme(scheme))
+	utilruntime.Must(fluxv2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

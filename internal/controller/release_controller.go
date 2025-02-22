@@ -17,6 +17,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	securejoin "github.com/cyphar/filepath-securejoin"
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/http/fetch"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
@@ -24,6 +27,9 @@ import (
 	"k8s.io/client-go/tools/record"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/global"
+	"kubocd/internal/misc"
+	"kubocd/internal/service"
+	"path"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -129,12 +135,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		controllerutil.AddFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Add finalizer)")
 		err := r.Update(ctx, release)
-		return ctrl.Result{}, err // we reschedule, to avoid an 'object has been modified on next status update
+		return ctrl.Result{}, err // we reschedule, to avoid an 'object has been modified' on next status update
 		//if err != nil {
 		//	return ctrl.Result{}, err
 		//}
 	}
-	ociRepository, reconcileError := r.handleOciRepository(op)
+	ociRepository, reconcileError := r.handleOciRepository(op, op.release.Name, global.ServiceManifestMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
@@ -148,6 +154,48 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
 		return ctrl.Result{}, nil
 	}
+
+	// ---------------------------------------------- At this point, we have an effective primary OCI repo.
+	// So, we fetch the manifest.
+	ociArtifact := ociRepository.Status.Artifact
+	sourceLocation, err := securejoin.SecureJoin(r.RootDataFolder, global.SourceFolder)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	err = misc.SafeEnsureEmpty(sourceLocation)
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("unable to clean sourceLocation: %w", err), true, "LocalFS")
+	}
+	logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", sourceLocation)
+	err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, sourceLocation)
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
+	}
+	srv := &service.Service{}
+	err = misc.LoadYaml(path.Join(sourceLocation, "manifest.yaml"), srv)
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("error while parsing Manifest.yaml file: %w", err), true, "OCIImage")
+	}
+
+	fmt.Printf("Manifest: %s\n", misc.Map2YamlStr(srv))
+
+	// ---------------------------------------------- Spawn secondary ociRepo
+	for _, chart := range srv.Status.Charts {
+		fmt.Printf("Chart %s\n", misc.Map2YamlStr(chart))
+		ociRepoName := fmt.Sprintf("%s-%s", op.release.Name, chart.Module)
+		_, reconcileError := r.handleOciRepository(op, ociRepoName, chart.MediaType, "copy")
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+		}
+	}
+	// --------------------------------------------- And spawn helmReleases
+	for _, chart := range srv.Status.Charts {
+		_, recErr := r.handleHelmRelease(op, chart.Module)
+		if recErr != nil {
+			return r.reportError(op, recErr.error, recErr.fatal, recErr.eventReason)
+		}
+	}
+
 	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, true)
 	if err != nil {
 		return ctrl.Result{}, err // Will retry
@@ -196,5 +244,6 @@ func (r *ReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kubocdv1alpha1.Release{}).
 		Named("kubocd-release").
 		Owns(&sourcev1b2.OCIRepository{}).
+		Owns(&fluxv2.HelmRelease{}).
 		Complete(r)
 }
