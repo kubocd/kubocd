@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/global"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -53,7 +54,9 @@ func (r *ReleaseReconciler) handleOciRepository(op *operation) (*sourcev1b2.OCIR
 		return nil, NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition", statusByType["Ready"]), true, "OCIRepositoryNotReady")
 	}
 	if ociRepository.Status.Artifact == nil {
-		return nil, NewReconcileError(fmt.Errorf("null status.artifact"), false, "OCIRepositoryNotReady")
+		//return nil, NewReconcileError(fmt.Errorf("null status.artifact"), false, "OCIRepositoryNotReady")
+		//  Caller will requeue, waiting for OCI
+		return nil, nil
 	}
 	return ociRepository, nil
 }
@@ -64,10 +67,11 @@ func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kub
 		Tag: release.Spec.Service.Tag,
 	}
 	ociRepository.Spec.LayerSelector = nil // Wll take the first one
-	//ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
-	//	MediaType: global.ServiceContentMediaType,
-	//	Operation: "copy",
-	//}
+	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
+		MediaType: global.ServiceManifestMediaType,
+		//MediaType: "application/vnd.kubotal.kubocd.service.module.podinfo.content.v1.tar+gzip",
+		Operation: "extract",
+	}
 	ociRepository.Spec.Provider = release.Spec.Service.Provider
 	ociRepository.Spec.SecretRef = release.Spec.Service.SecretRef
 	ociRepository.Spec.Verify = release.Spec.Service.Verify

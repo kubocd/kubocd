@@ -18,16 +18,15 @@ package controller
 import (
 	"context"
 	"github.com/fluxcd/pkg/http/fetch"
+	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/global"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"time"
-
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // ReleaseReconciler reconciles a Release object
@@ -85,7 +84,8 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	logger.V(1).Info("vv--------------vv")
 	result, err := r.reconcile2(ctx, req, logger)
-	logger.V(1).Info("^^--------------^^", "result", result, "error", err)
+	//logger.V(1).Info("^^--------------^^", "result", result, "error", err)
+	logger.V(1).Info("^^--------------^^", "result", result)
 	return result, err
 }
 
@@ -128,9 +128,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		logger.V(1).Info("Add finalizer")
 		controllerutil.AddFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Add finalizer)")
-		if err := r.Update(ctx, release); err != nil {
-			return ctrl.Result{}, err
-		}
+		err := r.Update(ctx, release)
+		return ctrl.Result{}, err // we reschedule, to avoid an 'object has been modified on next status update
+		//if err != nil {
+		//	return ctrl.Result{}, err
+		//}
 	}
 	ociRepository, reconcileError := r.handleOciRepository(op)
 	if reconcileError != nil {
@@ -142,7 +144,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		if err != nil {
 			return ctrl.Result{}, err // Will retry
 		}
-		return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
+		// No need to requeue, as we should be notified when the OCI repo status will change
+		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
+		return ctrl.Result{}, nil
 	}
 	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, true)
 	if err != nil {
@@ -178,9 +182,11 @@ func (r *ReleaseReconciler) updatePhase(op *operation, phase kubocdv1alpha1.Rele
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
 	err := r.Status().Update(op.ctx, op.release)
-	if err != nil {
-		op.logger.Error(err, "!!!!!!!!!!Unable to update status")
-	}
+	//if err != nil {
+	//	op.logger.Error(err, "!!!!!!!!!!Unable to update status")
+	//	panic("!!!!!!!!!!Unable to update status")
+	//}
+	// If err != nil, will retry
 	return err
 }
 
@@ -189,5 +195,6 @@ func (r *ReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubocdv1alpha1.Release{}).
 		Named("kubocd-release").
+		Owns(&sourcev1b2.OCIRepository{}).
 		Complete(r)
 }

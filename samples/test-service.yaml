@@ -1,0 +1,83 @@
+
+
+apiVersion: v1alpha1
+type: Service
+metadata:
+  name: test-service
+  version: 1.0.0
+spec:
+  releaseDefaults:
+    parameters:
+      redis:
+        password: redis123
+        replicaCount: 1
+        host: redis-master
+      commander:
+        tls: false
+        hostname: # TBD
+      podinfo:
+        hostname: # TBD
+  modules:
+    - name: redis
+      type: HelmChart
+      source:
+        oci:
+          repository: registry-1.docker.io/bitnamicharts/redis
+          tag: 20.6.1
+      values: |
+        fullnameOverride: {{ .Meta.release.name }}
+        global:
+          redis:
+            password: {{ .Parameters.redis.password }}
+        master:
+          persistence:
+            enabled: false
+        replica:
+          persistence:
+            enabled: false
+          replicaCount: {{ .Parameters.redis.replicaCount }}
+    - type: HelmChart
+      source:
+        git:
+          url: https://github.com/joeferner/redis-commander.git
+          path: k8s/helm-chart/redis-commander
+          branch: master
+      values: |
+        redis:
+          host: {{ .Parameters.redis.host }}
+          password: {{ .Parameters.redis.password }}
+        ingress:
+          enabled: true
+          className: {{ .Context.ingress.className }}
+          {{- if .Parameters.tls }}
+          annotations:
+            cert-manager.io/cluster-issuer: {{ required "`.Context.ingress.clusterIssuer` must be defined if tls: true" .Context.ingress.clusterIssuer}}
+          {{- end }}
+          hosts:
+            - host: {{ .Parameters.commander.hostname }}.{{ .Context.ingress.hostPostfix }}
+              paths:
+                - "/"
+          {{- if .Parameters.tls }}
+          tls:
+            - secretName: {{ .Meta.release.name-commander }}-tls
+              hosts:
+                - {{ .Parameters.commander.hostname }}.{{ .Context.ingress.hostPostfix }}
+          {{- end }}
+      dependsOn:
+        - redis
+    - name: podinfo
+      type: HelmChart
+      source:
+        helmRepository:
+          url: https://stefanprodan.github.io/podinfo
+          chart: podinfo
+          version: 6.7.1
+      values: |
+        ingress:
+          enabled: true
+          className: {{ .Context.ingress.className  }}
+          hosts:
+            - host: {{ .Parameters.podinfo.hostname }}.{{ .Context.ingress.hostPostfix }}
+              paths:
+                - path: /
+                  pathType: ImplementationSpecific
