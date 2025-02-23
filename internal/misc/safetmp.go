@@ -8,7 +8,7 @@ import (
 )
 
 func SafeEnsureEmpty(loc string) error {
-	err := safeRemove(loc)
+	err := SafeRemove(loc)
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func ensureLocation(loc string) error {
 	return fmt.Errorf("folder %s is not empty", loc)
 }
 
-func safeRemove(loc string) error {
+func SafeRemove(loc string) error {
 	_, err := os.Stat(loc)
 	if err != nil {
 		if os.IsNotExist(err) {

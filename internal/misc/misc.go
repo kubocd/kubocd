@@ -1,13 +1,16 @@
 package misc
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
-	"gopkg.in/yaml.v3"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
 	"regexp"
+	"sigs.k8s.io/yaml"
+	"strings"
 )
 
 // Ref: https://stackoverflow.com/questions/19979178/what-is-the-idiomatic-go-equivalent-of-cs-ternary-operator
@@ -48,38 +51,46 @@ func ValidateK8sName(name string) bool {
 
 // Replace yaml.Marshall. Just to be able to set indentation
 
-func map2YamlBuffer(data interface{}) *bytes.Buffer {
-	b := bytes.Buffer{}
-	encoder := yaml.NewEncoder(&b)
-	encoder.SetIndent(2)
-	err := encoder.Encode(data)
+func Map2Yaml(data interface{}) []byte {
+	result, err := yaml.Marshal(data)
 	if err != nil {
 		panic(err)
 	}
-	return &b
+	return result
 }
 
-func Map2YamlByteA(data interface{}) []byte {
-	return map2YamlBuffer(data).Bytes()
-}
+//func Map2YamlByteA(data interface{}) []byte {
+//	return map2YamlBuffer(data)
+//}
+//
+//func Map2YamlStr(data interface{}) string {
+//	return string(map2YamlBuffer(data))
+//}
 
-func Map2YamlStr(data interface{}) string {
-	return map2YamlBuffer(data).String()
-}
-
-func map2JsonBuffer(data interface{}) *bytes.Buffer {
+func Map2Json(data interface{}) []byte {
 	b := bytes.Buffer{}
 	encoder := json.NewEncoder(&b)
 	err := encoder.Encode(data)
 	if err != nil {
 		panic(err)
 	}
-	return &b
+	return b.Bytes()
 }
 
-func Map2JsonByteA(data interface{}) []byte {
-	return map2JsonBuffer(data).Bytes()
-}
+//
+//func map2JsonBuffer(data interface{}) *bytes.Buffer {
+//	b := bytes.Buffer{}
+//	encoder := json.NewEncoder(&b)
+//	err := encoder.Encode(data)
+//	if err != nil {
+//		panic(err)
+//	}
+//	return &b
+//}
+//
+//func Map2JsonByteA(data interface{}) []byte {
+//	return map2JsonBuffer(data).Bytes()
+//}
 
 // ------------------------------------------
 
@@ -99,4 +110,13 @@ func CopyFile(src, dest string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// -----------------------------------------------
+
+func WaitUserInput(prompt string) string {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print(prompt)
+	text, _ := reader.ReadString('\n')
+	return strings.TrimSpace(text)
 }

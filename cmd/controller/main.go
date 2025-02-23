@@ -20,12 +20,14 @@ import (
 	"fmt"
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/fluxcd/pkg/tar"
+	"github.com/go-logr/logr"
 	flag "github.com/spf13/pflag"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
+	"net/http"
 	"os"
+	"path"
 	"path/filepath"
-
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -74,6 +76,8 @@ func main() {
 	var logConfig misc.LogConfig
 	var rootDataFolder string
 	var sourceControllerOverride string
+	var helmRepoAdvAddr string
+	var helmRepoBindAddr string
 
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -91,6 +95,8 @@ func main() {
 	flag.StringVar(&logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
 	flag.StringVar(&rootDataFolder, "rootDataFolder", "./works", "Root data folder")
 	flag.StringVar(&sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
+	flag.StringVar(&helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
+	flag.StringVar(&helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
 
 	flag.Parse()
 
@@ -221,13 +227,15 @@ func main() {
 	archiveFetcher := fetch.New(fetch.WithRetries(fetchRetry), fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
 		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)), fetch.WithHostnameOverwrite(sourceControllerOverride))
 
+	serverRoot := path.Join(rootDataFolder, "server")
+
 	if err = (&controller.ReleaseReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		EventRecorder:  mgr.GetEventRecorderFor("release"),
-		Logger:         global.RootLog.WithName("ReleaseReconciler"),
-		Fetcher:        archiveFetcher,
-		RootDataFolder: rootDataFolder,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		EventRecorder: mgr.GetEventRecorderFor("release"),
+		Logger:        global.RootLog.WithName("ReleaseReconciler"),
+		Fetcher:       archiveFetcher,
+		ServerRoot:    serverRoot,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Release")
 		os.Exit(1)
@@ -266,9 +274,39 @@ func main() {
 		os.Exit(1)
 	}
 
+	go func() {
+		// Block until our controller manager is elected leader. We presume our
+		// entire process will terminate if we lose leadership, so we don't need
+		// to handle that.
+		<-mgr.Elected()
+
+		startFileServer(serverRoot, helmRepoBindAddr)
+	}()
+
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func startFileServer(path string, address string) {
+	setupLog.Info("starting helm repository file server", "bindAddress", address, "path", path)
+	fs := http.FileServer(http.Dir(path))
+	mux := http.NewServeMux()
+	//mux.Handle("/", fs)
+	mux.Handle("/", RequestDumpMiddleware(fs, global.RootLog.WithName("repoServer")))
+	err := http.ListenAndServe(address, mux)
+	if err != nil {
+		setupLog.Error(err, "file server error")
+	}
+}
+
+// RequestDumpMiddleware logs the incoming request
+func RequestDumpMiddleware(next http.Handler, logger logr.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.V(1).Info("HTTP Request", "path", r.URL.Path, "method", r.Method)
+		// Pass to next handler
+		next.ServeHTTP(w, r)
+	})
 }

@@ -72,12 +72,11 @@ var ociDumpRun = func(command *cobra.Command, args []string) {
 		if err != nil {
 			return err
 		}
-
 		index := &v1.Index{}
 		if err = misc.LoadJson(path.Join(loc, "index.json"), index); err != nil {
 			return fmt.Errorf("fail to decode index.json: %v", err)
 		}
-		fmt.Printf("---------------------- index.json:\n%v\n", misc.Map2YamlStr(index))
+		fmt.Printf("---------------------- index.json:\n%s\n", misc.Map2Yaml(index))
 
 		for idx, descriptor := range index.Manifests {
 			if err := dumpEntry(fmt.Sprintf("index.descriptor#%d", idx), descriptor.MediaType, descriptor.Digest); err != nil {
@@ -176,7 +175,7 @@ func dumpEntry(prefix string, mediaType string, digest digest.Digest) error {
 		if err != nil {
 			fmt.Printf("fail to decode manifest '%s' (%s) in json: %v", digest, mediaType, err)
 		}
-		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, misc.Map2YamlStr(content))
+		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, misc.Map2Yaml(content))
 	} else if strings.HasSuffix(mediaType, "tar+gzip") || strings.HasSuffix(mediaType, "tar.gzip") {
 		contents, err := misc.ListTarGzContents(digestToFile(digest))
 		if err != nil {

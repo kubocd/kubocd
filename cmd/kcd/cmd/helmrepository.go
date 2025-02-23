@@ -15,23 +15,24 @@ import (
 )
 
 var hrDumpCmd = &cobra.Command{
-	Use:   "dump repoUrl chartName version",
+	Use:   "dump repoUrl [chartName [version]]",
 	Short: "Dump helm chart",
 	Args:  cobra.RangeArgs(1, 3),
 	Run:   hrDumpRun,
 }
 
 var dumpHrCmd = &cobra.Command{
-	Use:   "helmRepository repoUrl chartName version",
-	Short: "Dump helm chart",
-	Args:  cobra.RangeArgs(1, 3),
-	Run:   hrDumpRun,
+	Use:     "helmRepository repoUrl [chartName [version]]",
+	Short:   "Dump helm chart",
+	Args:    cobra.RangeArgs(1, 3),
+	Aliases: []string{"hr", "HelmRepository", "helmrepository", "helmRepo", "HelmRepo", "helmrepo"},
+	Run:     hrDumpRun,
 }
 
 var hrDumpRun = func(command *cobra.Command, args []string) {
 	err := func() error {
 		repoUrl := args[0]
-		loc, helmClient, err := setupHelmRepo(repoUrl)
+		loc, helmClient, err := setupHelmRepo(repoUrl, "local")
 		if err != nil {
 			return err
 		}
@@ -66,7 +67,7 @@ var hrDumpRun = func(command *cobra.Command, args []string) {
 			// Dump Chart.yaml and content
 			chartName := args[1]
 			version := args[2]
-			chart, archive, err := getChartArchiveFromHelmRepo("", helmClient, chartName, version)
+			chart, archive, err := getChartArchiveFromHelmRepo("", helmClient, "local", chartName, version)
 			if err != nil {
 				return err
 			}
@@ -74,7 +75,7 @@ var hrDumpRun = func(command *cobra.Command, args []string) {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chart.Metadata.Name, chart.Metadata.Version, misc.Map2YamlStr(chart.Metadata), tarList)
+			fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chart.Metadata.Name, chart.Metadata.Version, misc.Map2Yaml(chart.Metadata), tarList)
 
 		}
 		return nil
@@ -85,12 +86,16 @@ var hrDumpRun = func(command *cobra.Command, args []string) {
 	}
 }
 
-func setupHelmRepo(repoUrl string) (loc string, helmClient helmclient.Client, err error) {
+// WARNING: We can't reuse the same repo name several times in the same execution
+// (May be some global stuff inside the "github.com/mittwald/go-helm-client" library)
+func setupHelmRepo(repoUrl string, repoName string) (loc string, helmClient helmclient.Client, err error) {
+	//misc.WaitUserInput("setupHelmRepo entry")
 	// Prepare landing zone
 	loc = path.Join(workDir, "helmRepo")
 	if err := misc.SafeEnsureEmpty(loc); err != nil {
 		return loc, nil, err
 	}
+	//misc.WaitUserInput("setupHelmRepo after cleanup")
 	opt := &helmclient.Options{
 		Namespace:        "default", // Don't care, as we do not interact with a cluster
 		RepositoryCache:  path.Join(loc, ".helmcache"),
@@ -98,6 +103,7 @@ func setupHelmRepo(repoUrl string) (loc string, helmClient helmclient.Client, er
 		Debug:            true,
 		Linting:          true,
 		DebugLog:         func(format string, v ...interface{}) {},
+		//RegistryConfig:   path.Join(loc, ".registry-config"),
 		//Output:           &outputBuffer, // Not mandatory, leave open for default os.Stdout
 	}
 
@@ -108,7 +114,7 @@ func setupHelmRepo(repoUrl string) (loc string, helmClient helmclient.Client, er
 	}
 
 	chartRepo := repo.Entry{
-		Name: "local",
+		Name: repoName,
 		URL:  repoUrl,
 	}
 	//fmt.Printf("Loading helm chart repository...\n")
@@ -116,12 +122,13 @@ func setupHelmRepo(repoUrl string) (loc string, helmClient helmclient.Client, er
 	if err := helmClient.AddOrUpdateChartRepo(chartRepo); err != nil {
 		return loc, helmClient, err
 	}
+	//misc.WaitUserInput("setupHelmRepo exit")
 	return loc, helmClient, nil
 }
 
-func getChartArchiveFromHelmRepo(printPrefix string, helmClient helmclient.Client, chartName string, version string) (chart *chart.Chart, archive string, err error) {
+func getChartArchiveFromHelmRepo(printPrefix string, helmClient helmclient.Client, repoName string, chartName string, version string) (chart *chart.Chart, archive string, err error) {
 	fmt.Printf("%sFetching chart %s:%s...\n", printPrefix, chartName, version)
-	return helmClient.GetChart(fmt.Sprintf("local/%s", chartName), &action.ChartPathOptions{Version: version})
+	return helmClient.GetChart(fmt.Sprintf("%s/%s", repoName, chartName), &action.ChartPathOptions{Version: version})
 }
 
 // from helm/pkg/repo/index.go

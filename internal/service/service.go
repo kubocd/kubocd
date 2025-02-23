@@ -60,8 +60,7 @@ type Service struct {
 }
 
 type Chart struct {
-	Module    string `yaml:"module" json:"module"`
-	MediaType string `yaml:"mediaType" json:"mediaType"`
+	Module string `yaml:"module" json:"module"`
 }
 
 func (svc *Service) Groom() error {

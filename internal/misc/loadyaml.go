@@ -2,10 +2,9 @@ package misc
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
-	"strings"
+	"sigs.k8s.io/yaml"
 )
 
 func LoadYaml(fileName string, target interface{}) error {
@@ -21,15 +20,11 @@ func LoadYaml(fileName string, target interface{}) error {
 }
 
 func YamlDecode(content string, target interface{}) error {
-	dec := yaml.NewDecoder(strings.NewReader(content))
-	dec.KnownFields(true)
-	err := dec.Decode(target)
-
+	err := yaml.UnmarshalStrict([]byte(content), target)
 	if err != nil {
 		if err != io.EOF { // EOF is not an error. Just an empty file (with or without comment)
 			return err
 		}
 	}
 	return nil
-
 }

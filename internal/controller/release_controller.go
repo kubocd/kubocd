@@ -18,7 +18,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	securejoin "github.com/cyphar/filepath-securejoin"
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/http/fetch"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
@@ -40,9 +39,9 @@ type ReleaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	record.EventRecorder
-	Logger         logr.Logger
-	Fetcher        *fetch.ArchiveFetcher
-	RootDataFolder string
+	Logger     logr.Logger
+	Fetcher    *fetch.ArchiveFetcher
+	ServerRoot string
 }
 
 // Just a container to avoid messy parameters passing
@@ -113,6 +112,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		release: release,
 	}
 
+	helmRepositoryFolder := path.Join(r.ServerRoot, "hr", op.release.Namespace, op.release.Name)
+
 	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Deletion is requested
 		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
@@ -120,7 +121,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return ctrl.Result{}, nil
 		}
 		logger.V(1).Info("Deleting release")
-		// TODO: Perform deletion cleanup.
+		// Perform deletion cleanup.
+		err := misc.SafeRemove(helmRepositoryFolder)
+		if err != nil {
+			// Just log, without any other action
+			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
+		}
 		// Deletion OK
 		controllerutil.RemoveFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Remove finalizer)")
@@ -140,7 +146,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//	return ctrl.Result{}, err
 		//}
 	}
-	ociRepository, reconcileError := r.handleOciRepository(op, op.release.Name, global.ServiceManifestMediaType, "extract")
+	ociRepository, reconcileError := r.handleOciRepository(op, op.release.Name, global.ServiceContentMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
@@ -155,46 +161,42 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, nil
 	}
 
-	// ---------------------------------------------- At this point, we have an effective primary OCI repo.
-	// So, we fetch the manifest.
+	// ------------------------------------------ At this point, we have an effective primary OCI repo, so we can fetch the content
+	// Prepare the location
+	err = misc.SafeEnsureEmpty(helmRepositoryFolder)
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
+	}
+	// Fetch the manifest.
 	ociArtifact := ociRepository.Status.Artifact
-	sourceLocation, err := securejoin.SecureJoin(r.RootDataFolder, global.SourceFolder)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	err = misc.SafeEnsureEmpty(sourceLocation)
-	if err != nil {
-		return r.reportError(op, fmt.Errorf("unable to clean sourceLocation: %w", err), true, "LocalFS")
-	}
-	logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", sourceLocation)
-	err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, sourceLocation)
+	logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
+	err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
 	if err != nil {
 		return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
 	}
 	srv := &service.Service{}
-	err = misc.LoadYaml(path.Join(sourceLocation, "manifest.yaml"), srv)
+	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), srv)
 	if err != nil {
 		return r.reportError(op, fmt.Errorf("error while parsing Manifest.yaml file: %w", err), true, "OCIImage")
 	}
+	fmt.Printf("Manifest: %s\n", misc.Map2Yaml(srv))
 
-	fmt.Printf("Manifest: %s\n", misc.Map2YamlStr(srv))
-
-	// ---------------------------------------------- Spawn secondary ociRepo
-	for _, chart := range srv.Status.Charts {
-		fmt.Printf("Chart %s\n", misc.Map2YamlStr(chart))
-		ociRepoName := fmt.Sprintf("%s-%s", op.release.Name, chart.Module)
-		_, reconcileError := r.handleOciRepository(op, ociRepoName, chart.MediaType, "copy")
-		if reconcileError != nil {
-			return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
-		}
-	}
-	// --------------------------------------------- And spawn helmReleases
-	for _, chart := range srv.Status.Charts {
-		_, recErr := r.handleHelmRelease(op, chart.Module)
-		if recErr != nil {
-			return r.reportError(op, recErr.error, recErr.fatal, recErr.eventReason)
-		}
-	}
+	//// ---------------------------------------------- Spawn secondary ociRepo
+	//for _, chart := range srv.Status.Charts {
+	//	fmt.Printf("Chart %s\n", misc.Map2Yaml(chart))
+	//	ociRepoName := fmt.Sprintf("%s-%s", op.release.Name, chart.Module)
+	//	_, reconcileError := r.handleOciRepository(op, ociRepoName, chart.MediaType, "copy")
+	//	if reconcileError != nil {
+	//		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+	//	}
+	//}
+	//// --------------------------------------------- And spawn helmReleases
+	//for _, chart := range srv.Status.Charts {
+	//	_, recErr := r.handleHelmRelease(op, chart.Module)
+	//	if recErr != nil {
+	//		return r.reportError(op, recErr.error, recErr.fatal, recErr.eventReason)
+	//	}
+	//}
 
 	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, true)
 	if err != nil {

@@ -16,9 +16,7 @@ const DockerCredentialHelperEnvVar = "KCD_DOCKER_CREDENTIAL_HELPER"
 
 // --------------------- Media type in KuboCD Service image file
 
-const ServiceModuleContentMediaType = "application/vnd.kubotal.kubocd.service.module.%s.content.v1.tar+gzip"
-
-const ServiceManifestMediaType = "application/vnd.kubotal.kubocd.service.manifest.v1alpha1.tar+gzip"
+const ServiceContentMediaType = "application/vnd.kubotal.kubocd.service.content.v1.tar+gzip"
 
 const ServiceConfigMediaType = "application/vnd.kubotal.kubocd.service.config.v1alpha1+json"
 

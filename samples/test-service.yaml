@@ -65,7 +65,7 @@ spec:
           {{- end }}
       dependsOn:
         - redis
-    - name: podinfo
+    - name: podinfo1
       type: HelmChart
       source:
         helmRepository:
@@ -81,3 +81,13 @@ spec:
               paths:
                 - path: /
                   pathType: ImplementationSpecific
+    - name: podinfo2
+      type: HelmChart
+      source:
+        helmRepository:
+          url: https://stefanprodan.github.io/podinfo
+          chart: podinfo
+          version: 6.7.1
+      values: |
+        ingress:
+          enabled: false
