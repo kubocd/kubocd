@@ -3,6 +3,18 @@ DOCKER_TAG=${APP_VERSION}
 
 IMG ?= quay.io/kubocd/kcd-controller:${DOCKER_TAG}
 
+
+# To authenticate for pushing in quay repo (img) (Use encrypted password):
+# docker login quay.io
+
+# To authenticate for pushing in quay repo (helm):
+# helm registry login quay.io
+
+# To authenticate for pushing in github repo:
+# echo $GITHUB_TOKEN | docker login ghcr.io -u $USER_NAME --password-stdin
+
+
+
 BUILD_TS ?= $(shell date -u +%Y%m%d.%H%M%S)
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

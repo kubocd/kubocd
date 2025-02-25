@@ -3,7 +3,6 @@ package controller
 import (
 	"fmt"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
-	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,11 +40,11 @@ func (r *ReleaseReconciler) handleOciRepository(op *operation, name string, medi
 			op.logger.V(1).Info("OCI repository unchanged", "name", name, "namespace", op.release.Namespace)
 		}
 	}
-	statusByType := buildConditionStatusByType(ociRepository.Status.Conditions, name, op.logger)
+	statusByType := buildConditionStatusByType(ociRepository.Status.Conditions, "OCIRepository", name, op.logger)
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]
-		if !ok || readyCondition == metav1.ConditionUnknown {
+		if !ok || readyCondition == metav1.ConditionUnknown || readyCondition == metav1.ConditionFalse {
 			//  Caller will requeue, waiting for OCI
 			return nil, nil
 		}
@@ -112,16 +111,4 @@ func (r *ReleaseReconciler) patchOciRepository(op *operation, ociRepository *sou
 		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
 	}
 	return originalGeneration != ociRepository.Generation, nil
-}
-
-func buildConditionStatusByType(conditions []metav1.Condition, ociRepoName string, logger logr.Logger) map[string]metav1.ConditionStatus {
-	statusByType := make(map[string]metav1.ConditionStatus)
-	if len(conditions) < 2 {
-		logger.V(0).Info("Not enough conditions found yet", "OCIRepository", ociRepoName)
-	}
-	for _, condition := range conditions {
-		logger.V(1).Info("OCI Repository condition", "type", condition.Type, "status", condition.Status, "OCIRepository", ociRepoName)
-		statusByType[condition.Type] = condition.Status
-	}
-	return statusByType
 }

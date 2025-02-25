@@ -32,6 +32,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -60,6 +61,7 @@ func init() {
 
 	utilruntime.Must(kubocdv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(sourcev1b2.AddToScheme(scheme))
+	utilruntime.Must(sourcev1.AddToScheme(scheme))
 	utilruntime.Must(fluxv2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -109,6 +111,11 @@ func main() {
 	ctrl.SetLogger(global.RootLog)
 
 	global.RootLog.Info("kubocd controller start", "version", global.Version, "build", global.BuildTs, "logLevel", logConfig.Level)
+
+	if helmRepoAdvAddr == "" {
+		setupLog.Error(nil, "'helmRepoAdvAddr' is required")
+		os.Exit(2)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -230,12 +237,13 @@ func main() {
 	serverRoot := path.Join(rootDataFolder, "server")
 
 	if err = (&controller.ReleaseReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		EventRecorder: mgr.GetEventRecorderFor("release"),
-		Logger:        global.RootLog.WithName("ReleaseReconciler"),
-		Fetcher:       archiveFetcher,
-		ServerRoot:    serverRoot,
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		EventRecorder:   mgr.GetEventRecorderFor("release"),
+		Logger:          global.RootLog.WithName("ReleaseReconciler"),
+		Fetcher:         archiveFetcher,
+		ServerRoot:      serverRoot,
+		HelmRepoAdvAddr: helmRepoAdvAddr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Release")
 		os.Exit(1)

@@ -17,31 +17,40 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/http/fetch"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"kubocd/internal/service"
+	"os"
 	"path"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const ociRepositoryNameFormat = "kcd-%s"
+const helmRepositoryNameFormat = "kcd-%s"
+const helmReleaseNameFormat = "kcd-%s"
+
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	record.EventRecorder
-	Logger     logr.Logger
-	Fetcher    *fetch.ArchiveFetcher
-	ServerRoot string
+	Logger          logr.Logger
+	Fetcher         *fetch.ArchiveFetcher
+	ServerRoot      string
+	HelmRepoAdvAddr string
 }
 
 // Just a container to avoid messy parameters passing
@@ -49,6 +58,7 @@ type operation struct {
 	ctx     context.Context
 	logger  logr.Logger
 	release *kubocdv1alpha1.Release
+	service *service.Service
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -112,7 +122,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		release: release,
 	}
 
-	helmRepositoryFolder := path.Join(r.ServerRoot, "hr", op.release.Namespace, op.release.Name)
+	helmRepositoryPath := path.Join("hr", op.release.Namespace, op.release.Name)
+	helmRepositoryFolder := path.Join(r.ServerRoot, helmRepositoryPath)
 
 	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Deletion is requested
@@ -146,13 +157,14 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//	return ctrl.Result{}, err
 		//}
 	}
-	ociRepository, reconcileError := r.handleOciRepository(op, op.release.Name, global.ServiceContentMediaType, "extract")
+	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
+	ociRepository, reconcileError := r.handleOciRepository(op, fmt.Sprintf(ociRepositoryNameFormat, op.release.Name), global.ServiceContentMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
-		err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseWaitingOci, false)
+		err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseWaitOci, false)
 		if err != nil {
 			return ctrl.Result{}, err // Will retry
 		}
@@ -161,25 +173,60 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, nil
 	}
 
-	// ------------------------------------------ At this point, we have an effective primary OCI repo, so we can fetch the content
-	// Prepare the location
-	err = misc.SafeEnsureEmpty(helmRepositoryFolder)
-	if err != nil {
-		return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
-	}
-	// Fetch the manifest.
+	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content
 	ociArtifact := ociRepository.Status.Artifact
-	logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
-	err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
+
+	revisionFile := path.Join(helmRepositoryFolder, "revision.txt")
+
+	revision, err := os.ReadFile(revisionFile)
 	if err != nil {
-		return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
+		if !errors.Is(err, os.ErrNotExist) {
+			// Just log. Don't stop processing
+			op.logger.Error(err, "Failed to read revision file")
+		}
 	}
-	srv := &service.Service{}
-	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), srv)
+	if string(revision) != ociArtifact.Revision {
+		err = misc.SafeEnsureEmpty(helmRepositoryFolder)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
+		}
+		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS")
+		}
+
+		logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
+		err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
+		}
+	} else {
+		logger.V(1).Info("Use already existing artifact")
+	}
+	// Set Service object
+	op.service = &service.Service{}
+	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), op.service)
 	if err != nil {
 		return r.reportError(op, fmt.Errorf("error while parsing Manifest.yaml file: %w", err), true, "OCIImage")
 	}
-	fmt.Printf("Manifest: %s\n", misc.Map2Yaml(srv))
+	//fmt.Printf("Manifest: %s\n", misc.Map2Yaml(op.service))
+
+	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
+	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
+	helmRepository, reconcileError := r.handleHelmRepository(op, fmt.Sprintf(helmRepositoryNameFormat, op.release.Name), repoUrl)
+	if reconcileError != nil {
+		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+	}
+	if helmRepository == nil {
+		// set phase to WAIT_HELM_REPO
+		err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseWaitHelmRepo, false)
+		if err != nil {
+			return ctrl.Result{}, err // Will retry
+		}
+		// No need to requeue, as we should be notified when the Helm repo status will change
+		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
+		return ctrl.Result{}, nil
+	}
 
 	//// ---------------------------------------------- Spawn secondary ociRepo
 	//for _, chart := range srv.Status.Charts {
@@ -198,7 +245,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	//	}
 	//}
 
-	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, true)
+	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, false)
 	if err != nil {
 		return ctrl.Result{}, err // Will retry
 	}
@@ -240,12 +287,25 @@ func (r *ReleaseReconciler) updatePhase(op *operation, phase kubocdv1alpha1.Rele
 	return err
 }
 
+func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, repoName string, logger logr.Logger) map[string]metav1.ConditionStatus {
+	statusByType := make(map[string]metav1.ConditionStatus)
+	if len(conditions) < 2 {
+		logger.V(0).Info("Not enough conditions found yet", repoKind, repoName)
+	}
+	for _, condition := range conditions {
+		logger.V(1).Info("condition", "type", condition.Type, "status", condition.Status, repoKind, repoName)
+		statusByType[condition.Type] = condition.Status
+	}
+	return statusByType
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubocdv1alpha1.Release{}).
 		Named("kubocd-release").
 		Owns(&sourcev1b2.OCIRepository{}).
+		Owns(&sourcev1.HelmRepository{}).
 		Owns(&fluxv2.HelmRelease{}).
 		Complete(r)
 }

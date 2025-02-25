@@ -92,7 +92,8 @@ type ReleasePhase string
 
 const ReleasePhaseReady = ReleasePhase("READY")
 const ReleasePhaseError = ReleasePhase("ERROR")
-const ReleasePhaseWaitingOci = ReleasePhase("WAITING_OCI")
+const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
+const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_HELM_REPO")
 
 // ReleaseStatus defines the observed state of Release.
 type ReleaseStatus struct {
@@ -105,6 +106,7 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.service.tag`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Release is the Schema for the releases API.
 type Release struct {
