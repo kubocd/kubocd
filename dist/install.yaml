@@ -35,6 +35,9 @@ spec:
     - jsonPath: .spec.description
       name: Description
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -319,7 +322,14 @@ spec:
     singular: setting
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.description
+      name: Description
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Setting is the Schema for the settings API.
@@ -977,9 +987,56 @@ spec:
         secret:
           secretName: webhook-server-cert
 ---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-metrics-certs
+  namespace: kubocd-system
+spec:
+  dnsNames:
+  - kubocd-controller-manager-metrics-service.kubocd-system.svc
+  - kubocd-controller-manager-metrics-service.kubocd-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: kubocd-selfsigned-issuer
+  secretName: metrics-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-serving-cert
+  namespace: kubocd-system
+spec:
+  dnsNames:
+  - kubocd-webhook-service.kubocd-system.svc
+  - kubocd-webhook-service.kubocd-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: kubocd-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+  name: kubocd-selfsigned-issuer
+  namespace: kubocd-system
+spec:
+  selfSigned: {}
+---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: kubocd-system/kubocd-serving-cert
   name: kubocd-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -1006,6 +1063,8 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: kubocd-system/kubocd-serving-cert
   name: kubocd-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:

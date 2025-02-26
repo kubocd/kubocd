@@ -38,9 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const ociRepositoryNameFormat = "kcd-%s"
-const helmRepositoryNameFormat = "kcd-%s"
-const helmReleaseNameFormat = "kcd-%s"
+const ociRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
+const helmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
+const helmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -55,10 +55,12 @@ type ReleaseReconciler struct {
 
 // Just a container to avoid messy parameters passing
 type operation struct {
-	ctx     context.Context
-	logger  logr.Logger
-	release *kubocdv1alpha1.Release
-	service *service.Service
+	ctx                context.Context
+	logger             logr.Logger
+	release            *kubocdv1alpha1.Release
+	service            *service.Service
+	ociRepositoryName  string
+	helmRepositoryName string
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -117,9 +119,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	op := &operation{
-		ctx:     ctx,
-		logger:  logger,
-		release: release,
+		ctx:                ctx,
+		logger:             logger,
+		release:            release,
+		ociRepositoryName:  fmt.Sprintf(ociRepositoryNameFormat, release.Name),
+		helmRepositoryName: fmt.Sprintf(helmRepositoryNameFormat, release.Name),
 	}
 
 	helmRepositoryPath := path.Join("hr", op.release.Namespace, op.release.Name)
@@ -158,7 +162,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//}
 	}
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
-	ociRepository, reconcileError := r.handleOciRepository(op, fmt.Sprintf(ociRepositoryNameFormat, op.release.Name), global.ServiceContentMediaType, "extract")
+	ociRepository, reconcileError := r.handleOciRepository(op, global.ServiceContentMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
@@ -213,7 +217,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
-	helmRepository, reconcileError := r.handleHelmRepository(op, fmt.Sprintf(helmRepositoryNameFormat, op.release.Name), repoUrl)
+	helmRepository, reconcileError := r.handleHelmRepository(op, repoUrl)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
@@ -226,6 +230,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		// No need to requeue, as we should be notified when the Helm repo status will change
 		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
 		return ctrl.Result{}, nil
+	}
+	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
+	for module := range op.service.Status.ChartByModule {
+		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module)
+		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module)
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+		}
+		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
 
 	//// ---------------------------------------------- Spawn secondary ociRepo

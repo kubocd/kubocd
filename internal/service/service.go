@@ -53,14 +53,15 @@ type Service struct {
 	} `yaml:"spec" json:"spec"`
 	Status struct {
 		// Fulfilled when packaging
-		Charts []Chart `yaml:"charts" json:"charts"`
+		ChartByModule map[string]ChartRef `yaml:"chartByModule" json:"chartByModule"`
 		// TODO: extract from schema
 		DefaultParameters map[string]interface{} `yaml:"defaultParameters" json:"defaultParameters"`
 	} `yaml:"status" json:"status"`
 }
 
-type Chart struct {
-	Module string `yaml:"module" json:"module"`
+type ChartRef struct {
+	Name    string `yaml:"name" json:"name"`
+	Version string `yaml:"version" json:"version"`
 }
 
 func (svc *Service) Groom() error {

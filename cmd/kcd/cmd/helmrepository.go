@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"io"
 	"kubocd/internal/misc"
 	"log/slog"
 	"os"
@@ -163,4 +166,57 @@ func loadChartIndex(data []byte, source string) (*repo.IndexFile, error) {
 		return i, repo.ErrNoAPIVersion
 	}
 	return i, nil
+}
+
+// Extract the chart name and version from a chart archive
+func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
+
+	// Open the .tgz file
+	file, err := os.Open(tgzPath)
+	if err != nil {
+		return "", "", err
+	}
+	defer file.Close()
+
+	// Create a gzip reader
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return "", "", err
+	}
+	defer gzReader.Close()
+
+	// Create a tar reader
+	tarReader := tar.NewReader(gzReader)
+
+	// Iterate through the archive to find the YAML file
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			return "", "", err
+		}
+
+		// Check if the file is the target YAML file
+		if header.Typeflag == tar.TypeReg {
+			fileName := header.Name
+			//fmt.Printf("archive file: %s\n", fileName)
+			if path.Base(fileName) == "Chart.yaml" {
+				// Got it. Read the file content
+				yamlChart, err := io.ReadAll(tarReader)
+				if err != nil {
+					return "", "", err
+				}
+				// Unmarshal YAML into the Chart.yaml struct
+				var chartMeta chart.Metadata
+				err = yaml.Unmarshal(yamlChart, &chartMeta)
+				if err != nil {
+					return "", "", err
+				}
+				return chartMeta.Name, chartMeta.Version, nil
+			}
+		}
+	}
+	return "", "", fmt.Errorf("file Chart.yaml not found in archive")
 }

@@ -10,18 +10,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRepository(op *operation, name string, repoUrl string) (*sourcev1.HelmRepository, *ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRepository(op *operation, repoUrl string) (*sourcev1.HelmRepository, *ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
-	err := r.Get(op.ctx, types.NamespacedName{Name: name, Namespace: op.release.Namespace}, helmRepository)
+	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
 	if err != nil {
 		//logger.V(1).Info("Unable to fetch HELM Repository", "error", err.Error())
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on '%s': %w", name, err), false, "HelmRepositoryAccess")
+			return nil, NewReconcileError(fmt.Errorf("on '%s': %w", op.helmRepositoryName, err), false, "HelmRepositoryAccess")
 		}
 		// Must create it
-		op.logger.V(0).Info("Will create associated HelmRepository", "name", name, "namespace", op.release.Namespace)
-		err := r.createHelmRepository(op, name, repoUrl)
+		op.logger.V(0).Info("Will create associated HelmRepository", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
+		err := r.createHelmRepository(op, repoUrl)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "HelmRepositoryCreateFailed")
 		}
@@ -34,12 +34,12 @@ func (r *ReleaseReconciler) handleHelmRepository(op *operation, name string, rep
 			return nil, NewReconcileError(err, false, "HelmRepositoryPatchFailed")
 		}
 		if changed {
-			op.logger.V(0).Info("Helm repository updated", "name", name, "namespace", op.release.Namespace)
+			op.logger.V(0).Info("Helm repository updated", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
 		} else {
-			op.logger.V(1).Info("Helm repository unchanged", "name", name, "namespace", op.release.Namespace)
+			op.logger.V(1).Info("Helm repository unchanged", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
 		}
 	}
-	statusByType := buildConditionStatusByType(helmRepository.Status.Conditions, "HelmRepository", name, op.logger)
+	statusByType := buildConditionStatusByType(helmRepository.Status.Conditions, "HelmRepository", op.helmRepositoryName, op.logger)
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]
@@ -48,7 +48,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *operation, name string, rep
 			return nil, nil
 		}
 		// Something wrong with Helm repo
-		return nil, NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on HelmRepository '%s'", statusByType["Ready"], name), true, "HelmRepositoryNotReady")
+		return nil, NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on HelmRepository '%s'", statusByType["Ready"], op.helmRepositoryName), true, "HelmRepositoryNotReady")
 	}
 	if helmRepository.Status.Artifact == nil {
 		//return nil, NewReconcileError(fmt.Errorf("null status.artifact on HelmRepository '%s'", name), false, "HelmRepositoryNotReady")
@@ -63,17 +63,17 @@ func populateHelmRepository(helmRepository *sourcev1.HelmRepository, op *operati
 	helmRepository.Spec.URL = repoUrl
 }
 
-func (r *ReleaseReconciler) createHelmRepository(op *operation, name string, repoUrl string) error {
+func (r *ReleaseReconciler) createHelmRepository(op *operation, repoUrl string) error {
 	helmRepository := &sourcev1.HelmRepository{}
-	helmRepository.SetName(name)
+	helmRepository.SetName(op.helmRepositoryName)
 	helmRepository.SetNamespace(op.release.Namespace)
 	populateHelmRepository(helmRepository, op, repoUrl)
 	err := ctrl.SetControllerReference(op.release, helmRepository, r.Scheme)
 	if err != nil {
-		return fmt.Errorf("unable to set owner reference on HelmRepository '%s': %w", name, err)
+		return fmt.Errorf("unable to set owner reference on HelmRepository '%s': %w", op.helmRepositoryName, err)
 	}
 	if err = r.Create(op.ctx, helmRepository); err != nil {
-		return fmt.Errorf("error while creating associated HelmRepository '%s': %w", name, err)
+		return fmt.Errorf("error while creating associated HelmRepository '%s': %w", op.ociRepositoryName, err)
 	}
 	return nil
 }

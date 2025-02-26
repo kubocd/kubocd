@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	securejoin "github.com/cyphar/filepath-securejoin"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/repo"
@@ -34,10 +33,9 @@ import (
 
 */
 
-type moduleInfo struct {
-	moduleName  string
-	archiveName string // The file in ../assembly folder
-	archivePath string // The path where to access the archive
+type archiveInfo struct {
+	name string
+	path string
 }
 
 var packageCmd = cobra.Command{
@@ -82,7 +80,7 @@ var packageCmd = cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			moduleInfos, err := fetchArchives(srv, assemblyPath)
+			chartSet, err := fetchArchives(srv, assemblyPath)
 			if err != nil {
 				return err
 			}
@@ -116,13 +114,13 @@ var packageCmd = cobra.Command{
 
 			// ------------------------------------- Package
 			fmt.Printf("    Wrap all in assembly.tgz\n")
-			err = buildAssembly(assemblyPath, moduleInfos)
+			err = buildAssembly(assemblyPath, chartSet)
 			if err != nil {
 				return err
 			}
 
 			// Build and push image
-			err = pushImage(srv, assemblyPath, repository, tag)
+			err = pushImage(assemblyPath, repository, tag)
 			if err != nil {
 				return err
 			}
@@ -135,15 +133,18 @@ var packageCmd = cobra.Command{
 	},
 }
 
-// lookupArchive load all module's archive and reference them in two locations:
-// - In the Status part of the service
-// - A map archiveByModule, as return value
-func fetchArchives(srv *service.Service, assemblyPath string) (moduleInfos []moduleInfo, err error) {
-	moduleInfos = make([]moduleInfo, 0, len(srv.Spec.Modules))
+// lookupArchive load all module's archive and
+// - return a list of archive (de-duplicated, if two modules use the same chart)
+// - Populate the status of the Service with a map of chartInfo by module
+func fetchArchives(srv *service.Service, assemblyPath string) ([]archiveInfo, error) {
+	chartSet := make(map[string]bool) // To deduplicate
+	archives := make([]archiveInfo, 0, len(srv.Spec.Modules))
+	srv.Status.ChartByModule = make(map[string]service.ChartRef)
 	for _, module := range srv.Spec.Modules {
 		fmt.Printf("--- Building module '%s':\n", module.Name)
 		printPrefix := "    "
 		var archive string
+		var err error
 		if module.Type == global.HelmChartType {
 			if module.Source.Oci != nil {
 				archive, err = getChartArchiveFromOci(printPrefix, module.Source.Oci.Repository, module.Source.Oci.Insecure, module.Source.Oci.Tag)
@@ -170,29 +171,38 @@ func fetchArchives(srv *service.Service, assemblyPath string) (moduleInfos []mod
 		} else {
 			panic("Unrecognized module type")
 		}
-		targetArchiveName := fmt.Sprintf("%s.tgz", module.Name)
-		targetArchivePath, err := securejoin.SecureJoin(assemblyPath, targetArchiveName)
+		chartName, chartVersion, err := extractChartInfo(archive)
 		if err != nil {
-			return nil, fmt.Errorf("could not build module '%s' target archive path: %v", module.Name, err)
+			return nil, err
 		}
-		err = misc.CopyFile(archive, targetArchivePath)
-		if err != nil {
-			return nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
+		targetArchiveName := fmt.Sprintf("%s-%s.tgz", chartName, chartVersion)
+		targetArchivePath := path.Join(assemblyPath, targetArchiveName)
+		_, ok := chartSet[targetArchiveName]
+		if !ok {
+			chartSet[targetArchiveName] = true
+			archives = append(archives, archiveInfo{
+				name: targetArchiveName,
+				path: targetArchivePath,
+			})
+			err = misc.CopyFile(archive, targetArchivePath)
+			if err != nil {
+				return nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
+			}
 		}
-		moduleInfos = append(moduleInfos, moduleInfo{
-			moduleName:  module.Name,
-			archiveName: targetArchiveName,
-			archivePath: targetArchivePath,
-		})
+		srv.Status.ChartByModule[module.Name] = service.ChartRef{
+			Name:    chartName,
+			Version: chartVersion,
+		}
+		fmt.Printf("    Chart: %s:%s\n", chartName, chartVersion)
 	}
-	return moduleInfos, nil
+	return archives, nil
 }
 
-func buildAssembly(assemblyPath string, moduleInfos []moduleInfo) error {
-	archiveName := path.Join(assemblyPath, "assembly.tgz")
-	out, err := os.Create(archiveName)
+func buildAssembly(assemblyPath string, archives []archiveInfo) error {
+	assemblyArchiveName := path.Join(assemblyPath, "assembly.tgz")
+	out, err := os.Create(assemblyArchiveName)
 	if err != nil {
-		return fmt.Errorf("could not create archive '%s': %w", archiveName, err)
+		return fmt.Errorf("could not create archive '%s': %w", assemblyArchiveName, err)
 	}
 	defer out.Close()
 	gw := gzip.NewWriter(out)
@@ -202,22 +212,22 @@ func buildAssembly(assemblyPath string, moduleInfos []moduleInfo) error {
 
 	err = addToArchive(tw, path.Join(assemblyPath, "manifest.yaml"), "manifest.yaml")
 	if err != nil {
-		return fmt.Errorf("could not add 'manifest.yaml' to archive '%s': %w", archiveName, err)
+		return fmt.Errorf("could not add 'manifest.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
 	err = addToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
 	if err != nil {
-		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", archiveName, err)
+		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	for _, mInfo := range moduleInfos {
-		err = addToArchive(tw, mInfo.archivePath, mInfo.archiveName)
+	for _, archiveInfo := range archives {
+		err = addToArchive(tw, archiveInfo.path, archiveInfo.name)
 		if err != nil {
-			return fmt.Errorf("could not add '%s' to archive '%s': %w", mInfo.archiveName, archiveName, err)
+			return fmt.Errorf("could not add '%s' to archive '%s': %w", archiveInfo.name, assemblyArchiveName, err)
 		}
 	}
 	return nil
 }
 
-func pushImage(srv *service.Service, assemblyPath string, repository string, tag string) error {
+func pushImage(assemblyPath string, repository string, tag string) error {
 	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
 	// 0. Create a file store
 	fs, err := file.New(assemblyPath)
@@ -290,127 +300,3 @@ func pushImage(srv *service.Service, assemblyPath string, repository string, tag
 	fmt.Printf("    Successfully pushed\n")
 	return nil
 }
-
-//func pushImage(srv *service.Service, archiveByModule map[string]string, workDir string, repository string, tag string) error {
-//	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
-//
-//	// 0. Create the file store
-//	fsFolder := path.Join(workDir, "_fs_")
-//	err := misc.SafeEnsureEmpty(fsFolder)
-//	if err != nil {
-//		return err
-//	}
-//	fs, err := file.New(fsFolder)
-//	if err != nil {
-//		return fmt.Errorf("failed to create OCI file system: %w", err)
-//	}
-//	defer fs.Close()
-//	ctx := context.Background()
-//
-//	// 1. Add files to the file store
-//	fileDescriptors := make([]v1.Descriptor, 0, len(archiveByModule)+1)
-//
-//	// Manage the Manifest file to be added as layer
-//	manifestFile := path.Join(workDir, "manifest.yaml")
-//	manifestArchive := path.Join(fsFolder, "_manifest_.tgz")
-//
-//	err = os.WriteFile(manifestFile, misc.Map2YamlByteA(srv), os.ModePerm)
-//	if err != nil {
-//		return err
-//	}
-//	err = archiveSingleFile(manifestArchive, manifestFile, "manifest.yaml")
-//	if err != nil {
-//		return err
-//	}
-//	fileDescriptor, err := fs.Add(ctx, "_manifest_.tgz", global.ServiceManifestMediaType, "")
-//	if err != nil {
-//		return err
-//	}
-//	fileDescriptors = append(fileDescriptors, fileDescriptor)
-//	// And copy the chart layers
-//	for module, archive := range archiveByModule {
-//		targetArchive := fmt.Sprintf("%s.tgz", module)
-//		err = misc.CopyFile(archive, path.Join(fsFolder, targetArchive))
-//		if err != nil {
-//			return err
-//		}
-//		fileDescriptor, err := fs.Add(ctx, targetArchive, fmt.Sprintf(global.ServiceModuleContentMediaType, module), "")
-//		if err != nil {
-//			panic(err)
-//		}
-//		fileDescriptors = append(fileDescriptors, fileDescriptor)
-//	}
-//
-//	// Add config stuff
-//	// copy the Manifest file to be oci config part
-//	err = os.WriteFile(path.Join(fsFolder, "manifest.json"), misc.Map2JsonByteA(srv), os.ModePerm)
-//	if err != nil {
-//		return err
-//	}
-//	configFileDescriptor, err := fs.Add(ctx, "manifest.json", global.ServiceConfigMediaType, "")
-//
-//	// 2. Pack the files and tag the packed manifest
-//	artifactType := ""
-//	opts := oras.PackManifestOptions{
-//		Layers:           fileDescriptors,
-//		ConfigDescriptor: &configFileDescriptor,
-//	}
-//	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, artifactType, opts)
-//	if err != nil {
-//		return fmt.Errorf("failed to pack manifest: %w", err)
-//	}
-//	//fmt.Println("manifest descriptor:", manifestDescriptor)
-//
-//	if err = fs.Tag(ctx, manifestDescriptor, tag); err != nil {
-//		return fmt.Errorf("failed to tag manifest: %w", err)
-//	}
-//
-//	// 3. Connect to a remote repository
-//	repo, err := remote.NewRepository(repository)
-//	if err != nil {
-//		return fmt.Errorf("failed to create OCI repository: %w", err)
-//	}
-//
-//	splits := strings.Split(repository, "/")
-//	regHost := splits[0]
-//	userName, secret, err := getCredentials(regHost)
-//	if err != nil {
-//		return fmt.Errorf("failed to get credentials for repository '%s': %v", regHost, err)
-//	}
-//
-//	if secret != "" {
-//		repo.Client = &auth.Client{
-//			Client: retry.DefaultClient,
-//			Cache:  auth.NewCache(),
-//			Credential: auth.StaticCredential(regHost, auth.Credential{
-//				Username: userName,
-//				Password: secret,
-//			}),
-//		}
-//	}
-//	// 4. Copy from the file store to the remote repository
-//	_, err = oras.Copy(ctx, fs, tag, repo, tag, oras.DefaultCopyOptions)
-//	if err != nil {
-//		return fmt.Errorf("failed to copy OCI image: %w", err)
-//	}
-//	fmt.Printf("    Successfully pushed\n")
-//	return nil
-//}
-//
-//func archiveSingleFile(archivePathName string, filePathName string, fileNameInArchive string) error {
-//	out, err := os.Create(archivePathName)
-//	if err != nil {
-//		return fmt.Errorf("could not create archive '%s': %w", archivePathName, err)
-//	}
-//	defer out.Close()
-//	gw := gzip.NewWriter(out)
-//	defer gw.Close()
-//	tw := tar.NewWriter(gw)
-//	defer tw.Close()
-//
-//	err = addToArchive(tw, filePathName, fileNameInArchive)
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
