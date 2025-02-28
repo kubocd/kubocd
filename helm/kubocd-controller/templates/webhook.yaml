@@ -1,0 +1,70 @@
+
+{{ if .Values.webhook.enabled }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "kubocd-controller.webhook.mutatingWebhookConfiguration" . }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd-controller.webhook.secretName" . }}
+  {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "kubocd-controller.webhook.serviceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-kubocd-kubotal-io-v1alpha1-release
+    failurePolicy: Fail
+    name: mrelease-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - kubocd.kubotal.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - releases
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kubocd-controller.webhook.validatingWebhookConfiguration" . }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd-controller.webhook.secretName" . }}
+  {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "kubocd-controller.webhook.serviceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubocd-kubotal-io-v1alpha1-release
+    failurePolicy: Fail
+    name: vrelease-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - kubocd.kubotal.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - releases
+    sideEffects: None
+{{ end }}

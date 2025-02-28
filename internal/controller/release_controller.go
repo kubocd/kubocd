@@ -241,23 +241,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
 
-	//// ---------------------------------------------- Spawn secondary ociRepo
-	//for _, chart := range srv.Status.Charts {
-	//	fmt.Printf("Chart %s\n", misc.Map2Yaml(chart))
-	//	ociRepoName := fmt.Sprintf("%s-%s", op.release.Name, chart.Module)
-	//	_, reconcileError := r.handleOciRepository(op, ociRepoName, chart.MediaType, "copy")
-	//	if reconcileError != nil {
-	//		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
-	//	}
-	//}
-	//// --------------------------------------------- And spawn helmReleases
-	//for _, chart := range srv.Status.Charts {
-	//	_, recErr := r.handleHelmRelease(op, chart.Module)
-	//	if recErr != nil {
-	//		return r.reportError(op, recErr.error, recErr.fatal, recErr.eventReason)
-	//	}
-	//}
-
 	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, false)
 	if err != nil {
 		return ctrl.Result{}, err // Will retry

@@ -1,0 +1,95 @@
+{{ if .Values.webhook.enabled }}
+
+{{ if not .Values.webhook.certificateClusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubocd-controller.webhook.certificateSelfSignedIssuerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selfSigned: {}
+{{ end }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubocd-controller.webhook.certificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  dnsNames:
+    - {{ include "kubocd-controller.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "kubocd-controller.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+{{- if not .Values.webhook.certificateClusterIssuer }}
+    kind: Issuer
+    name: {{ include "kubocd-controller.webhook.certificateSelfSignedIssuerName" . }}
+{{- else }}
+    kind: ClusterIssuer
+    name: .Values.webhook.certificateClusterIssuer
+{{- end }}
+  secretName: {{ include "kubocd-controller.webhook.secretName" . }}
+
+{{ end }}
+
+
+
+{{ if .Values.metrics.enabled }}
+
+{{ if not .Values.metrics.certificateClusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubocd-controller.metrics.certificateSelfSignedIssuerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selfSigned: {}
+{{ end }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubocd-controller.metrics.certificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  dnsNames:
+    - {{ include "kubocd-controller.metrics.serviceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "kubocd-controller.metrics.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+{{- if not .Values.metrics.certificateClusterIssuer }}
+    kind: Issuer
+    name: {{ include "kubocd-controller.metrics.certificateSelfSignedIssuerName" . }}
+{{- else }}
+    kind: ClusterIssuer
+    name: .Values.metrics.certificateClusterIssuer
+{{- end }}
+  secretName: {{ include "kubocd-controller.metrics.secretName" . }}
+
+{{ end }}

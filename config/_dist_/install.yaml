@@ -939,6 +939,7 @@ spec:
         - --metrics-bind-address=:8443
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
@@ -973,6 +974,9 @@ spec:
             drop:
             - ALL
         volumeMounts:
+        - mountPath: /tmp/k8s-metrics-server/metrics-certs
+          name: metrics-certs
+          readOnly: true
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-certs
           readOnly: true
@@ -983,6 +987,17 @@ spec:
       serviceAccountName: kubocd-controller-manager
       terminationGracePeriodSeconds: 10
       volumes:
+      - name: metrics-certs
+        secret:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          optional: false
+          secretName: metrics-server-cert
       - name: webhook-certs
         secret:
           secretName: webhook-server-cert
@@ -1031,6 +1046,35 @@ metadata:
   namespace: kubocd-system
 spec:
   selfSigned: {}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: kubocd
+    control-plane: controller-manager
+  name: kubocd-controller-manager-metrics-monitor
+  namespace: kubocd-system
+spec:
+  endpoints:
+  - tlsConfig:
+      ca:
+        secret:
+          key: ca.crt
+          name: metrics-server-cert
+      cert:
+        secret:
+          key: tls.crt
+          name: metrics-server-cert
+      insecureSkipVerify: false
+      keySecret:
+        key: tls.key
+        name: metrics-server-cert
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubocd
+      control-plane: controller-manager
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -1084,6 +1128,7 @@ webhooks:
     operations:
     - CREATE
     - UPDATE
+    - DELETE
     resources:
     - releases
   sideEffects: None

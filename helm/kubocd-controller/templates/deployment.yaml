@@ -1,0 +1,158 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubocd-controller.deploymentName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd-controller.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubocd-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kubocd-controller.labels" . | nindent 8 }}
+        {{- include "kubocd-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /manager
+          args:
+            - --leader-elect={{ ne .Values.replicaCount 1.0 }}
+            - --health-probe-bind-address=:8081
+            {{- if .Values.webhook.enabled }}
+            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            {{- end }}
+            - --rootDataFolder=/works
+            - --helmRepoAdvAddr={{ include "kubocd-controller.helm-repository.serviceName" . }}.{{.Release.Namespace}}.svc
+            - --helmRepoBindAddr=:9090
+            - --logMode={{ .Values.logger.mode}}
+            - --logLevel={{ .Values.logger.level}}
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address=:8443
+              {{- if .Values.metrics.secured }}
+            - --metrics-secure=true
+            - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+              {{- else }}
+            - --metrics-secure=false
+              {{- end }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
+          {{-  range .Values.additionalArgs }}
+            - {{ . }}
+          {{- end }}
+          env:
+          {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          {{- if not .Values.disableProbes }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+            - containerPort: 9090
+              name: helm-repository
+              protocol: TCP
+          {{- with .Values.resources }}
+          resources:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.webhook.enabled }}
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-certs
+              readOnly: true
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - mountPath: /tmp/k8s-metrics-server/metrics-certs
+              name: metrics-certs
+              readOnly: true
+            {{- end }}
+            - mountPath: /works
+              name: works
+            - mountPath: /tmp
+              name: tmp
+          {{- if .Values.extraVolumes }}
+          {{- range .Values.extraVolumes }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+          {{- end }}
+          {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kubocd-controller.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+        {{- if .Values.metrics.enabled }}
+        - name: metrics-certs
+          secret:
+            items:
+              - key: ca.crt
+                path: ca.crt
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+            optional: false
+            secretName: {{ include "kubocd-controller.metrics.secretName" . }}
+        {{- end }}
+        {{- if .Values.webhook.enabled }}
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "kubocd-controller.webhook.secretName" . }}
+        {{- end }}
+        - name: works
+          emptyDir:
+            sizeLimit: {{ .Values.volumeSize.works }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.volumeSize.tmp }}
+      {{- if .Values.extraVolumes }}
+      {{- range .Values.extraVolumes }}
+        - name: {{ .name }}
+          persistentVolumeClaim:
+            claimName: {{ .claimName }}
+      {{- end }}
+      {{- end }}

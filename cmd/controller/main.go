@@ -95,7 +95,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&logConfig.Level, "logLevel", "info", "Log level")
 	flag.StringVar(&logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
-	flag.StringVar(&rootDataFolder, "rootDataFolder", "./works", "Root data folder")
+	flag.StringVar(&rootDataFolder, "rootDataFolder", "/works", "Root data folder")
 	flag.StringVar(&sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
 	flag.StringVar(&helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
 	flag.StringVar(&helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
@@ -249,7 +249,7 @@ func main() {
 		os.Exit(1)
 	}
 	// nolint:goconst
-	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" && len(webhookCertPath) > 0 {
 		if err = webhookkubocdv1alpha1.SetupReleaseWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Release")
 			os.Exit(1)
