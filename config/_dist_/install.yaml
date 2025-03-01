@@ -943,7 +943,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: quay.io/kubocd/kcd-controller:0.1.0-snapshot
+        image: quay.io/kubocd/kcd-controller:0.1.1-snapshot
         livenessProbe:
           httpGet:
             path: /healthz

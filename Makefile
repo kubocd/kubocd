@@ -1,9 +1,9 @@
-APP_VERSION ?= 0.1.0-snapshot
+APP_VERSION ?= 0.1.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
 IMG ?= quay.io/kubocd/kcd-controller:${DOCKER_TAG}
 
-HELM_VERSION ?= 0.1.0-snapshot
+HELM_VERSION ?= 0.1.1-snapshot
 HELM_DOCKER_REPO := quay.io/kubocd/charts
 
 # To authenticate for pushing in quay repo (img) (Use encrypted password):

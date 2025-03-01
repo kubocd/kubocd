@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/kubocd/kcd-controller
-  newTag: 0.1.0-snapshot
+  newTag: 0.1.1-snapshot
