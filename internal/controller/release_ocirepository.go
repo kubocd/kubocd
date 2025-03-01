@@ -59,29 +59,27 @@ func (r *ReleaseReconciler) handleOciRepository(op *operation, mediaType string,
 }
 
 func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, op *operation, mediaType string, ociOperation string) {
-	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", op.release.Spec.Service.Repository)
+	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", op.release.Spec.Application.Repository)
 	ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
-		Tag: op.release.Spec.Service.Tag,
+		Tag: op.release.Spec.Application.Tag,
 	}
 	ociRepository.Spec.LayerSelector = nil // Wll take the first one
 	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
 		MediaType: mediaType,
-		//MediaType: global.ServiceManifestMediaType,
-		//MediaType: "application/vnd.kubotal.kubocd.service.module.podinfo.content.v1.tar+gzip",
 		Operation: ociOperation,
 	}
-	ociRepository.Spec.Provider = op.release.Spec.Service.Provider
-	ociRepository.Spec.SecretRef = op.release.Spec.Service.SecretRef
-	ociRepository.Spec.Verify = op.release.Spec.Service.Verify
-	ociRepository.Spec.ServiceAccountName = op.release.Spec.Service.ServiceAccountName
-	ociRepository.Spec.CertSecretRef = op.release.Spec.Service.CertSecretRef
-	ociRepository.Spec.ProxySecretRef = op.release.Spec.Service.ProxySecretRef
-	ociRepository.Spec.Interval = op.release.Spec.Service.Interval
-	ociRepository.Spec.Timeout = op.release.Spec.Service.Timeout
-	ociRepository.Spec.Ignore = op.release.Spec.Service.Ignore
-	ociRepository.Spec.Insecure = op.release.Spec.Service.Insecure
+	ociRepository.Spec.Provider = op.release.Spec.Application.Provider
+	ociRepository.Spec.SecretRef = op.release.Spec.Application.SecretRef
+	ociRepository.Spec.Verify = op.release.Spec.Application.Verify
+	ociRepository.Spec.ServiceAccountName = op.release.Spec.Application.ServiceAccountName
+	ociRepository.Spec.CertSecretRef = op.release.Spec.Application.CertSecretRef
+	ociRepository.Spec.ProxySecretRef = op.release.Spec.Application.ProxySecretRef
+	ociRepository.Spec.Interval = op.release.Spec.Application.Interval
+	ociRepository.Spec.Timeout = op.release.Spec.Application.Timeout
+	ociRepository.Spec.Ignore = op.release.Spec.Application.Ignore
+	ociRepository.Spec.Insecure = op.release.Spec.Application.Insecure
 	// TODO: Check this with Release.Spec.suspended
-	ociRepository.Spec.Suspend = op.release.Spec.Service.Suspend
+	ociRepository.Spec.Suspend = op.release.Spec.Application.Suspend
 	// TODO: Patch with url rewriters
 
 }

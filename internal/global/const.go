@@ -1,11 +1,11 @@
 package global
 
-const ServiceApiVersion = "v1alpha1"
+const ApplicationApiVersion = "v1alpha1"
 
-// Type of module for Service
+// Type of module for Application
 
 const HelmChartType = "HelmChart"
-const ServiceType = "Service"
+const ApplicationType = "Application"
 
 // Env variable for OCI authentication
 
@@ -14,11 +14,11 @@ const OciSecretEnvVar = "KCD_OCI_SECRET"
 
 const DockerCredentialHelperEnvVar = "KCD_DOCKER_CREDENTIAL_HELPER"
 
-// --------------------- Media type in KuboCD Service image file
+// --------------------- Media type in KuboCD Application image file
 
-const ServiceContentMediaType = "application/vnd.kubotal.kubocd.service.content.v1.tar+gzip"
+const ApplicationContentMediaType = "application/vnd.kubotal.kubocd.application.content.v1.tar+gzip"
 
-const ServiceConfigMediaType = "application/vnd.kubotal.kubocd.service.config.v1alpha1+json"
+const ApplicationConfigMediaType = "application/vnd.kubotal.kubocd.application.config.v1alpha1+json"
 
 // ----------------------
 

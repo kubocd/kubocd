@@ -28,9 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
-	"kubocd/internal/service"
 	"os"
 	"path"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,7 +58,7 @@ type operation struct {
 	ctx                context.Context
 	logger             logr.Logger
 	release            *kubocdv1alpha1.Release
-	service            *service.Service
+	application        *application.Application
 	ociRepositoryName  string
 	helmRepositoryName string
 }
@@ -162,7 +162,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//}
 	}
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
-	ociRepository, reconcileError := r.handleOciRepository(op, global.ServiceContentMediaType, "extract")
+	ociRepository, reconcileError := r.handleOciRepository(op, global.ApplicationContentMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
@@ -207,13 +207,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	} else {
 		logger.V(1).Info("Use already existing artifact")
 	}
-	// Set Service object
-	op.service = &service.Service{}
-	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), op.service)
+	// Set Application object
+	op.application = &application.Application{}
+	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), op.application)
 	if err != nil {
 		return r.reportError(op, fmt.Errorf("error while parsing Manifest.yaml file: %w", err), true, "OCIImage")
 	}
-	//fmt.Printf("Manifest: %s\n", misc.Map2Yaml(op.service))
+	//fmt.Printf("Manifest: %s\n", misc.Map2Yaml(op.application))
 
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
@@ -232,7 +232,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, nil
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
-	for module := range op.service.Status.ChartByModule {
+	for module := range op.application.Status.ChartByModule {
 		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module)
 		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module)
 		if reconcileError != nil {

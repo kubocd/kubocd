@@ -20,12 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ServiceSource struct {
+type ApplicationSource struct {
 	// Part of OCI url oci://<repository>:<tag>
 	// +kubebuilder:validation:Required
 	Repository string `json:"repository"`
 
-	ServiceSourceAddOn `json:",inline"`
+	ApplicationSourceAddOn `json:",inline"`
 }
 
 // ReleaseSpec defines the desired state of Release.
@@ -35,9 +35,9 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`
 
-	// The service to deploy
+	// The application to deploy
 	// +kubebuilder:validation:Required
-	Service ServiceSource `json:"service"`
+	Application ApplicationSource `json:"application"`
 
 	// To provide contextual variables
 	// Refer to Setting resource description for more explanation
@@ -70,19 +70,19 @@ type ReleaseSpec struct {
 	// Default: false
 	CreateNamespace bool `json:"createNamespace,omitempty"`
 
-	// The namespace to deploy in. (May also be a partial name for a multi-namespaces service)
-	// Not required, as it can be setup another way, depending on the service
-	// (i.e the service has a fixed namespace, or several ones).
+	// The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
+	// Not required, as it can be setup another way, depending on the application
+	// (i.e the application has a fixed namespace, or several ones).
 	// +kubebuilder:validation:Optional
 	// Default: ""
 	Namespace string `json:"namespace,omitempty"`
 
-	// List of roles fulfilled by this release. (appended to the one of the underlying service)
+	// List of roles fulfilled by this release. (appended to the one of the underlying application)
 	// +kubebuilder:validation:Optional
 	// Default: []
 	Roles []string `json:"roles,omitempty"`
 
-	// The roles we depend on. (appended to the one of the underlying Service)
+	// The roles we depend on. (appended to the one of the underlying Application)
 	// +kubebuilder:validation:Optional
 	// Default: []
 	DependsOn []string `json:"dependsOn,omitempty"`
@@ -102,8 +102,8 @@ type ReleaseStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.service.repository`
-// +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.service.tag`
+// +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.application.repository`
+// +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.application.tag`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

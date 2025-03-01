@@ -1,16 +1,16 @@
 
 # Target
 
-KuboCD main object is a "Service". 
+KuboCD main object is a "Application". 
 
-A Service is made of one or several Helm Chart sharing some configuration and with eventual dependencies.
+An Application is made of one or several Helm Chart sharing some configuration and with eventual dependencies.
 
-Aim is to make a Service an autonomous object, stored in an OCI image fail, with an adhoc format.
+Aim is to make an Application an autonomous object, stored in a tar.gz file and an OCI image, with an adhoc format.
 
 This means this OCI package will contains several HelmCharts.
 
 This OCI package will be deployed in a cluster by a `Release` object. This `Release` will generate an `OCIRepository` 
-FluxCD object to fetch the Service OCI image. 
+FluxCD object to fetch the Application OCI image. 
 
 The main issue is how to connect this `Release` to FluxCD. 
 

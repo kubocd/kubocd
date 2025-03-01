@@ -59,7 +59,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *operation, repoUrl string) 
 }
 
 func populateHelmRepository(helmRepository *sourcev1.HelmRepository, op *operation, repoUrl string) {
-	helmRepository.Spec.Interval = op.release.Spec.Service.Interval
+	helmRepository.Spec.Interval = op.release.Spec.Application.Interval
 	helmRepository.Spec.URL = repoUrl
 }
 

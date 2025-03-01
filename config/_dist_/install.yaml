@@ -23,10 +23,10 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.service.repository
+    - jsonPath: .spec.application.repository
       name: Repository
       type: string
-    - jsonPath: .spec.service.tag
+    - jsonPath: .spec.application.tag
       name: Tag
       type: string
     - jsonPath: .status.phase
@@ -63,50 +63,8 @@ spec:
           spec:
             description: ReleaseSpec defines the desired state of Release.
             properties:
-              createNamespace:
-                description: |-
-                  If true, add  { install: { createNamespace: true } } to config map.
-                  Default: false
-                type: boolean
-              dependsOn:
-                description: |-
-                  The roles we depend on. (appended to the one of the underlying Service)
-                  Default: []
-                items:
-                  type: string
-                type: array
-              description:
-                description: Short description of this release. Single line only
-                type: string
-              enabled:
-                description: |-
-                  If false, this release is not deployed (And deleted if existing and unprotected)
-                  Default: true
-                type: boolean
-              namespace:
-                description: |-
-                  The namespace to deploy in. (May also be a partial name for a multi-namespaces service)
-                  Not required, as it can be setup another way, depending on the service
-                  (i.e the service has a fixed namespace, or several ones).
-                  Default: ""
-                type: string
-              parameters:
-                description: The Release configuration variables
-                x-kubernetes-preserve-unknown-fields: true
-              protected:
-                description: |-
-                  If true, HelmRelease will not be deleted by KuboCD
-                  Default: false
-                type: boolean
-              roles:
-                description: |-
-                  List of roles fulfilled by this release. (appended to the one of the underlying service)
-                  Default: []
-                items:
-                  type: string
-                type: array
-              service:
-                description: The service to deploy
+              application:
+                description: The application to deploy
                 properties:
                   certSecretRef:
                     description: |-
@@ -269,6 +227,48 @@ spec:
                 - repository
                 - tag
                 type: object
+              createNamespace:
+                description: |-
+                  If true, add  { install: { createNamespace: true } } to config map.
+                  Default: false
+                type: boolean
+              dependsOn:
+                description: |-
+                  The roles we depend on. (appended to the one of the underlying Application)
+                  Default: []
+                items:
+                  type: string
+                type: array
+              description:
+                description: Short description of this release. Single line only
+                type: string
+              enabled:
+                description: |-
+                  If false, this release is not deployed (And deleted if existing and unprotected)
+                  Default: true
+                type: boolean
+              namespace:
+                description: |-
+                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
+                  Not required, as it can be setup another way, depending on the application
+                  (i.e the application has a fixed namespace, or several ones).
+                  Default: ""
+                type: string
+              parameters:
+                description: The Release configuration variables
+                x-kubernetes-preserve-unknown-fields: true
+              protected:
+                description: |-
+                  If true, HelmRelease will not be deleted by KuboCD
+                  Default: false
+                type: boolean
+              roles:
+                description: |-
+                  List of roles fulfilled by this release. (appended to the one of the underlying application)
+                  Default: []
+                items:
+                  type: string
+                type: array
               settings:
                 description: |-
                   To provide contextual variables
@@ -291,7 +291,7 @@ spec:
                   Default: false
                 type: boolean
             required:
-            - service
+            - application
             type: object
           status:
             description: ReleaseStatus defines the observed state of Release.
@@ -369,7 +369,7 @@ spec:
                 type: array
               context:
                 description: |-
-                  Context is a map of variables witches will be injected in the data model when rendering Service template.
+                  Context is a map of variables witches will be injected in the data model when rendering Application template.
                   When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
                   The 'oldest' are the deeper in the parents chain.
                   Then merging is performed with the parent array order.

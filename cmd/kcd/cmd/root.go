@@ -28,7 +28,7 @@ func init() {
 
 var RootCmd = &cobra.Command{
 	Use:   "kcd",
-	Short: "kcd is a tool for assembling HelmCharts to build Kubernetes KuboCD Service.",
+	Short: "kcd is a tool for assembling HelmCharts to build Kubernetes KuboCD Applications.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ---------------------------------- Handle log
 		opts := &slog.HandlerOptions{

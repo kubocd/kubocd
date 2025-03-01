@@ -1,4 +1,4 @@
-package service
+package application
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ type Module struct {
 	// required:true
 	// default: id<idx>
 	Name   string `yaml:"name" json:"name"`
-	Type   string `yaml:"type" json:"type"` // HelmChart or Service
+	Type   string `yaml:"type" json:"type"` // HelmChart or Application
 	Source struct {
 		// Only for HelmChart
 		HelmRepository *struct {
@@ -37,7 +37,7 @@ type Module struct {
 			Path string `yaml:"path" json:"path"`
 		} `yaml:"git" json:"git"`
 	} `yaml:"source" json:"source"`
-	// For Type == Service
+	// For Type == Application
 	Parameters KcdTemplateMap `yaml:"parameters" json:"parameters"`
 	// For Type == HelmChart
 	Values KcdTemplateMap `yaml:"values" json:"values"`
@@ -53,7 +53,7 @@ type Module struct {
 	Protected KcdTemplateBool `yaml:"protected" json:"protected"`
 	// Default: {{ .Release.createNamespace }}
 	CreateNamespace KcdTemplateBool `yaml:"createNamespace" json:"createNamespace"`
-	// Intra-servicen dependency. List of module names
+	// Intra-application dependency. List of module names
 	DependsOn []string `yaml:"dependsOn" json:"dependsOn"`
 }
 
@@ -65,8 +65,8 @@ func (m *Module) groom(idx int) error {
 		m.Type = global.HelmChartType
 		//return fmt.Errorf("module type is required")
 	}
-	if m.Type != global.ServiceType && m.Type != global.HelmChartType {
-		return fmt.Errorf("invalid service type: %s", m.Type)
+	if m.Type != global.ApplicationType && m.Type != global.HelmChartType {
+		return fmt.Errorf("invalid application type: %s", m.Type)
 	}
 	x := misc.CountNonZero(m.Source.HelmRepository, m.Source.Oci, m.Source.Git)
 	if x != 1 {
@@ -96,12 +96,12 @@ func (m *Module) groom(idx int) error {
 			return fmt.Errorf("one and only one of 'branch' and 'tag' should be set for 'source.git'")
 		}
 	}
-	if m.Type == global.ServiceType && !misc.IsZero(m.Values) {
-		return fmt.Errorf("'values' should not be defined for 'type.service'")
+	if m.Type == global.ApplicationType && !misc.IsZero(m.Values) {
+		return fmt.Errorf("'values' should not be defined for 'type.Application'")
 
 	}
 	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
-		return fmt.Errorf("'parameters' should not be defined for 'type.helmChart'")
+		return fmt.Errorf("'parameters' should not be defined for 'type.HelmChart'")
 	}
 
 	if misc.IsZero(m.Namespace) {

@@ -30,7 +30,7 @@ type OciRedirectSpec struct {
 	// +kubebuilder:validation:Required
 	NewRepositoryPrefix string `json:"newRepositoryPrefix"`
 
-	ServiceSourceAddOn `json:",inline"`
+	ApplicationSourceAddOn `json:",inline"`
 }
 
 // SettingSpec defines the desired state of Setting.
@@ -52,7 +52,7 @@ type SettingSpec struct {
 	// Default: []
 	Parents []NamespacedNameSpec `json:"parents,omitempty"`
 
-	// Context is a map of variables witches will be injected in the data model when rendering Service template.
+	// Context is a map of variables witches will be injected in the data model when rendering Application template.
 	// When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
 	// The 'oldest' are the deeper in the parents chain.
 	// Then merging is performed with the parent array order.

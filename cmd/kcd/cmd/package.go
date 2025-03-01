@@ -8,9 +8,9 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/repo"
+	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
-	"kubocd/internal/service"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -39,19 +39,19 @@ type archiveInfo struct {
 }
 
 var packageCmd = cobra.Command{
-	Use:     "package <Service manifest> <repository>:<tag>",
-	Short:   "Assemble a Service from a manifest to an OCI image",
+	Use:     "package <Application manifest> <repository>:<tag>",
+	Short:   "Assemble a KuboCd Application from a manifest to an OCI image",
 	Args:    cobra.ExactArgs(2),
 	Aliases: []string{"pack", "build"},
 
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
-			srv := &service.Service{}
-			err := misc.LoadYaml(args[0], srv)
+			app := &application.Application{}
+			err := misc.LoadYaml(args[0], app)
 			if err != nil {
 				return err
 			}
-			err = srv.Groom()
+			err = app.Groom()
 			if err != nil {
 				return err
 			}
@@ -80,14 +80,14 @@ var packageCmd = cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, err := fetchArchives(srv, assemblyPath)
+			chartSet, err := fetchArchives(app, assemblyPath)
 			if err != nil {
 				return err
 			}
 
 			fmt.Printf("--- Packaging\n")
 
-			// ------------------------------------- Build index.yaml file to be an helm repository
+			// ------------------------------------- Build index.yaml file to be a helm repository
 			fmt.Printf("    Generating index file\n")
 			index, err := repo.IndexDirectory(assemblyPath, "")
 			if err != nil {
@@ -102,12 +102,12 @@ var packageCmd = cobra.Command{
 				return err
 			}
 			// Generate the manifest.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "manifest.yaml"), misc.Map2Yaml(srv), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "manifest.yaml"), misc.Map2Yaml(app), os.ModePerm)
 			if err != nil {
 				return err
 			}
 			// Generate the manifest.json file to be set as config in the image
-			err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(srv), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(app), os.ModePerm)
 			if err != nil {
 				return err
 			}
@@ -135,12 +135,12 @@ var packageCmd = cobra.Command{
 
 // lookupArchive load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
-// - Populate the status of the Service with a map of chartInfo by module
-func fetchArchives(srv *service.Service, assemblyPath string) ([]archiveInfo, error) {
+// - Populate the status of the Application with a map of chartInfo by module
+func fetchArchives(app *application.Application, assemblyPath string) ([]archiveInfo, error) {
 	chartSet := make(map[string]bool) // To deduplicate
-	archives := make([]archiveInfo, 0, len(srv.Spec.Modules))
-	srv.Status.ChartByModule = make(map[string]service.ChartRef)
-	for _, module := range srv.Spec.Modules {
+	archives := make([]archiveInfo, 0, len(app.Spec.Modules))
+	app.Status.ChartByModule = make(map[string]application.ChartRef)
+	for _, module := range app.Spec.Modules {
 		fmt.Printf("--- Building module '%s':\n", module.Name)
 		printPrefix := "    "
 		var archive string
@@ -189,7 +189,7 @@ func fetchArchives(srv *service.Service, assemblyPath string) ([]archiveInfo, er
 				return nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
 			}
 		}
-		srv.Status.ChartByModule[module.Name] = service.ChartRef{
+		app.Status.ChartByModule[module.Name] = application.ChartRef{
 			Name:    chartName,
 			Version: chartVersion,
 		}
@@ -238,7 +238,7 @@ func pushImage(assemblyPath string, repository string, tag string) error {
 	ctx := context.Background()
 
 	// 1. Add files to the file store
-	mediaType := global.ServiceContentMediaType
+	mediaType := global.ApplicationContentMediaType
 	fileNames := []string{"assembly.tgz"}
 	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
@@ -251,7 +251,7 @@ func pushImage(assemblyPath string, repository string, tag string) error {
 	}
 
 	// Add config stuff
-	configFileDescriptor, err := fs.Add(ctx, "manifest.json", global.ServiceConfigMediaType, "")
+	configFileDescriptor, err := fs.Add(ctx, "manifest.json", global.ApplicationConfigMediaType, "")
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := ""

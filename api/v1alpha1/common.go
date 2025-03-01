@@ -13,7 +13,7 @@ type NamespacedNameSpec struct {
 	Name string `json:"name"`
 }
 
-type ServiceSourceAddOn struct {
+type ApplicationSourceAddOn struct {
 
 	// Part of OCI url oci://<repository>:<tag>
 	// +kubebuilder:validation:Required

@@ -1,4 +1,4 @@
-package service
+package application
 
 import (
 	"fmt"
@@ -21,12 +21,12 @@ type KcdSchema map[string]interface{}
 
 // ------------------------------------------------
 
-type Service struct {
+type Application struct {
 	// required:true
 	ApiVersion string `yaml:"apiVersion" json:"apiVersion"` // v1alpha1
 	// This is NOT a k8s object. To overemphasis this, we use Type instead of Kind
 	// required:true
-	Type     string `yaml:"type" json:"type"` // Always 'Service'
+	Type     string `yaml:"type" json:"type"` // Always 'Application'
 	Metadata struct {
 		// required:true
 		Name string `yaml:"name" json:"name"`
@@ -64,55 +64,55 @@ type ChartRef struct {
 	Version string `yaml:"version" json:"version"`
 }
 
-func (svc *Service) Groom() error {
-	if svc.ApiVersion != global.ServiceApiVersion {
-		return fmt.Errorf("'apiVersion' must be %s", global.ServiceApiVersion)
+func (app *Application) Groom() error {
+	if app.ApiVersion != global.ApplicationApiVersion {
+		return fmt.Errorf("'apiVersion' must be %s", global.ApplicationApiVersion)
 	}
-	if svc.Type != global.ServiceType {
-		return fmt.Errorf("'type' must be %s", global.ServiceType)
+	if app.Type != global.ApplicationType {
+		return fmt.Errorf("'type' must be %s", global.ApplicationType)
 	}
-	x := misc.CountNonZero(svc.Metadata.Name, svc.Metadata.Version)
+	x := misc.CountNonZero(app.Metadata.Name, app.Metadata.Version)
 	if x != 2 {
 		return fmt.Errorf("'name' and 'version' should be set")
 	}
-	if !misc.ValidateK8sName(svc.Metadata.Name) {
+	if !misc.ValidateK8sName(app.Metadata.Name) {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
-	if svc.Spec.ParametersSchema != nil {
+	if app.Spec.ParametersSchema != nil {
 		// TODO: Validate schema (And make it required)
 	}
-	if svc.Spec.ContextSchema != nil {
+	if app.Spec.ContextSchema != nil {
 		// TODO: Validate schema
 	}
-	if svc.Spec.Modules == nil || len(svc.Spec.Modules) == 0 {
-		return fmt.Errorf("a service must have at least one module")
+	if app.Spec.Modules == nil || len(app.Spec.Modules) == 0 {
+		return fmt.Errorf("an application must have at least one module")
 	}
 	// ------------------------ Normalize
-	if svc.Spec.Roles == nil {
-		svc.Spec.Roles = []KcdRole{}
+	if app.Spec.Roles == nil {
+		app.Spec.Roles = []KcdRole{}
 	}
-	if svc.Spec.DependsOn == nil {
-		svc.Spec.DependsOn = []KcdRole{}
+	if app.Spec.DependsOn == nil {
+		app.Spec.DependsOn = []KcdRole{}
 	}
-	if svc.Spec.ReleaseDefaults.Parameters == nil {
-		svc.Spec.ReleaseDefaults.Parameters = map[string]interface{}{}
+	if app.Spec.ReleaseDefaults.Parameters == nil {
+		app.Spec.ReleaseDefaults.Parameters = map[string]interface{}{}
 	}
 	// ------- Now, check modules
 	moduleByName := make(map[string]*Module)
-	for idx := range svc.Spec.Modules {
-		module := &svc.Spec.Modules[idx]
-		err := svc.Spec.Modules[idx].groom(idx)
+	for idx := range app.Spec.Modules {
+		module := &app.Spec.Modules[idx]
+		err := app.Spec.Modules[idx].groom(idx)
 		if err != nil {
-			return fmt.Errorf("module '%s': %w", svc.Spec.Modules[idx].Name, err)
+			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
 		}
 		_, ok := moduleByName[module.Name]
 		if ok {
 			return fmt.Errorf("duplicate module name: %s", module.Name)
 		}
-		moduleByName[module.Name] = &svc.Spec.Modules[idx]
+		moduleByName[module.Name] = &app.Spec.Modules[idx]
 	}
 	// And another loop to check internal dependencies
-	for _, module := range svc.Spec.Modules {
+	for _, module := range app.Spec.Modules {
 		for _, dependency := range module.DependsOn {
 			_, ok := moduleByName[dependency]
 			if !ok {

@@ -41,8 +41,8 @@ func (r *ReleaseReconciler) handleHelmRelease(op *operation, name, moduleName st
 }
 
 func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *operation, moduleName string) {
-	helmRelease.Spec.Interval = op.release.Spec.Service.Interval
-	chartRef, ok := op.service.Status.ChartByModule[moduleName]
+	helmRelease.Spec.Interval = op.release.Spec.Application.Interval
+	chartRef, ok := op.application.Status.ChartByModule[moduleName]
 	if !ok {
 		panic("Internal error chart not found by module name")
 	}
@@ -55,7 +55,7 @@ func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *operation, moduleN
 				Name:      op.helmRepositoryName,
 				Namespace: op.release.Namespace,
 			},
-			Interval: &op.release.Spec.Service.Interval,
+			Interval: &op.release.Spec.Application.Interval,
 		},
 	}
 }
