@@ -57,6 +57,11 @@ helmRepository:
   # -- Will default to {{ include "kubocd-controller.baseName" . }}-helm-repository
   serviceName:
 
+networkPolicies:
+  enabled: true
+  fluxNamespace: flux-system
+
+
 resources:
   limits:
     cpu: 500m
