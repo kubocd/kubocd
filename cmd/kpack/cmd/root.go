@@ -27,8 +27,8 @@ func init() {
 }
 
 var RootCmd = &cobra.Command{
-	Use:   "kcd",
-	Short: "kcd is a tool for assembling HelmCharts to build Kubernetes KuboCD Applications.",
+	Use:   "kpack",
+	Short: "kpack is a tool for assembling HelmCharts to build Kubernetes KuboCD Applications. It also provide some commands to dump OCI and Helm repositories",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ---------------------------------- Handle log
 		opts := &slog.HandlerOptions{

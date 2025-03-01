@@ -38,10 +38,20 @@ type archiveInfo struct {
 	path string
 }
 
+var packageParams struct {
+	ociRepoPrefix string
+	plainHTTP     bool
+}
+
+func init() {
+	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/applications'). Can also be specified with OCI_REPO_PREFIX environment variable")
+	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS")
+}
+
 var packageCmd = cobra.Command{
-	Use:     "package <Application manifest> <repository>:<tag>",
+	Use:     "package <Application manifest>",
 	Short:   "Assemble a KuboCd Application from a manifest to an OCI image",
-	Args:    cobra.ExactArgs(2),
+	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"pack", "build"},
 
 	Run: func(cmd *cobra.Command, args []string) {
@@ -57,16 +67,16 @@ var packageCmd = cobra.Command{
 			}
 
 			// --------------------- Handle entry parameters
-			var repository string
-			var tag string
-			splits := strings.Split(args[1], ":")
-			if len(splits) == 2 {
-				repository = splits[0]
-				tag = splits[1]
-			} else {
-				repository = splits[0]
-				tag = "latest"
+			repository := packageParams.ociRepoPrefix
+			if repository == "" {
+				repository = os.Getenv("OCI_REPO_PREFIX")
+				if repository == "" {
+					return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
+				}
 			}
+			repository = path.Join(repository, app.Metadata.Name)
+
+			tag := app.Metadata.Version
 
 			// ---------- Prepare the target layout
 			fsPath := path.Join(workDir, "fs")
@@ -120,7 +130,7 @@ var packageCmd = cobra.Command{
 			}
 
 			// Build and push image
-			err = pushImage(assemblyPath, repository, tag)
+			err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP)
 			if err != nil {
 				return err
 			}
@@ -227,7 +237,7 @@ func buildAssembly(assemblyPath string, archives []archiveInfo) error {
 	return nil
 }
 
-func pushImage(assemblyPath string, repository string, tag string) error {
+func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool) error {
 	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
 	// 0. Create a file store
 	fs, err := file.New(assemblyPath)
@@ -274,6 +284,7 @@ func pushImage(assemblyPath string, repository string, tag string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create OCI repository: %w", err)
 	}
+	remoteRepo.PlainHTTP = plainHTTP
 
 	splits := strings.Split(repository, "/")
 	regHost := splits[0]

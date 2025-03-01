@@ -1,6 +1,6 @@
 package main
 
-import "kubocd/cmd/kcd/cmd"
+import "kubocd/cmd/kpack/cmd"
 
 func main() {
 	cmd.Execute()

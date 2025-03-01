@@ -24,10 +24,10 @@ type KcdSchema map[string]interface{}
 type Application struct {
 	// required:true
 	ApiVersion string `yaml:"apiVersion" json:"apiVersion"` // v1alpha1
-	// This is NOT a k8s object. To overemphasis this, we use Type instead of Kind
-	// required:true
-	Type     string `yaml:"type" json:"type"` // Always 'Application'
-	Metadata struct {
+	Metadata   struct {
+		// This is NOT a k8s object. To overemphasis this, we use Type instead of Kind. and define it as metadata
+		// required:true
+		Type string `yaml:"type" json:"type"` // Always 'Application'
 		// required:true
 		Name string `yaml:"name" json:"name"`
 		// required:true
@@ -68,12 +68,12 @@ func (app *Application) Groom() error {
 	if app.ApiVersion != global.ApplicationApiVersion {
 		return fmt.Errorf("'apiVersion' must be %s", global.ApplicationApiVersion)
 	}
-	if app.Type != global.ApplicationType {
+	if app.Metadata.Type != global.ApplicationType {
 		return fmt.Errorf("'type' must be %s", global.ApplicationType)
 	}
 	x := misc.CountNonZero(app.Metadata.Name, app.Metadata.Version)
 	if x != 2 {
-		return fmt.Errorf("'name' and 'version' should be set")
+		return fmt.Errorf("'name' and 'version' must be set")
 	}
 	if !misc.ValidateK8sName(app.Metadata.Name) {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")

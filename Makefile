@@ -16,7 +16,6 @@ HELM_DOCKER_REPO := quay.io/kubocd/charts
 # echo $GITHUB_TOKEN | docker login ghcr.io -u $USER_NAME --password-stdin
 
 
-
 BUILD_TS ?= $(shell date -u +%Y%m%d.%H%M%S)
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -114,15 +113,15 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: build-controller build-kcd
+build: build-controller build-kpack  ## Build all binaries
 
 .PHONY: build-controller
 build-controller: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/controller cmd/controller/main.go
 
-.PHONY: build-kcd
-build-kcd: ## Build kcd CLI
-	CGO_ENABLED=0 go build -o ./bin/kcd cmd/kcd/main.go
+.PHONY: build-kpack
+build-kpack: ## Build kpack CLI
+	CGO_ENABLED=0 go build -o ./bin/kpack cmd/kpack/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
