@@ -1,13 +1,13 @@
-
+{{ if .Values.controller.enabled }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "kubocd-controller.serviceAccountName" . }}
+  name: {{ include "kubocd.controller.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -16,10 +16,10 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kubocd-controller.clusterRoleName" .}}
+  name: {{ include "kubocd.controller.clusterRoleName" .}}
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -106,31 +106,31 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kubocd-controller.serviceAccountName" . }}-{{ include "kubocd-controller.clusterRoleName" .}}-binding
+  name: {{ include "kubocd.controller.serviceAccountName" . }}-{{ include "kubocd.controller.clusterRoleName" .}}-binding
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kubocd-controller.clusterRoleName" .}}
+  name: {{ include "kubocd.controller.clusterRoleName" .}}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "kubocd-controller.serviceAccountName" . }}
+    name: {{ include "kubocd.controller.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 
-{{ if and .Values.metrics.enabled .Values.metrics.secured }}
+{{ if and .Values.controller.metrics.enabled .Values.controller.metrics.secured }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kubocd-controller.clusterRoleName" .}}-metrics-auth
+  name: {{ include "kubocd.controller.clusterRoleName" .}}-metrics-auth
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -149,34 +149,34 @@ rules:
       - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "kubocd-controller.clusterRoleName" .}}-metrics-reader
-rules:
-  - nonResourceURLs:
-      - /metrics
-    verbs:
-      - get
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "kubocd-controller.serviceAccountName" . }}-{{ include "kubocd-controller.clusterRoleName" .}}-metrics-auth
+  name: {{ include "kubocd.controller.serviceAccountName" . }}-{{ include "kubocd.controller.clusterRoleName" .}}-metrics-auth
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "kubocd-controller.clusterRoleName" .}}-metrics-auth
+  name: {{ include "kubocd.controller.clusterRoleName" .}}-metrics-auth
 subjects:
   - kind: ServiceAccount
-    name: {{ include "kubocd-controller.serviceAccountName" . }}
+    name: {{ include "kubocd.controller.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubocd.controller.clusterRoleName" .}}-metrics-reader
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
 {{ end }}
 
+{{ end }}
 

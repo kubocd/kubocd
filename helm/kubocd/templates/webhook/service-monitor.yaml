@@ -1,0 +1,34 @@
+
+{{- if and .Values.webhook.enabled .Values.webhook.metrics.enabled .Values.webhook.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kubocd.webhook.metrics.serviceMonitor.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+    - tlsConfig:
+        ca:
+          secret:
+            key: ca.crt
+            name: {{ include "kubocd.webhook.metrics.secretName" . }}
+        cert:
+          secret:
+            key: tls.crt
+            name: {{ include "kubocd.webhook.metrics.secretName" . }}
+        insecureSkipVerify: false
+        keySecret:
+          key: tls.key
+          name: {{ include "kubocd.webhook.metrics.secretName" . }}
+  selector:
+    matchLabels:
+      {{- include "kubocd.webhook.selectorLabels" . | nindent 6 }}
+
+{{- end }}

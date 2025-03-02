@@ -1,0 +1,47 @@
+
+{{ if .Values.webhook.enabled}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubocd.webhook.serviceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    {{- include "kubocd.webhook.selectorLabels" . | nindent 6 }}
+
+
+{{ if .Values.webhook.metrics.enabled}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubocd.webhook.metrics.serviceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    {{- include "kubocd.webhook.selectorLabels" . | nindent 6 }}
+{{ end }}
+
+{{ end }}

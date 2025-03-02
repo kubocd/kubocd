@@ -1,0 +1,103 @@
+
+{{/*
+Create a default fully qualified app name, to use as base bame for all controller ressources.
+*/}}
+{{- define "kubocd.controller.baseName" -}}
+{{- if .Values.controller.baseNameOverride }}
+{{- .Values.controller.baseNameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-controller" (include "kubocd.baseName" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "kubocd.controller.labels" -}}
+helm.sh/chart: {{ include "kubocd.chartName" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+
+{{/*
+Controller Selector labels
+*/}}
+{{- define "kubocd.controller.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "kubocd.controller.baseName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the deployment to use
+*/}}
+{{- define "kubocd.controller.deploymentName" -}}
+{{- default (printf "%s" (include "kubocd.controller.baseName" .)) .Values.controller.deploymentName }}
+{{- end }}
+
+{{/* --------------------------------------------------------------------- rbac */}}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "kubocd.controller.serviceAccountName" -}}
+{{- default (printf "%s" (include "kubocd.controller.baseName" .)) .Values.controller.serviceAccountName }}
+{{- end }}
+
+{{/*
+Create the name of the associated role
+*/}}
+{{- define "kubocd.controller.clusterRoleName" -}}
+{{- default (printf "%s" (include "kubocd.controller.baseName" .)) .Values.controller.clusterRoleName }}
+{{- end }}
+
+{{/* --------------------------------------------------------------------- metrics */}}
+
+{{/*
+Create the name of the metrics services
+*/}}
+{{- define "kubocd.controller.metrics.serviceName" -}}
+{{- default (printf "%s-metrics" (include "kubocd.controller.baseName" .)) .Values.controller.metrics.serviceName }}
+{{- end }}
+
+{{/*
+Create the name of the self-signed issuer for metrics certficate
+*/}}
+{{- define "kubocd.controller.metrics.certificateSelfSignedIssuerName" -}}
+{{- default (printf "%s-metrics" (include "kubocd.controller.baseName" .)) .Values.controller.metrics.certificateSelfSignedIssuerName }}
+{{- end }}
+
+{{/*
+Create the name of the metrics tls certificate
+*/}}
+{{- define "kubocd.controller.metrics.certificateName" -}}
+{{- default (printf "%s-metrics" (include "kubocd.controller.baseName" .)) .Values.controller.metrics.certificateName }}
+{{- end }}
+
+{{/*
+Create the name of the metrics tls secret
+*/}}
+{{- define "kubocd.controller.metrics.secretName" -}}
+{{- default (printf "%s-metrics" (include "kubocd.controller.baseName" .)) .Values.controller.metrics.secretName }}
+{{- end }}
+
+
+{{/*
+Create the name of the metrics serviceMonitor
+*/}}
+{{- define "kubocd.controller.metrics.serviceMonitor.name" -}}
+{{- default (printf "%s" (include "kubocd.controller.baseName" .)) .Values.controller.metrics.serviceMonitor.name }}
+{{- end }}
+
+{{/* --------------------------------------------------------------------- helm-respitory */}}
+
+{{/*
+Create the name of the helm repository services
+*/}}
+{{- define "kubocd.controller.helm-repository.serviceName" -}}
+{{- default (printf "%s-helm-repository" (include "kubocd.controller.baseName" .)) .Values.controller.helmRepository.serviceName }}
+{{- end }}
+
+

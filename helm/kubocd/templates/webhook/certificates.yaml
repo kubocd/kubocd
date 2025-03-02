@@ -1,0 +1,96 @@
+{{ if .Values.webhook.enabled }}
+
+{{ if not .Values.webhook.certificateClusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubocd.webhook.certificateSelfSignedIssuerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selfSigned: {}
+{{ end }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubocd.webhook.certificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  dnsNames:
+    - {{ include "kubocd.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "kubocd.webhook.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+{{- if not .Values.webhook.certificateClusterIssuer }}
+    kind: Issuer
+    name: {{ include "kubocd.webhook.certificateSelfSignedIssuerName" . }}
+{{- else }}
+    kind: ClusterIssuer
+    name: .Values.webhook.certificateClusterIssuer
+{{- end }}
+  secretName: {{ include "kubocd.webhook.secretName" . }}
+
+
+
+{{ if .Values.webhook.metrics.enabled }}
+
+{{ if not .Values.webhook.metrics.certificateClusterIssuer }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubocd.webhook.metrics.certificateSelfSignedIssuerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selfSigned: {}
+{{ end }}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubocd.webhook.metrics.certificateName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  dnsNames:
+    - {{ include "kubocd.webhook.metrics.serviceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "kubocd.webhook.metrics.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+{{- if not .Values.webhook.metrics.certificateClusterIssuer }}
+    kind: Issuer
+    name: {{ include "kubocd.webhook.metrics.certificateSelfSignedIssuerName" . }}
+{{- else }}
+    kind: ClusterIssuer
+    name: .Values.metrics.certificateClusterIssuer
+{{- end }}
+  secretName: {{ include "kubocd.webhook.metrics.secretName" . }}
+
+{{ end }}
+
+{{ end }}
+

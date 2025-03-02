@@ -4,12 +4,12 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: {{ include "kubocd-controller.webhook.mutatingWebhookConfiguration" . }}
+  name: {{ include "kubocd.webhook.mutatingWebhookConfiguration" . }}
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd-controller.webhook.secretName" . }}
-  {{- with .Values.commonAnnotations }}
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd.webhook.secretName" . }}
+  {{- with .Values.webhook.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 webhooks:
@@ -17,7 +17,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: {{ include "kubocd-controller.webhook.serviceName" . }}
+        name: {{ include "kubocd.webhook.serviceName" . }}
         namespace: {{ .Release.Namespace }}
         path: /mutate-kubocd-kubotal-io-v1alpha1-release
     failurePolicy: Fail
@@ -37,12 +37,12 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ include "kubocd-controller.webhook.validatingWebhookConfiguration" . }}
+  name: {{ include "kubocd.webhook.validatingWebhookConfiguration" . }}
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd-controller.webhook.secretName" . }}
-  {{- with .Values.commonAnnotations }}
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd.webhook.secretName" . }}
+  {{- with .Values.webhook.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 webhooks:
@@ -50,7 +50,7 @@ webhooks:
       - v1
     clientConfig:
       service:
-        name: {{ include "kubocd-controller.webhook.serviceName" . }}
+        name: {{ include "kubocd.webhook.serviceName" . }}
         namespace: {{ .Release.Namespace }}
         path: /validate-kubocd-kubotal-io-v1alpha1-release
     failurePolicy: Fail

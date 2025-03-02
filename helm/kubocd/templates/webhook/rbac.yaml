@@ -1,0 +1,107 @@
+{{ if .Values.webhook.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubocd.webhook.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubocd.webhook.clusterRoleName" .}}
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules: []
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubocd.webhook.serviceAccountName" . }}-{{ include "kubocd.webhook.clusterRoleName" .}}-binding
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubocd.webhook.clusterRoleName" .}}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubocd.webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+
+{{ if and .Values.webhook.metrics.enabled .Values.webhook.metrics.secured }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubocd.webhook.clusterRoleName" .}}-metrics-auth
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubocd.webhook.serviceAccountName" . }}-{{ include "kubocd.webhook.clusterRoleName" .}}-metrics-auth
+  labels:
+    {{- include "kubocd.webhook.labels" . | nindent 4 }}
+  {{- with .Values.webhook.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubocd.webhook.clusterRoleName" .}}-metrics-auth
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubocd.webhook.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubocd.webhook.clusterRoleName" .}}-metrics-reader
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+
+
+
+{{ end }}
+
+{{ end }}

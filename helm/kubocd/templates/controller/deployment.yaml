@@ -1,29 +1,31 @@
+
+{{ if .Values.controller.enabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "kubocd-controller.deploymentName" . }}
+  name: {{ include "kubocd.controller.deploymentName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "kubocd-controller.labels" . | nindent 4 }}
-  {{- with .Values.commonAnnotations }}
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.controller.replicaCount }}
   selector:
     matchLabels:
-      {{- include "kubocd-controller.selectorLabels" . | nindent 6 }}
+      {{- include "kubocd.controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- with .Values.controller.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "kubocd-controller.labels" . | nindent 8 }}
-        {{- include "kubocd-controller.selectorLabels" . | nindent 8 }}
+        {{- include "kubocd.controller.labels" . | nindent 8 }}
+        {{- include "kubocd.controller.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
@@ -36,32 +38,30 @@ spec:
           command:
             - /manager
           args:
-            - --leader-elect={{ ne .Values.replicaCount 1.0 }}
-            - --health-probe-bind-address=:8081
-            {{- if .Values.webhook.enabled }}
-            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
-            {{- end }}
+            - controller
+            - --leaderElect={{ ne .Values.controller.replicaCount 1.0 }}
+            - --healthProbeBindAddress=:8081
             - --rootDataFolder=/works
-            - --helmRepoAdvAddr={{ include "kubocd-controller.helm-repository.serviceName" . }}.{{.Release.Namespace}}.svc
+            - --helmRepoAdvAddr={{ include "kubocd.controller.helm-repository.serviceName" . }}.{{.Release.Namespace}}.svc
             - --helmRepoBindAddr=:9090
-            - --logMode={{ .Values.logger.mode}}
-            - --logLevel={{ .Values.logger.level}}
-            {{- if .Values.metrics.enabled }}
-            - --metrics-bind-address=:8443
-              {{- if .Values.metrics.secured }}
-            - --metrics-secure=true
-            - --metrics-cert-path=/tmp/k8s-metrics-server/metrics-certs
+            - --logMode={{ .Values.controller.logger.mode}}
+            - --logLevel={{ .Values.controller.logger.level}}
+            {{- if .Values.controller.metrics.enabled }}
+            - --metricsBindAddress=:8443
+              {{- if .Values.controller.metrics.secured }}
+            - --metricsSecure=true
+            - --metricsCertPath=/tmp/k8s-metrics-server/metrics-certs
               {{- else }}
-            - --metrics-secure=false
+            - --metricsSecure=false
               {{- end }}
             {{- else }}
-            - --metrics-bind-address=0
+            - --metricsBindAddress=0
             {{- end }}
-          {{-  range .Values.additionalArgs }}
+          {{-  range .Values.controller.additionalArgs }}
             - {{ . }}
           {{- end }}
           env:
-          {{- with .Values.extraEnv }}
+          {{- with .Values.controller.extraEnv }}
             {{- toYaml . | nindent 4 }}
           {{- end }}
           - name: MY_POD_NAME
@@ -72,7 +72,7 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          {{- if not .Values.disableProbes }}
+          {{- if not .Values.controller.disableProbes }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -87,25 +87,17 @@ spec:
             periodSeconds: 10
           {{- end }}
           ports:
-            - containerPort: 9443
-              name: webhook-server
-              protocol: TCP
             - containerPort: 9090
               name: helm-repository
               protocol: TCP
-          {{- with .Values.resources }}
+          {{- with .Values.controller.resources }}
           resources:
           {{- toYaml . | nindent 12 }}
           {{- end }}
           securityContext:
-            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+            {{- toYaml .Values.controller.containerSecurityContext | nindent 12 }}
           volumeMounts:
-            {{- if .Values.webhook.enabled }}
-            - mountPath: /tmp/k8s-webhook-server/serving-certs
-              name: webhook-certs
-              readOnly: true
-            {{- end }}
-            {{- if .Values.metrics.enabled }}
+            {{- if .Values.controller.metrics.enabled }}
             - mountPath: /tmp/k8s-metrics-server/metrics-certs
               name: metrics-certs
               readOnly: true
@@ -114,18 +106,18 @@ spec:
               name: works
             - mountPath: /tmp
               name: tmp
-          {{- if .Values.extraVolumes }}
-          {{- range .Values.extraVolumes }}
+          {{- if .Values.controller.extraVolumes }}
+          {{- range .Values.controller.extraVolumes }}
             - name: {{ .name }}
               mountPath: {{ .mountPath }}
           {{- end }}
           {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      serviceAccountName: {{ include "kubocd-controller.serviceAccountName" . }}
+        {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kubocd.controller.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
       volumes:
-        {{- if .Values.metrics.enabled }}
+        {{- if .Values.controller.metrics.enabled }}
         - name: metrics-certs
           secret:
             items:
@@ -136,23 +128,19 @@ spec:
               - key: tls.key
                 path: tls.key
             optional: false
-            secretName: {{ include "kubocd-controller.metrics.secretName" . }}
-        {{- end }}
-        {{- if .Values.webhook.enabled }}
-        - name: webhook-certs
-          secret:
-            secretName: {{ include "kubocd-controller.webhook.secretName" . }}
+            secretName: {{ include "kubocd.controller.metrics.secretName" . }}
         {{- end }}
         - name: works
           emptyDir:
-            sizeLimit: {{ .Values.volumeSize.works }}
+            sizeLimit: {{ .Values.controller.volumeSize.works }}
         - name: tmp
           emptyDir:
-            sizeLimit: {{ .Values.volumeSize.tmp }}
-      {{- if .Values.extraVolumes }}
-      {{- range .Values.extraVolumes }}
+            sizeLimit: {{ .Values.controller.volumeSize.tmp }}
+      {{- if .Values.controller.extraVolumes }}
+      {{- range .Values.controller.extraVolumes }}
         - name: {{ .name }}
           persistentVolumeClaim:
             claimName: {{ .claimName }}
       {{- end }}
       {{- end }}
+{{ end }}

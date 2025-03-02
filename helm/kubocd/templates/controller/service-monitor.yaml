@@ -1,0 +1,34 @@
+
+{{- if and .Values.controller.enabled .Values.controller.metrics.enabled .Values.controller.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kubocd.controller.metrics.serviceMonitor.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+    - tlsConfig:
+        ca:
+          secret:
+            key: ca.crt
+            name: {{ include "kubocd.controller.metrics.secretName" . }}
+        cert:
+          secret:
+            key: tls.crt
+            name: {{ include "kubocd.controller.metrics.secretName" . }}
+        insecureSkipVerify: false
+        keySecret:
+          key: tls.key
+          name: {{ include "kubocd.controller.metrics.secretName" . }}
+  selector:
+    matchLabels:
+      {{- include "kubocd.controller.selectorLabels" . | nindent 6 }}
+
+{{- end }}
