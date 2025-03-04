@@ -8,6 +8,7 @@ rules:
   - kubocd.kubotal.io
   resources:
   - releases
+  - settings
   verbs:
   - create
   - delete
@@ -20,12 +21,14 @@ rules:
   - kubocd.kubotal.io
   resources:
   - releases/finalizers
+  - settings/finalizers
   verbs:
   - update
 - apiGroups:
   - kubocd.kubotal.io
   resources:
   - releases/status
+  - settings/status
   verbs:
   - get
   - patch

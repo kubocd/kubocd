@@ -19,15 +19,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/http/fetch"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -54,10 +51,10 @@ type ReleaseReconciler struct {
 }
 
 // Just a container to avoid messy parameters passing
-type operation struct {
+type releaseOperation struct {
 	ctx                context.Context
 	logger             logr.Logger
-	release            *kubocdv1alpha1.Release
+	release            *kv1alpha1.Release
 	application        *application.Application
 	ociRepositoryName  string
 	helmRepositoryName string
@@ -90,11 +87,6 @@ func NewReconcileError(err error, fatal bool, eventReason string) *ReconcileErro
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Release object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -109,7 +101,7 @@ func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
 	// We don't use logger provided by the manager, as it is quite verbose
 	//logger := log.FromContext(ctx)
-	release := &kubocdv1alpha1.Release{}
+	release := &kv1alpha1.Release{}
 	err := r.Get(ctx, req.NamespacedName, release)
 	if err != nil {
 		logger.V(1).Info("Unable to fetch resource. Seems deleted")
@@ -118,7 +110,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	op := &operation{
+	op := &releaseOperation{
 		ctx:                ctx,
 		logger:             logger,
 		release:            release,
@@ -168,13 +160,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
-		err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseWaitOci, false)
-		if err != nil {
-			return ctrl.Result{}, err // Will retry
-		}
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseWaitOci, false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content
@@ -194,15 +181,14 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		if err != nil {
 			return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
 		}
-		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
-		if err != nil {
-			return r.reportError(op, fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS")
-		}
-
 		logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
 		err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
 		if err != nil {
 			return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
+		}
+		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS")
 		}
 	} else {
 		logger.V(1).Info("Use already existing artifact")
@@ -223,13 +209,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
-		err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseWaitHelmRepo, false)
-		if err != nil {
-			return ctrl.Result{}, err // Will retry
-		}
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		//return ctrl.Result{RequeueAfter: time.Millisecond * 1000}, nil
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	for module := range op.application.Status.ChartByModule {
@@ -241,18 +222,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
 
-	err = r.updatePhase(op, kubocdv1alpha1.ReleasePhaseReady, false)
-	if err != nil {
-		return ctrl.Result{}, err // Will retry
-	}
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseReady, false)
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
-func (r *ReleaseReconciler) reportError(op *operation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
-	err2 := r.updatePhase(op, kubocdv1alpha1.ReleasePhaseError, false)
+func (r *ReleaseReconciler) reportError(op *releaseOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
+	err2 := r.updatePhase(op, kv1alpha1.ReleasePhaseError, false)
 	if err2 != nil {
 		return ctrl.Result{}, err // Will retry
 	}
@@ -267,7 +243,7 @@ func (r *ReleaseReconciler) reportError(op *operation, err error, fatal bool, ev
 	}
 }
 
-func (r *ReleaseReconciler) updatePhase(op *operation, phase kubocdv1alpha1.ReleasePhase, force bool) error {
+func (r *ReleaseReconciler) updatePhase(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
 	if op.release.Status.Phase == phase && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
 		return nil
@@ -293,15 +269,4 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 		statusByType[condition.Type] = condition.Status
 	}
 	return statusByType
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kubocdv1alpha1.Release{}).
-		Named("kubocd-release").
-		Owns(&sourcev1b2.OCIRepository{}).
-		Owns(&sourcev1.HelmRepository{}).
-		Owns(&fluxv2.HelmRelease{}).
-		Complete(r)
 }

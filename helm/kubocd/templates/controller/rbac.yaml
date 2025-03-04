@@ -28,20 +28,13 @@ rules:
       - kubocd.kubotal.io
     resources:
       - releases
+      - settings
     verbs:
       - get
       - list
       - watch
       - patch
       - update
-  - apiGroups:
-      - kubocd.kubotal.io
-    resources:
-      - settings
-    verbs:
-      - get
-      - list
-      - watch
   - apiGroups:
       - kubocd.kubotal.io
     resources:
@@ -52,6 +45,7 @@ rules:
       - kubocd.kubotal.io
     resources:
       - releases/status
+      - settings/status
     verbs:
       - get
       - patch

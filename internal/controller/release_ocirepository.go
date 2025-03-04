@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleOciRepository(op *operation, mediaType string, ociOperation string) (*sourcev1b2.OCIRepository, *ReconcileError) {
+func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1b2.OCIRepository, *ReconcileError) {
 	// Fetch associated OCIRepository
 	ociRepository := &sourcev1b2.OCIRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.ociRepositoryName, Namespace: op.release.Namespace}, ociRepository)
@@ -58,7 +58,7 @@ func (r *ReleaseReconciler) handleOciRepository(op *operation, mediaType string,
 	return ociRepository, nil
 }
 
-func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, op *operation, mediaType string, ociOperation string) {
+func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, op *releaseOperation, mediaType string, ociOperation string) {
 	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", op.release.Spec.Application.Repository)
 	ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
 		Tag: op.release.Spec.Application.Tag,
@@ -84,7 +84,7 @@ func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, op *operatio
 
 }
 
-func (r *ReleaseReconciler) createOciRepository(op *operation, mediaType string, ociOperation string) error {
+func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType string, ociOperation string) error {
 	ociRepository := &sourcev1b2.OCIRepository{}
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
@@ -99,7 +99,7 @@ func (r *ReleaseReconciler) createOciRepository(op *operation, mediaType string,
 	return nil
 }
 
-func (r *ReleaseReconciler) patchOciRepository(op *operation, ociRepository *sourcev1b2.OCIRepository, mediaType string, ociOperation string) (bool, error) {
+func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1b2.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
 	patch := client.MergeFrom(ociRepository.DeepCopy())
 	populateOciRepository(ociRepository, op, mediaType, ociOperation)

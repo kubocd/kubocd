@@ -262,6 +262,196 @@ spec:
             type: object
           status:
             description: SettingStatus defines the observed state of Setting.
+            properties:
+              clusterRoles:
+                description: |-
+                  ClusterRoles is the resulting ClusterRoles, after potential parent merging
+                  if there is no parent, it is empty, so use the one from Spec.
+                items:
+                  type: string
+                type: array
+              context:
+                description: |-
+                  Context is the resulting context, after potential parent merging
+                  if there is no parent, it is empty, so use the one from Spec.
+                x-kubernetes-preserve-unknown-fields: true
+              ociRedirects:
+                description: |-
+                  OciRedirects is the resulting OciRedirects, after potential parent merging
+                  if there is no parent, it is empty, so use the one from Spec.
+                items:
+                  properties:
+                    certSecretRef:
+                      description: |-
+                        CertSecretRef can be given the name of a Secret containing
+                        either or both of
+
+                        - a PEM-encoded client certificate (`tls.crt`) and private
+                        key (`tls.key`);
+                        - a PEM-encoded CA certificate (`ca.crt`)
+
+                        and whichever are supplied, will be used for connecting to the
+                        registry. The client cert and key are useful if you are
+                        authenticating with a certificate; the CA cert is useful if
+                        you are using a self-signed server certificate. The Secret must
+                        be of type `Opaque` or `kubernetes.io/tls`.
+
+                        Note: Support for the `caFile`, `certFile` and `keyFile` keys have
+                        been deprecated.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    ignore:
+                      description: |-
+                        Ignore overrides the set of excluded patterns in the .sourceignore format
+                        (which is the same as .gitignore). If not provided, a default will be used,
+                        consult the documentation for your version to find out what those are.
+                      type: string
+                    insecure:
+                      description: Insecure allows connecting to a non-TLS HTTP container
+                        registry.
+                      type: boolean
+                    interval:
+                      default: 5m
+                      description: |-
+                        Interval at which the OCIRepository URL is checked for updates.
+                        This interval is approximate and may be subject to jitter to ensure
+                        efficient use of resources.
+                      pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                      type: string
+                    newRepositoryPrefix:
+                      description: The prefix part will be replaced by this value.
+                      type: string
+                    oldRepositoryPrefix:
+                      description: All OIC repo where the Url begin by this value
+                        will be impacted.
+                      type: string
+                    provider:
+                      description: |-
+                        The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator
+                        All following fields will be replicated in this object
+                        The provider used for authentication, can be 'aws', 'azure', 'gcp' or 'generic'.
+                        When not specified, defaults to 'generic'.
+                        -kubebuilder:default:=generic
+                      enum:
+                      - generic
+                      - aws
+                      - azure
+                      - gcp
+                      type: string
+                    proxySecretRef:
+                      description: |-
+                        ProxySecretRef specifies the Secret containing the proxy configuration
+                        to use while communicating with the container registry.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    secretRef:
+                      description: |-
+                        SecretRef contains the secret name containing the registry login
+                        credentials to resolve image metadata.
+                        The secret must be of type kubernetes.io/dockerconfigjson.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    serviceAccountName:
+                      description: |-
+                        ServiceAccountName is the name of the Kubernetes ServiceAccount used to authenticate
+                        the image pull if the service account has attached pull secrets. For more information:
+                        https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#add-imagepullsecrets-to-a-service-account
+                      type: string
+                    suspend:
+                      description: This flag tells the controller to suspend the reconciliation
+                        of this source.
+                      type: boolean
+                    tag:
+                      description: Part of OCI url oci://<repository>:<tag>
+                      type: string
+                    timeout:
+                      default: 60s
+                      description: The timeout for remote OCI Repository operations
+                        like pulling, defaults to 60s.
+                      pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
+                      type: string
+                    verify:
+                      description: |-
+                        Verify contains the secret name containing the trusted public keys
+                        used to verify the signature and specifies which provider to use to check
+                        whether OCI image is authentic.
+                      properties:
+                        matchOIDCIdentity:
+                          description: |-
+                            MatchOIDCIdentity specifies the identity matching criteria to use
+                            while verifying an OCI artifact which was signed using Cosign keyless
+                            signing. The artifact's identity is deemed to be verified if any of the
+                            specified matchers match against the identity.
+                          items:
+                            description: |-
+                              OIDCIdentityMatch specifies options for verifying the certificate identity,
+                              i.e. the issuer and the subject of the certificate.
+                            properties:
+                              issuer:
+                                description: |-
+                                  Issuer specifies the regex pattern to match against to verify
+                                  the OIDC issuer in the Fulcio certificate. The pattern must be a
+                                  valid Go regular expression.
+                                type: string
+                              subject:
+                                description: |-
+                                  Subject specifies the regex pattern to match against to verify
+                                  the identity subject in the Fulcio certificate. The pattern must
+                                  be a valid Go regular expression.
+                                type: string
+                            required:
+                            - issuer
+                            - subject
+                            type: object
+                          type: array
+                        provider:
+                          default: cosign
+                          description: Provider specifies the technology used to sign
+                            the OCI Artifact.
+                          enum:
+                          - cosign
+                          - notation
+                          type: string
+                        secretRef:
+                          description: |-
+                            SecretRef specifies the Kubernetes Secret containing the
+                            trusted public keys.
+                          properties:
+                            name:
+                              description: Name of the referent.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      required:
+                      - provider
+                      type: object
+                  required:
+                  - interval
+                  - newRepositoryPrefix
+                  - oldRepositoryPrefix
+                  - tag
+                  type: object
+                type: array
+              phase:
+                type: string
+            required:
+            - phase
             type: object
         type: object
     served: true

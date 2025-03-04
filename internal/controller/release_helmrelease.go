@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRelease(op *operation, name, moduleName string) (*fluxv2.HelmRelease, *ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, moduleName string) (*fluxv2.HelmRelease, *ReconcileError) {
 	// Fetch associated OCIRepository
 	helmRelease := &fluxv2.HelmRelease{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: name, Namespace: op.release.Namespace}, helmRelease)
@@ -40,7 +40,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *operation, name, moduleName st
 	}
 }
 
-func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *operation, moduleName string) {
+func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *releaseOperation, moduleName string) {
 	helmRelease.Spec.Interval = op.release.Spec.Application.Interval
 	chartRef, ok := op.application.Status.ChartByModule[moduleName]
 	if !ok {
@@ -60,7 +60,7 @@ func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *operation, moduleN
 	}
 }
 
-func (r *ReleaseReconciler) createHelmRelease(op *operation, name string, moduleName string) error {
+func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string, moduleName string) error {
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
@@ -75,7 +75,7 @@ func (r *ReleaseReconciler) createHelmRelease(op *operation, name string, module
 	return nil
 }
 
-func (r *ReleaseReconciler) patchHelmRelease(op *operation, helmRelease *fluxv2.HelmRelease, moduleName string) (bool, error) {
+func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, moduleName string) (bool, error) {
 	originalGeneration := helmRelease.Generation
 	patch := client.MergeFrom(helmRelease.DeepCopy())
 	populateHelmRelease(helmRelease, op, moduleName)

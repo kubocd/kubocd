@@ -6,7 +6,7 @@ baseNameOverride:
 # Image is same for controller and webhook
 image:
   pullSecrets: []
-  repository: quay.io/kubocd/kcd-controller
+  repository: quay.io/kubocd/kubocd
   # -- Overrides the image tag whose default is the chart appVersion.
   tag:
   pullPolicy: IfNotPresent

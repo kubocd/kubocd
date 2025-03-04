@@ -1,7 +1,7 @@
 APP_VERSION ?= 0.1.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
-IMG ?= quay.io/kubocd/kcd-controller:${DOCKER_TAG}
+IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
 
 HELM_VERSION ?= 0.1.1-snapshot
 HELM_DOCKER_REPO := quay.io/kubocd/charts
@@ -113,11 +113,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: build-controller build-kpack  ## Build all binaries
+build: build-kubocd build-kpack  ## Build all binaries
 
-.PHONY: build-controller
-build-controller: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/controller cmd/controller/main.go
+.PHONY: build-kubocd
+build-kubocd: manifests generate fmt vet ## Build manager binary.
+	go build -o bin/kubocd cmd/kubocd/main.go
 
 .PHONY: build-kpack
 build-kpack: ## Build kpack CLI

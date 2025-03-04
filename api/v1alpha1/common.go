@@ -1,16 +1,29 @@
 package v1alpha1
 
 import (
+	"fmt"
 	fluxmeta "github.com/fluxcd/pkg/apis/meta"
 	fluxapiv1 "github.com/fluxcd/source-controller/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-type NamespacedNameSpec struct {
+type NamespacedName struct {
 	// +kubebuilder:validation:Optional
 	Namespace string `json:"namespace"`
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
+}
+
+func (in *NamespacedName) ToObjectKey() types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: in.Namespace,
+		Name:      in.Name,
+	}
+}
+
+func (in *NamespacedName) String() string {
+	return fmt.Sprintf("%s:%s", in.Namespace, in.Name)
 }
 
 type ApplicationSourceAddOn struct {

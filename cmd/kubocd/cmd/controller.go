@@ -1,11 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/fluxcd/pkg/tar"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"net/http"
@@ -14,9 +23,12 @@ import (
 	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var controllerParams struct {
@@ -162,7 +174,48 @@ var controllerCmd = &cobra.Command{
 
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
-		if err = (&controller.ReleaseReconciler{
+		// ---------------------------------------------------------------------------------------------------- Release controller setup
+		// Create an index to retrieve a Release from a setting in an efficient way
+		// index release by settings
+		const settingIndexByRelease = "settingIndexByRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, settingIndexByRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			settings := make([]string, len(release.Spec.Settings))
+			for i, setting := range release.Spec.Settings {
+				settings[i] = fmt.Sprintf("%s:%s", setting.Namespace, setting.Name)
+			}
+			return settings
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Setting")
+			os.Exit(1)
+		}
+
+		findReleaseFromSetting := func(ctx context.Context, setting client.Object) []reconcile.Request {
+			releases := kubocdv1alpha1.ReleaseList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(settingIndexByRelease, fmt.Sprintf("%s:%s", setting.GetNamespace(), setting.GetName())),
+			}
+			err := mgr.GetClient().List(context.Background(), &releases, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					rootLog.Error(err, "findReleaseFromSetting(): Unable to find Setting bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range releases.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
+		releaseReconciler := &controller.ReleaseReconciler{
 			Client:          mgr.GetClient(),
 			Scheme:          mgr.GetScheme(),
 			EventRecorder:   mgr.GetEventRecorderFor("release"),
@@ -170,10 +223,39 @@ var controllerCmd = &cobra.Command{
 			Fetcher:         archiveFetcher,
 			ServerRoot:      serverRoot,
 			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
-		}).SetupWithManager(mgr); err != nil {
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Release{}).
+			Named("kubocd-release").
+			Owns(&sourcev1b2.OCIRepository{}).
+			Owns(&sourcev1.HelmRepository{}).
+			Owns(&fluxv2.HelmRelease{}).
+			Watches(&kubocdv1alpha1.Setting{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromSetting)).
+			Complete(releaseReconciler)
+		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
 			os.Exit(1)
 		}
+		// -------------------------------------------------------------------------------------- Setting controller setup
+
+		settingReconciler := &controller.SettingReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			EventRecorder: mgr.GetEventRecorderFor("setting"),
+			Logger:        rootLog.WithName("SettingReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Setting{}).
+			Named("kubocd-setting").
+			Complete(settingReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Setting")
+			os.Exit(1)
+		}
+
+		// ----------------------------------------------------------------------------------------------------
 		if metricsCertWatcher != nil {
 			setupLog.Info("Adding metrics certificate watcher to manager")
 			if err := mgr.Add(metricsCertWatcher); err != nil {

@@ -36,7 +36,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - /manager
+            - /kubocd
           args:
             - controller
             - --leaderElect={{ ne .Values.controller.replicaCount 1.0 }}

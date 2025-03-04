@@ -43,7 +43,7 @@ type ReleaseSpec struct {
 	// Refer to Setting resource description for more explanation
 	// +kubebuilder:validation:Optional
 	// Default: []
-	Settings []NamespacedNameSpec `json:"settings,omitempty"`
+	Settings []NamespacedName `json:"settings,omitempty"`
 
 	// If false, this release is not deployed (And deleted if existing and unprotected)
 	// +kubebuilder:validation:Optional

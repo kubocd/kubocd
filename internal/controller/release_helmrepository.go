@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRepository(op *operation, repoUrl string) (*sourcev1.HelmRepository, *ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl string) (*sourcev1.HelmRepository, *ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
@@ -58,12 +58,12 @@ func (r *ReleaseReconciler) handleHelmRepository(op *operation, repoUrl string) 
 	return helmRepository, nil
 }
 
-func populateHelmRepository(helmRepository *sourcev1.HelmRepository, op *operation, repoUrl string) {
+func populateHelmRepository(helmRepository *sourcev1.HelmRepository, op *releaseOperation, repoUrl string) {
 	helmRepository.Spec.Interval = op.release.Spec.Application.Interval
 	helmRepository.Spec.URL = repoUrl
 }
 
-func (r *ReleaseReconciler) createHelmRepository(op *operation, repoUrl string) error {
+func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, repoUrl string) error {
 	helmRepository := &sourcev1.HelmRepository{}
 	helmRepository.SetName(op.helmRepositoryName)
 	helmRepository.SetNamespace(op.release.Namespace)
@@ -78,7 +78,7 @@ func (r *ReleaseReconciler) createHelmRepository(op *operation, repoUrl string) 
 	return nil
 }
 
-func (r *ReleaseReconciler) patchHelmRepository(op *operation, helmRepository *sourcev1.HelmRepository, repoUrl string) (bool, error) {
+func (r *ReleaseReconciler) patchHelmRepository(op *releaseOperation, helmRepository *sourcev1.HelmRepository, repoUrl string) (bool, error) {
 	originalGeneration := helmRepository.Generation
 	patch := client.MergeFrom(helmRepository.DeepCopy())
 	populateHelmRepository(helmRepository, op, repoUrl)

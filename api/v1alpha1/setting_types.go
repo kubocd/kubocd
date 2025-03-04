@@ -50,7 +50,7 @@ type SettingSpec struct {
 	// See each property description for more detail.
 	// +kubebuilder:validation:Optional
 	// Default: []
-	Parents []NamespacedNameSpec `json:"parents,omitempty"`
+	Parents []NamespacedName `json:"parents,omitempty"`
 
 	// Context is a map of variables witches will be injected in the data model when rendering Application template.
 	// When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
@@ -72,10 +72,29 @@ type SettingSpec struct {
 	ClusterRoles []string `json:"clusterRoles,omitempty"`
 }
 
+type SettingPhase string
+
+const SettingPhaseReady = SettingPhase("READY")
+const SettingPhaseError = SettingPhase("ERROR")
+
 // SettingStatus defines the observed state of Setting.
 type SettingStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Phase SettingPhase `json:"phase"`
+
+	// Context is the resulting context, after potential parent merging
+	// if there is no parent, it is empty, so use the one from Spec.
+	// +kubebuilder:validation:Optional
+	Context *apiextensionsv1.JSON `json:"context,omitempty"`
+
+	// OciRedirects is the resulting OciRedirects, after potential parent merging
+	// if there is no parent, it is empty, so use the one from Spec.
+	// +kubebuilder:validation:Optional
+	OciRedirects []OciRedirectSpec `json:"ociRedirects,omitempty"`
+
+	// ClusterRoles is the resulting ClusterRoles, after potential parent merging
+	// if there is no parent, it is empty, so use the one from Spec.
+	// +kubebuilder:validation:Optional
+	ClusterRoles []string `json:"clusterRoles,omitempty"`
 }
 
 // +kubebuilder:object:root=true
