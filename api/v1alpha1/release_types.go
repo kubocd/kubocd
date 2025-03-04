@@ -40,10 +40,10 @@ type ReleaseSpec struct {
 	Application ApplicationSource `json:"application"`
 
 	// To provide contextual variables
-	// Refer to Setting resource description for more explanation
+	// Refer to Context resource description for more explanation
 	// +kubebuilder:validation:Optional
 	// Default: []
-	Settings []NamespacedName `json:"settings,omitempty"`
+	Contexts []NamespacedName `json:"contexts,omitempty"`
 
 	// If false, this release is not deployed (And deleted if existing and unprotected)
 	// +kubebuilder:validation:Optional
@@ -56,7 +56,8 @@ type ReleaseSpec struct {
 	// Default: false
 	Suspended bool `json:"suspended,omitempty"`
 
-	// If true, HelmRelease will not be deleted by KuboCD
+	// If true, the webhook will prevent deletion
+	// TODO: Ensure some fallback if no webhook (Break ownership of helmReleases ?)
 	// +kubebuilder:validation:Optional
 	// Default: false
 	Protected bool `json:"protected,omitempty"`

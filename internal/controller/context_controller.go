@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// SettingReconciler reconciles a Setting object
-type SettingReconciler struct {
+// ContextReconciler reconciles a Context object
+type ContextReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	record.EventRecorder
@@ -21,21 +21,21 @@ type SettingReconciler struct {
 }
 
 // Just a container to avoid messy parameters passing
-type settingOperation struct {
-	ctx     context.Context
-	logger  logr.Logger
-	setting *kv1alpha1.Setting
+type contextOperation struct {
+	ctx      context.Context
+	logger   logr.Logger
+	kcontext *kv1alpha1.Context
 }
 
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=settings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=settings/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=settings/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
-func (r *SettingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ContextReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	logger.V(1).Info("vv..............vv")
 	result, err := r.reconcile2(ctx, req, logger)
@@ -43,11 +43,11 @@ func (r *SettingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return result, err
 }
 
-func (r *SettingReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
+func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
 	// We don't use logger provided by the manager, as it is quite verbose
 	//logger := log.FromContext(ctx)
-	setting := &kv1alpha1.Setting{}
-	err := r.Get(ctx, req.NamespacedName, setting)
+	kcontext := &kv1alpha1.Context{}
+	err := r.Get(ctx, req.NamespacedName, kcontext)
 	if err != nil {
 		logger.V(1).Info("Unable to fetch resource. Seems deleted")
 		// we'll ignore not-found errors, since they can't be fixed by an immediate requeue
@@ -55,39 +55,31 @@ func (r *SettingReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	op := &settingOperation{
-		ctx:     ctx,
-		logger:  logger,
-		setting: setting,
+	op := &contextOperation{
+		ctx:      ctx,
+		logger:   logger,
+		kcontext: kcontext,
 	}
 
 	// We have nothing to cleanup with this kind. So no need to setup a finalizer
-	upd := setting.DeepCopy()
-	dirty, err := groomSetting(upd, logger)
+	upd := kcontext.DeepCopy()
+	err = groomContext(upd, logger)
 	if err != nil {
 		return r.reportError(op, err, true, "InvalidData")
 	}
-	if dirty {
-		err = r.Update(ctx, upd)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
-	}
-	if len(setting.Spec.Parents) == 0 {
+	if len(kcontext.Spec.Parents) == 0 {
 		// Must ensure status is empty
-		if setting.Status.Context != nil || setting.Status.OciRedirects != nil || setting.Status.ClusterRoles != nil {
-			setting.Status.Context = nil
-			setting.Status.OciRedirects = nil
-			setting.Status.ClusterRoles = nil
-			return ctrl.Result{}, r.updatePhase(op, kv1alpha1.SettingPhaseReady, true)
+		if kcontext.Status.Context != nil {
+			kcontext.Status.Context = nil
+			return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
 		}
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, false)
 	} else {
-		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.SettingPhaseReady, true)
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
 		//// Get parent
-		//for _, parent := range setting.Spec.Parents {
-		//	parentSetting := &kv1alpha1.Setting{}
-		//	err = r.Get(ctx, parent.ToObjectKey(), parentSetting)
+		//for _, parent := range context.Spec.Parents {
+		//	parentContext := &kv1alpha1.Context{}
+		//	err = r.Get(ctx, parent.ToObjectKey(), parentContext)
 		//	if err != nil {
 		//		if errors.IsNotFound(err) {
 		//			return r.reportError(op, err, true, "GetParent")
@@ -95,13 +87,13 @@ func (r *SettingReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//			return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent")
 		//		}
 		//	}
-		//	if parentSetting.Status.Phase != kv1alpha1.SettingPhaseReady {
+		//	if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
 		//		return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")
 		//	}
 		//	// OK. Merge our info on top of our parent
-		//	ctx := parentSetting.Status.Context
+		//	ctx := parentContext.Status.Context
 		//	if ctx == nil {
-		//		ctx = parentSetting.Spec.Context
+		//		ctx = parentContext.Spec.Context
 		//	}
 		//	base :=
 		//
@@ -109,11 +101,10 @@ func (r *SettingReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 		// Must build status
 	}
-	return ctrl.Result{}, nil
 }
 
 //
-//func mergeSettings(parent *kv1alpha1.Setting, child *kv1alpha1.Setting) (*apiextensionsv1.JSON, []kv1alpha1.OciRedirectSpec, []string, error) {
+//func mergeContexts(parent *kv1alpha1.Context, child *kv1alpha1.Context) (*apiextensionsv1.JSON, []kv1alpha1.OciRedirectSpec, []string, error) {
 //	// --------------------------------Handle context
 //	ctx := parent.Status.Context
 //	if ctx == nil {
@@ -150,34 +141,32 @@ func (r *SettingReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 //
 //}
 
-func groomSetting(setting *kv1alpha1.Setting, logger logr.Logger) (dirty bool, err error) {
-	dirty = false
-	for i := range setting.Spec.Parents {
-		child := &setting.Spec.Parents[i]
+func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) error {
+	for i := range kcontext.Spec.Parents {
+		child := &kcontext.Spec.Parents[i]
 		if child.Namespace == "" {
-			logger.V(1).Info("Set namespace for child", "name", child.Name, "namespace", setting.ObjectMeta.Namespace)
-			child.Namespace = setting.ObjectMeta.Namespace
-			dirty = true
+			logger.V(1).Info("Set namespace for child", "name", child.Name, "namespace", kcontext.ObjectMeta.Namespace)
+			child.Namespace = kcontext.ObjectMeta.Namespace
 		}
 	}
 	// Check context is a valid map
 	kuboContext := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(setting.Spec.Context.Raw, &kuboContext)
+	err := yaml.UnmarshalStrict(kcontext.Spec.Context.Raw, &kuboContext)
 	if err != nil {
-		return false, fmt.Errorf("unmarshalling context: %w", err)
+		return fmt.Errorf("unmarshalling context: %w", err)
 	}
-	return dirty, nil
+	return nil
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
-func (r *SettingReconciler) reportError(op *settingOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
-	err2 := r.updatePhase(op, kv1alpha1.SettingPhaseError, false)
+func (r *ContextReconciler) reportError(op *contextOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
+	err2 := r.updatePhase(op, kv1alpha1.ContextPhaseError, false)
 	if err2 != nil {
 		return ctrl.Result{}, err // Will retry
 	}
 	if eventReason != "" && err != nil {
-		r.Event(op.setting, "Warning", eventReason, err.Error())
+		r.Event(op.kcontext, "Warning", eventReason, err.Error())
 	}
 	if fatal {
 		op.logger.Error(err, "Wait for this to be fixed")
@@ -187,12 +176,12 @@ func (r *SettingReconciler) reportError(op *settingOperation, err error, fatal b
 	}
 }
 
-func (r *SettingReconciler) updatePhase(op *settingOperation, phase kv1alpha1.SettingPhase, force bool) error {
-	if op.setting.Status.Phase == phase && !force {
-		op.logger.V(1).Info("Setting phase is already up-to-date", "phase", phase)
+func (r *ContextReconciler) updatePhase(op *contextOperation, phase kv1alpha1.ContextPhase, force bool) error {
+	if op.kcontext.Status.Phase == phase && !force {
+		op.logger.V(1).Info("Context phase is already up-to-date", "phase", phase)
 		return nil
 	}
-	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.setting.Status.Phase, "force", force)
-	op.setting.Status.Phase = phase
-	return r.Status().Update(op.ctx, op.setting)
+	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.kcontext.Status.Phase, "force", force)
+	op.kcontext.Status.Phase = phase
+	return r.Status().Update(op.ctx, op.kcontext)
 }

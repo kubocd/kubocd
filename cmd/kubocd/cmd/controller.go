@@ -175,31 +175,31 @@ var controllerCmd = &cobra.Command{
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
-		// Create an index to retrieve a Release from a setting in an efficient way
-		// index release by settings
-		const settingIndexByRelease = "settingIndexByRelease"
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, settingIndexByRelease, func(rawObj client.Object) []string {
+		// Create an index to retrieve a Release from a context in an efficient way
+		// index release by contexts
+		const contextIndexOnRelease = "contextIndexOnRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, contextIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
-			settings := make([]string, len(release.Spec.Settings))
-			for i, setting := range release.Spec.Settings {
-				settings[i] = fmt.Sprintf("%s:%s", setting.Namespace, setting.Name)
+			contexts := make([]string, len(release.Spec.Contexts))
+			for i, context := range release.Spec.Contexts {
+				contexts[i] = fmt.Sprintf("%s:%s", context.Namespace, context.Name)
 			}
-			return settings
+			return contexts
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Setting")
+			setupLog.Error(err, "Unable to index Release by Context")
 			os.Exit(1)
 		}
 
-		findReleaseFromSetting := func(ctx context.Context, setting client.Object) []reconcile.Request {
+		findReleaseFromContext := func(ctx context.Context, kcontext client.Object) []reconcile.Request {
 			releases := kubocdv1alpha1.ReleaseList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(settingIndexByRelease, fmt.Sprintf("%s:%s", setting.GetNamespace(), setting.GetName())),
+				FieldSelector: fields.OneTermEqualSelector(contextIndexOnRelease, fmt.Sprintf("%s:%s", kcontext.GetNamespace(), kcontext.GetName())),
 			}
 			err := mgr.GetClient().List(context.Background(), &releases, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					rootLog.Error(err, "findReleaseFromSetting(): Unable to find Setting bindings")
+					rootLog.Error(err, "findReleaseFromContext(): Unable to find Context bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -231,27 +231,27 @@ var controllerCmd = &cobra.Command{
 			Owns(&sourcev1b2.OCIRepository{}).
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
-			Watches(&kubocdv1alpha1.Setting{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromSetting)).
+			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
 			os.Exit(1)
 		}
-		// -------------------------------------------------------------------------------------- Setting controller setup
+		// -------------------------------------------------------------------------------------- Context controller setup
 
-		settingReconciler := &controller.SettingReconciler{
+		contextReconciler := &controller.ContextReconciler{
 			Client:        mgr.GetClient(),
 			Scheme:        mgr.GetScheme(),
-			EventRecorder: mgr.GetEventRecorderFor("setting"),
-			Logger:        rootLog.WithName("SettingReconciler"),
+			EventRecorder: mgr.GetEventRecorderFor("context"),
+			Logger:        rootLog.WithName("ContextReconciler"),
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Setting{}).
-			Named("kubocd-setting").
-			Complete(settingReconciler)
+			For(&kubocdv1alpha1.Context{}).
+			Named("kubocd-context").
+			Complete(contextReconciler)
 		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Setting")
+			setupLog.Error(err, "unable to create controller", "controller", "Context")
 			os.Exit(1)
 		}
 

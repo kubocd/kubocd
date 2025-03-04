@@ -27,7 +27,7 @@ resources:
     namespaced: true
   domain: kubotal.io
   group: kubocd
-  kind: Setting
+  kind: Context
   path: kubocd/api/kubocd/v1alpha1
   version: v1alpha1
 version: "3"

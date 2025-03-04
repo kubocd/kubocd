@@ -20,21 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type OciRedirectSpec struct {
-
-	// All OIC repo where the Url begin by this value will be impacted.
-	// +kubebuilder:validation:Required
-	OldRepositoryPrefix string `json:"oldRepositoryPrefix"`
-
-	// The prefix part will be replaced by this value.
-	// +kubebuilder:validation:Required
-	NewRepositoryPrefix string `json:"newRepositoryPrefix"`
-
-	ApplicationSourceAddOn `json:",inline"`
-}
-
-// SettingSpec defines the desired state of Setting.
-type SettingSpec struct {
+// ContextSpec defines the desired state of Context.
+type ContextSpec struct {
 
 	// Short description. Single line only
 	// +kubebuilder:validation:Optional
@@ -46,11 +33,17 @@ type SettingSpec struct {
 	// Default: false
 	Abstract bool `json:"abstract,omitempty"`
 
-	// Settings can be merged together.
+	// Context can be merged together.
 	// See each property description for more detail.
 	// +kubebuilder:validation:Optional
 	// Default: []
 	Parents []NamespacedName `json:"parents,omitempty"`
+
+	// If true, the webhook will prevent deletion
+	// TODO: Ensure some fallback if no webhook (Break ownership of helmReleases ?)
+	// +kubebuilder:validation:Optional
+	// Default: false
+	Protected bool `json:"protected,omitempty"`
 
 	// Context is a map of variables witches will be injected in the data model when rendering Application template.
 	// When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
@@ -58,68 +51,48 @@ type SettingSpec struct {
 	// Then merging is performed with the parent array order.
 	// +kubebuilder:validation:Optional
 	Context *apiextensionsv1.JSON `json:"context,omitempty"`
-
-	// Each entry allow substitution of oci data source.
-	// Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
-	// This will also allow to add authentication and proxy information.
-	// When merging settings, values are simply appended.
-	// +kubebuilder:validation:Optional
-	OciRedirects []OciRedirectSpec `json:"ociRedirects,omitempty"`
-
-	// Allow to define Roles already provided by the k8s cluster, independently of any KuboCD deployment.
-	// +kubebuilder:validation:Optional
-	// Default: []
-	ClusterRoles []string `json:"clusterRoles,omitempty"`
 }
 
-type SettingPhase string
+type ContextPhase string
 
-const SettingPhaseReady = SettingPhase("READY")
-const SettingPhaseError = SettingPhase("ERROR")
+const ContextPhaseReady = ContextPhase("READY")
+const ContextPhaseError = ContextPhase("ERROR")
 
-// SettingStatus defines the observed state of Setting.
-type SettingStatus struct {
-	Phase SettingPhase `json:"phase"`
+// ContextStatus defines the observed state of Context.
+type ContextStatus struct {
+	Phase ContextPhase `json:"phase"`
 
 	// Context is the resulting context, after potential parent merging
 	// if there is no parent, it is empty, so use the one from Spec.
 	// +kubebuilder:validation:Optional
 	Context *apiextensionsv1.JSON `json:"context,omitempty"`
-
-	// OciRedirects is the resulting OciRedirects, after potential parent merging
-	// if there is no parent, it is empty, so use the one from Spec.
-	// +kubebuilder:validation:Optional
-	OciRedirects []OciRedirectSpec `json:"ociRedirects,omitempty"`
-
-	// ClusterRoles is the resulting ClusterRoles, after potential parent merging
-	// if there is no parent, it is empty, so use the one from Spec.
-	// +kubebuilder:validation:Optional
-	ClusterRoles []string `json:"clusterRoles,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=ctx;kcontext;kctx
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// Setting is the Schema for the settings API.
-type Setting struct {
+// Context is the Schema for the settings API.
+type Context struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SettingSpec   `json:"spec,omitempty"`
-	Status SettingStatus `json:"status,omitempty"`
+	Spec   ContextSpec   `json:"spec,omitempty"`
+	Status ContextStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// SettingList contains a list of Setting.
-type SettingList struct {
+// ContextList contains a list of Context.
+type ContextList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Setting `json:"items"`
+	Items           []Context `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Setting{}, &SettingList{})
+	SchemeBuilder.Register(&Context{}, &ContextList{})
 }

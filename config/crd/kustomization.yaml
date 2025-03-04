@@ -3,7 +3,8 @@
 # It should be run by config/default
 resources:
 - bases/kubocd.kubotal.io_releases.yaml
-- bases/kubocd.kubotal.io_settings.yaml
+- bases/kubocd.kubotal.io_contexts.yaml
+- bases/kubocd.kubotal.io_configs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

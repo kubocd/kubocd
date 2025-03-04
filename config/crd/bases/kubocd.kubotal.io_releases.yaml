@@ -219,6 +219,21 @@ spec:
                 - repository
                 - tag
                 type: object
+              contexts:
+                description: |-
+                  To provide contextual variables
+                  Refer to Context resource description for more explanation
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               createNamespace:
                 description: |-
                   If true, add  { install: { createNamespace: true } } to config map.
@@ -251,7 +266,7 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               protected:
                 description: |-
-                  If true, HelmRelease will not be deleted by KuboCD
+                  If true, the webhook will prevent deletion
                   Default: false
                 type: boolean
               roles:
@@ -260,21 +275,6 @@ spec:
                   Default: []
                 items:
                   type: string
-                type: array
-              settings:
-                description: |-
-                  To provide contextual variables
-                  Refer to Setting resource description for more explanation
-                  Default: []
-                items:
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                  - name
-                  type: object
                 type: array
               suspended:
                 description: |-
