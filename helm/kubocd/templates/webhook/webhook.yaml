@@ -33,6 +33,27 @@ webhooks:
         resources:
           - releases
     sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "kubocd.webhook.serviceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-kubocd-kubotal-io-v1alpha1-context
+    failurePolicy: Fail
+    name: mcontext-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - kubocd.kubotal.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - contexts
+    sideEffects: None
+
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -67,4 +88,27 @@ webhooks:
         resources:
           - releases
     sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "kubocd.webhook.serviceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubocd-kubotal-io-v1alpha1-context
+    failurePolicy: Fail
+    name: vcontext-v1alpha1.kb.io
+    rules:
+      - apiGroups:
+          - kubocd.kubotal.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - contexts
+    sideEffects: None
+
+
 {{ end }}

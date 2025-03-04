@@ -10,6 +10,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-kubocd-kubotal-io-v1alpha1-context
+  failurePolicy: Fail
+  name: mcontext-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - contexts
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubocd-kubotal-io-v1alpha1-release
   failurePolicy: Fail
   name: mrelease-v1alpha1.kb.io
@@ -30,6 +50,27 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: validating-webhook-configuration
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubocd-kubotal-io-v1alpha1-context
+  failurePolicy: Fail
+  name: vcontext-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - contexts
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:

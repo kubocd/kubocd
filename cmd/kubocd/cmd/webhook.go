@@ -164,6 +164,10 @@ var webhookCmd = &cobra.Command{
 			setupLog.Error(err, "unable to create webhook", "webhook", "Release")
 			os.Exit(1)
 		}
+		if err = webhookkubocdv1alpha1.SetupContextWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Context")
+			os.Exit(1)
+		}
 		// +kubebuilder:scaffold:builder
 
 		if metricsCertWatcher != nil {
