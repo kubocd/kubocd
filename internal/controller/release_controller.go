@@ -17,12 +17,14 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/application"
@@ -33,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"strings"
 )
 
 const ociRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
@@ -153,6 +156,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//	return ctrl.Result{}, err
 		//}
 	}
+
+	rErr := groomRelease(release, logger)
+	if rErr != nil {
+		return r.reportError(op, rErr.error, rErr.fatal, rErr.eventReason)
+	}
+
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
 	ociRepository, reconcileError := r.handleOciRepository(op, global.ApplicationContentMediaType, "extract")
 	if reconcileError != nil {
@@ -161,7 +170,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseWaitOci, false)
+		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content
@@ -171,7 +180,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	revision, err := os.ReadFile(revisionFile)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+		if !errors.IsNotFound(err) {
 			// Just log. Don't stop processing
 			op.logger.Error(err, "Failed to read revision file")
 		}
@@ -210,7 +219,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
+		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
+	}
+	// ---------------------------------------------------------- Compute context, and store in status, if requested
+	theContext, reconcileError := r.computeContext(op)
+	if reconcileError != nil {
+		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	for module := range op.application.Status.ChartByModule {
@@ -221,14 +235,60 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
+	forceUpdate := false
+	if op.release.Spec.Debug != nil && op.release.Spec.Debug.DumpContext {
+		// Sore in status
+		ba, err := json.Marshal(&theContext)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("unable to marshal context"), false, "ContextError") // Should not occur
+		}
+		op.release.Status.Context = &apiextensionsv1.JSON{
+			Raw: ba,
+		}
+		forceUpdate = true
+	} else {
+		if op.release.Status.Context != nil {
+			op.release.Status.Context = nil
+			forceUpdate = true
+		}
+	}
 
-	return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ReleasePhaseReady, false)
+	return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseReady, forceUpdate)
+}
+
+func (r *ReleaseReconciler) computeContext(op *releaseOperation) (map[string]interface{}, *ReconcileError) {
+	// ------ And now, build the current context
+	theContext := make(map[string]interface{})
+	for _, contextNs := range op.release.Spec.Contexts {
+		kContext := &kv1alpha1.Context{}
+		err := r.Get(op.ctx, contextNs.ToObjectKey(), kContext)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return nil, NewReconcileError(err, true, "ContextNotFound")
+			} else {
+				return nil, NewReconcileError(err, false, "ContextRetrieval")
+			}
+		}
+		if kContext.Status.Phase != kv1alpha1.ContextPhaseReady {
+			return nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextNs.String())), true, "ContextRetrieval")
+		}
+		// OK. Merge our info on top of our parent
+		ctx := kContext.Status.Context
+		if ctx == nil {
+			ctx = kContext.Spec.Context
+		}
+		theContext, err = merge(theContext, ctx)
+		if err != nil {
+			return nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextNs.String())), true, "ContextRetrieval")
+		}
+	}
+	return theContext, nil
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
 func (r *ReleaseReconciler) reportError(op *releaseOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
-	err2 := r.updatePhase(op, kv1alpha1.ReleasePhaseError, false)
+	err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, false)
 	if err2 != nil {
 		return ctrl.Result{}, err // Will retry
 	}
@@ -243,19 +303,27 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, err error, fatal b
 	}
 }
 
-func (r *ReleaseReconciler) updatePhase(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
-	if op.release.Status.Phase == phase && !force {
+func buildContextsList(release *kv1alpha1.Release) string {
+	if len(release.Spec.Contexts) == 0 {
+		return ""
+	}
+	contexts := make([]string, len(release.Spec.Contexts))
+	for idx := range release.Spec.Contexts {
+		contexts[idx] = release.Spec.Contexts[idx].String()
+	}
+	return strings.Join(contexts, ",")
+}
+
+func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
+	ctxs := buildContextsList(op.release)
+	if op.release.Status.Phase == phase && op.release.Status.Contexts == ctxs && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
 		return nil
 	}
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
+	op.release.Status.Contexts = ctxs
 	err := r.Status().Update(op.ctx, op.release)
-	//if err != nil {
-	//	op.logger.Error(err, "!!!!!!!!!!Unable to update status")
-	//	panic("!!!!!!!!!!Unable to update status")
-	//}
-	// If err != nil, will retry
 	return err
 }
 
@@ -269,4 +337,15 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 		statusByType[condition.Type] = condition.Status
 	}
 	return statusByType
+}
+
+func groomRelease(release *kv1alpha1.Release, logger logr.Logger) *ReconcileError {
+	for i := range release.Spec.Contexts {
+		kctx := &release.Spec.Contexts[i]
+		if kctx.Namespace == "" {
+			logger.V(1).Info("Set namespace for context", "contextName", kctx.Name, "contextNamespace", release.ObjectMeta.Namespace)
+			kctx.Namespace = release.ObjectMeta.Namespace
+		}
+	}
+	return nil
 }

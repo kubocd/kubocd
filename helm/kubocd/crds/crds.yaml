@@ -257,6 +257,9 @@ spec:
     - jsonPath: .spec.description
       name: Description
       type: string
+    - jsonPath: .status.parents
+      name: Parents
+      type: string
     - jsonPath: .status.phase
       name: Status
       type: string
@@ -333,6 +336,11 @@ spec:
                   Context is the resulting context, after potential parent merging
                   if there is no parent, it is empty, so use the one from Spec.
                 x-kubernetes-preserve-unknown-fields: true
+              parents:
+                description: |-
+                  Parents is a string to list our parents. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               phase:
                 type: string
             required:
@@ -365,6 +373,9 @@ spec:
       type: string
     - jsonPath: .spec.application.tag
       name: Tag
+      type: string
+    - jsonPath: .status.contexts
+      name: Contexts
       type: string
     - jsonPath: .status.phase
       name: Status
@@ -584,6 +595,16 @@ spec:
                   If true, add  { install: { createNamespace: true } } to config map.
                   Default: false
                 type: boolean
+              debug:
+                description: Group a set of parameters useful for debugging Release
+                  and Application
+                properties:
+                  dumpContext:
+                    description: |-
+                      DumpContext instruct to save a representation of the context
+                      in the Status. This for user debugging?
+                    type: boolean
+                type: object
               dependsOn:
                 description: |-
                   The roles we depend on. (appended to the one of the underlying Application)
@@ -633,6 +654,15 @@ spec:
           status:
             description: ReleaseStatus defines the observed state of Release.
             properties:
+              context:
+                description: Context is the resulting context, if requested in debug
+                  options
+                x-kubernetes-preserve-unknown-fields: true
+              contexts:
+                description: |-
+                  Contexts is a string to list our context. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               phase:
                 type: string
             required:

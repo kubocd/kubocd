@@ -182,7 +182,11 @@ var controllerCmd = &cobra.Command{
 			release := rawObj.(*kubocdv1alpha1.Release)
 			contexts := make([]string, len(release.Spec.Contexts))
 			for i, context := range release.Spec.Contexts {
-				contexts[i] = fmt.Sprintf("%s:%s", context.Namespace, context.Name)
+				ns := context.Namespace
+				if ns == "" {
+					ns = release.Namespace
+				}
+				contexts[i] = fmt.Sprintf("%s:%s", ns, context.Name)
 			}
 			return contexts
 		})
@@ -239,6 +243,48 @@ var controllerCmd = &cobra.Command{
 		}
 		// -------------------------------------------------------------------------------------- Context controller setup
 
+		const parentIndexOnChild = "parentIndexOnChild"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Context{}, parentIndexOnChild, func(rawObj client.Object) []string {
+			child := rawObj.(*kubocdv1alpha1.Context)
+			parents := make([]string, len(child.Spec.Parents))
+			for i, parent := range child.Spec.Parents {
+				ns := parent.Namespace
+				if ns == "" {
+					ns = child.Namespace
+				}
+				parents[i] = fmt.Sprintf("%s:%s", ns, parent.Name)
+			}
+			return parents
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
+			os.Exit(1)
+		}
+
+		findChildFromParent := func(ctx context.Context, parentContext client.Object) []reconcile.Request {
+			children := kubocdv1alpha1.ContextList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(parentIndexOnChild, fmt.Sprintf("%s:%s", parentContext.GetNamespace(), parentContext.GetName())),
+			}
+			err := mgr.GetClient().List(context.Background(), &children, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					rootLog.Error(err, "findChildFromParent(): Unable to find Context bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range children.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
 		contextReconciler := &controller.ContextReconciler{
 			Client:        mgr.GetClient(),
 			Scheme:        mgr.GetScheme(),
@@ -249,6 +295,7 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.Context{}).
 			Named("kubocd-context").
+			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findChildFromParent)).
 			Complete(contextReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Context")

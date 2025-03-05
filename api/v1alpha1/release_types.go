@@ -28,6 +28,14 @@ type ApplicationSource struct {
 	ApplicationSourceAddOn `json:",inline"`
 }
 
+type ReleaseDebug struct {
+
+	// DumpContext instruct to save a representation of the context
+	// in the Status. This for user debugging?
+	// +kubebuilder:validation:Optional
+	DumpContext bool `json:"dumpContext,omitempty"`
+}
+
 // ReleaseSpec defines the desired state of Release.
 type ReleaseSpec struct {
 
@@ -87,6 +95,10 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	// Default: []
 	DependsOn []string `json:"dependsOn,omitempty"`
+
+	// Group a set of parameters useful for debugging Release and Application
+	// +kubebuilder:validation:Optional
+	Debug *ReleaseDebug `json:"debug,omitempty"`
 }
 
 type ReleasePhase string
@@ -99,12 +111,21 @@ const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_HELM_REPO")
 // ReleaseStatus defines the observed state of Release.
 type ReleaseStatus struct {
 	Phase ReleasePhase `json:"phase"`
+
+	// Contexts is a string to list our context. Not technically used, but intended to be displayed
+	// as printcolumn
+	Contexts string `json:"contexts,omitempty"`
+
+	// Context is the resulting context, if requested in debug options
+	// +kubebuilder:validation:Optional
+	Context *apiextensionsv1.JSON `json:"context,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.application.repository`
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.application.tag`
+// +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.contexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

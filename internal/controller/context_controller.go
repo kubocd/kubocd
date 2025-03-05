@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
+	"strings"
 )
 
 // ContextReconciler reconciles a Context object
@@ -37,8 +41,10 @@ type contextOperation struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *ContextReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	logger.V(1).Info("vv..............vv")
+	logger.V(1).Info(fmt.Sprintf("vv..............vv  %s:%s", req.NamespacedName.Namespace, req.NamespacedName.Name))
 	result, err := r.reconcile2(ctx, req, logger)
+	// result := ctrl.Result{}
+	// var err error = nil
 	logger.V(1).Info("^^..............^^", "result", result)
 	return result, err
 }
@@ -62,90 +68,73 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// We have nothing to cleanup with this kind. So no need to setup a finalizer
-	upd := kcontext.DeepCopy()
-	err = groomContext(upd, logger)
-	if err != nil {
-		return r.reportError(op, err, true, "InvalidData")
+	rErr := groomContext(kcontext, logger)
+	if rErr != nil {
+		return r.reportError(op, rErr.error, rErr.fatal, rErr.eventReason)
 	}
 	if len(kcontext.Spec.Parents) == 0 {
 		// Must ensure status is empty
-		if kcontext.Status.Context != nil {
+		if kcontext.Status.Context != nil || kcontext.Status.Parents != "" {
 			kcontext.Status.Context = nil
+			kcontext.Status.Parents = ""
 			return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
 		}
 		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, false)
 	} else {
-		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
-		//// Get parent
-		//for _, parent := range context.Spec.Parents {
-		//	parentContext := &kv1alpha1.Context{}
-		//	err = r.Get(ctx, parent.ToObjectKey(), parentContext)
-		//	if err != nil {
-		//		if errors.IsNotFound(err) {
-		//			return r.reportError(op, err, true, "GetParent")
-		//		} else {
-		//			return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent")
-		//		}
-		//	}
-		//	if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
-		//		return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")
-		//	}
-		//	// OK. Merge our info on top of our parent
-		//	ctx := parentContext.Status.Context
-		//	if ctx == nil {
-		//		ctx = parentContext.Spec.Context
-		//	}
-		//	base :=
-		//
-		//}
+		// -------Build a displayable Parents list
+		parents := make([]string, len(kcontext.Spec.Parents))
+		for i := range kcontext.Spec.Parents {
+			parents[i] = kcontext.Spec.Parents[i].String()
+		}
+		kcontext.Status.Parents = strings.Join(parents, ",")
 
-		// Must build status
+		// ------ And now, build the current context
+		base := make(map[string]interface{})
+		for _, parent := range kcontext.Spec.Parents {
+			parentContext := &kv1alpha1.Context{}
+			err = r.Get(ctx, parent.ToObjectKey(), parentContext)
+			if err != nil {
+				if errors.IsNotFound(err) {
+					return r.reportError(op, err, true, "GetParent")
+				} else {
+					return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent")
+				}
+			}
+			if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
+				return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")
+			}
+			// OK. Merge our info on top of our parent
+			ctx := parentContext.Status.Context
+			if ctx == nil {
+				ctx = parentContext.Spec.Context
+			}
+			base, err = merge(base, ctx)
+			if err != nil {
+				return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError") // Should not occurs, as detected before
+			}
+		}
+		// And merge out own content
+		base, err = merge(base, kcontext.Spec.Context)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("invalid context content"), false, "ContextError") // Should not occurs, as detected before
+		}
+		// And store in status
+		ba, err := json.Marshal(&base)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("unable to marshal result"), false, "ContextError") // Should not occurs
+		}
+		kcontext.Status.Context = &apiextensionsv1.JSON{
+			Raw: ba,
+		}
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
 	}
 }
 
-//
-//func mergeContexts(parent *kv1alpha1.Context, child *kv1alpha1.Context) (*apiextensionsv1.JSON, []kv1alpha1.OciRedirectSpec, []string, error) {
-//	// --------------------------------Handle context
-//	ctx := parent.Status.Context
-//	if ctx == nil {
-//		ctx = parent.Spec.Context
-//	}
-//	base := make(map[string]interface{})
-//	err := yaml.UnmarshalStrict(ctx.Raw, base)
-//	if err != nil {
-//		return nil, nil, nil, err // Should not occurs, as parent should be in error
-//	}
-//	my := make(map[string]interface{})
-//	err = yaml.UnmarshalStrict(child.Spec.Context.Raw, my)
-//	if err != nil {
-//		return nil, nil, nil, err // Should not occurs, as parent should be in error
-//	}
-//	r := misc.MergeMaps(base, my)
-//	newCtx, err := yaml.Marshal(r)
-//	if err != nil {
-//		return nil, nil, nil, err // Should not occurs
-//	}
-//	// ------------------------------
-//	redirects := parent.Status.OciRedirects
-//	if redirects == nil {
-//		redirects = parent.Spec.OciRedirects
-//	}
-//	newRedirects := append(redirects, child.Spec.OciRedirects...)
-//	// -------------------------------
-//	clusterRoles := parent.Status.ClusterRoles
-//	if clusterRoles == nil {
-//		clusterRoles = parent.Spec.ClusterRoles
-//	}
-//	newClusterRoles := append(clusterRoles, child.Spec.ClusterRoles...)
-//	return &apiextensionsv1.JSON{Raw: newCtx}, newRedirects, newClusterRoles, nil
-//
-//}
-
-func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) error {
+func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) *ReconcileError {
 	for i := range kcontext.Spec.Parents {
 		child := &kcontext.Spec.Parents[i]
 		if child.Namespace == "" {
-			logger.V(1).Info("Set namespace for child", "name", child.Name, "namespace", kcontext.ObjectMeta.Namespace)
+			logger.V(1).Info("Set namespace for child", "childName", child.Name, "childNamespace", kcontext.ObjectMeta.Namespace)
 			child.Namespace = kcontext.ObjectMeta.Namespace
 		}
 	}
@@ -153,7 +142,7 @@ func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) error {
 	kuboContext := make(map[string]interface{})
 	err := yaml.UnmarshalStrict(kcontext.Spec.Context.Raw, &kuboContext)
 	if err != nil {
-		return fmt.Errorf("unmarshalling context: %w", err)
+		return NewReconcileError(fmt.Errorf("unable to unmarshal kubo context: %w", err), false, "InvalidContext")
 	}
 	return nil
 }

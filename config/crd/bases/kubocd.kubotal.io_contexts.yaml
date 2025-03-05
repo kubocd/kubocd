@@ -22,6 +22,9 @@ spec:
     - jsonPath: .spec.description
       name: Description
       type: string
+    - jsonPath: .status.parents
+      name: Parents
+      type: string
     - jsonPath: .status.phase
       name: Status
       type: string
@@ -98,6 +101,11 @@ spec:
                   Context is the resulting context, after potential parent merging
                   if there is no parent, it is empty, so use the one from Spec.
                 x-kubernetes-preserve-unknown-fields: true
+              parents:
+                description: |-
+                  Parents is a string to list our parents. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               phase:
                 type: string
             required:

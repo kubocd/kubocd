@@ -10,7 +10,7 @@ import (
 
 type NamespacedName struct {
 	// +kubebuilder:validation:Optional
-	Namespace string `json:"namespace"`
+	Namespace string `json:"namespace,omitempty"`
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 }

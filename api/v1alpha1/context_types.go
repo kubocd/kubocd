@@ -62,6 +62,10 @@ const ContextPhaseError = ContextPhase("ERROR")
 type ContextStatus struct {
 	Phase ContextPhase `json:"phase"`
 
+	// Parents is a string to list our parents. Not technically used, but intended to be displayed
+	// as printcolumn
+	Parents string `json:"parents,omitempty"`
+
 	// Context is the resulting context, after potential parent merging
 	// if there is no parent, it is empty, so use the one from Spec.
 	// +kubebuilder:validation:Optional
@@ -72,6 +76,7 @@ type ContextStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=ctx;kcontext;kctx
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+// +kubebuilder:printcolumn:name="Parents",type=string,JSONPath=`.status.parents`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
