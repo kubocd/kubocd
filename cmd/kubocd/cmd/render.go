@@ -10,26 +10,29 @@ import (
 )
 
 var renderParams struct {
-	all      bool
-	settings bool
+	output string
 }
 
 func init() {
-	renderCmd.PersistentFlags().BoolVar(&renderParams.all, "all", false, "Display all resources")
-	renderCmd.PersistentFlags().BoolVar(&renderParams.settings, "renderParams", false, "Display settings")
+	renderCmd.Flags().StringVarP(&renderParams.output, "output", "o", "./rendered", "Output directory")
 }
 
 var renderCmd = &cobra.Command{
-	Use:   "render <Release manifest>",
+	Use:   "render <Release manifest> [<Application manifest>]",
 	Short: "Render a KuboCD release",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.RangeArgs(1, 2),
+
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
-			if misc.CountNonZero(renderParams.all, renderParams.settings) == 0 {
-				renderParams.all = true
+			output := renderParams.output
+
+			err := misc.SafeEnsureEmpty(output)
+			if err != nil {
+				return err
 			}
+
 			release := &kapi.Release{}
-			err := misc.LoadYaml(args[0], release)
+			err = misc.LoadYaml(args[0], release)
 			if err != nil {
 				return err
 			}
@@ -37,11 +40,15 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+
+			misc.DumpYaml(output, "release.yaml", release)
+
 			//fmt.Println(app.Name)
 			_, err = k8sapi.GetKubeClient(scheme)
 			if err != nil {
 				return err
 			}
+
 			//_, err = computeSetting(context.Background(), k8sClient, release.Spec.Settings, release.Namespace)
 			//if err != nil {
 			//	return err

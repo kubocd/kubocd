@@ -64,7 +64,7 @@ type ChartRef struct {
 	Version string `yaml:"version" json:"version"`
 }
 
-func (app *Application) Groom() error {
+func (app *Application) Validate() error {
 	if app.ApiVersion != global.ApplicationApiVersion {
 		return fmt.Errorf("'apiVersion' must be %s", global.ApplicationApiVersion)
 	}
@@ -87,21 +87,11 @@ func (app *Application) Groom() error {
 	if app.Spec.Modules == nil || len(app.Spec.Modules) == 0 {
 		return fmt.Errorf("an application must have at least one module")
 	}
-	// ------------------------ Normalize
-	if app.Spec.Roles == nil {
-		app.Spec.Roles = []KcdRole{}
-	}
-	if app.Spec.DependsOn == nil {
-		app.Spec.DependsOn = []KcdRole{}
-	}
-	if app.Spec.ReleaseDefaults.Parameters == nil {
-		app.Spec.ReleaseDefaults.Parameters = map[string]interface{}{}
-	}
 	// ------- Now, check modules
 	moduleByName := make(map[string]*Module)
 	for idx := range app.Spec.Modules {
 		module := &app.Spec.Modules[idx]
-		err := app.Spec.Modules[idx].groom(idx)
+		err := app.Spec.Modules[idx].validate(idx)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
 		}
@@ -121,4 +111,20 @@ func (app *Application) Groom() error {
 		}
 	}
 	return nil
+}
+
+func (app *Application) SetDefault() {
+	// ------------------------ Normalize
+	if app.Spec.Roles == nil {
+		app.Spec.Roles = []KcdRole{}
+	}
+	if app.Spec.DependsOn == nil {
+		app.Spec.DependsOn = []KcdRole{}
+	}
+	if app.Spec.ReleaseDefaults.Parameters == nil {
+		app.Spec.ReleaseDefaults.Parameters = map[string]interface{}{}
+	}
+	for idx := range app.Spec.Modules {
+		app.Spec.Modules[idx].setDefault(idx)
+	}
 }

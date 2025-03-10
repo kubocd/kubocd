@@ -57,7 +57,7 @@ type Module struct {
 	DependsOn []string `yaml:"dependsOn" json:"dependsOn"`
 }
 
-func (m *Module) groom(idx int) error {
+func (m *Module) validate(idx int) error {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
@@ -103,7 +103,17 @@ func (m *Module) groom(idx int) error {
 	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
 		return fmt.Errorf("'parameters' should not be defined for 'type.HelmChart'")
 	}
+	return nil
+}
 
+func (m *Module) setDefault(idx int) {
+	if m.Name == "" {
+		m.Name = fmt.Sprintf("module%02d", idx)
+	}
+	if m.Type == "" {
+		m.Type = global.HelmChartType
+		//return fmt.Errorf("module type is required")
+	}
 	if misc.IsZero(m.Namespace) {
 		m.Namespace = "{{ .Release.namespace }}"
 	}
@@ -123,6 +133,4 @@ func (m *Module) groom(idx int) error {
 	if m.DependsOn == nil {
 		m.DependsOn = []string{}
 	}
-	return nil
-
 }

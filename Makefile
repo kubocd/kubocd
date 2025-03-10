@@ -113,15 +113,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: build-kubocd build-kpack  ## Build all binaries
+build:  manifests generate fmt vet build-kubocd  ## Build kubocd binaries with dependencies
 
 .PHONY: build-kubocd
-build-kubocd: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/kubocd cmd/kubocd/main.go
-
-.PHONY: build-kpack
-build-kpack: ## Build kpack CLI
-	CGO_ENABLED=0 go build -o ./bin/kpack cmd/kpack/main.go
+build-kubocd: ## Build kubocd binary.
+	CGO_ENABLED=0 go build -o bin/kubocd cmd/kubocd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

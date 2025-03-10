@@ -14,7 +14,7 @@ func init() {
 	versionCmd.PersistentFlags().BoolVar(&versionParams.extended, "extended", false, "Add build number")
 }
 
-var versionCmd = cobra.Command{
+var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "display kcd client version",
 	Args:  cobra.NoArgs,

@@ -5,12 +5,20 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
+	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"io"
+	"io/fs"
+	"kubocd/cmd/kubocd/cmd/helmrepo"
+	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
+	"log/slog"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -18,6 +26,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 	"os"
 	"path"
+	"path/filepath"
+	"sigs.k8s.io/yaml"
 	"strings"
 )
 
@@ -41,19 +51,32 @@ type archiveInfo struct {
 var packageParams struct {
 	ociRepoPrefix string
 	plainHTTP     bool
+	workDir       string
 }
 
 func init() {
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/applications'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS")
+	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
+
 }
 
-var packageCmd = cobra.Command{
+var packageCmd = &cobra.Command{
 	Use:     "package <Application manifest>",
 	Short:   "Assemble a KuboCd Application from a manifest to an OCI image",
 	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"pack", "build"},
-
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// ------------------------------------------- Setup working folder
+		if packageParams.workDir == "" {
+			dir, err := os.UserHomeDir()
+			if err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Unable to determine home directory: %v\n", err)
+				os.Exit(1)
+			}
+			packageParams.workDir = fmt.Sprintf("%s/.kubocd", dir)
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
 			app := &application.Application{}
@@ -61,7 +84,7 @@ var packageCmd = cobra.Command{
 			if err != nil {
 				return err
 			}
-			err = app.Groom()
+			err = app.Validate()
 			if err != nil {
 				return err
 			}
@@ -79,12 +102,12 @@ var packageCmd = cobra.Command{
 			tag := app.Metadata.Version
 
 			// ---------- Prepare the target layout
-			fsPath := path.Join(workDir, "fs")
+			fsPath := path.Join(packageParams.workDir, "fs")
 			err = misc.SafeEnsureEmpty(fsPath)
 			if err != nil {
 				return err
 			}
-			assemblyPath := path.Join(workDir, "assembly")
+			assemblyPath := path.Join(packageParams.workDir, "assembly")
 			err = misc.SafeEnsureEmpty(assemblyPath)
 			if err != nil {
 				return err
@@ -157,16 +180,29 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 		var err error
 		if module.Type == global.HelmChartType {
 			if module.Source.Oci != nil {
-				archive, err = getChartArchiveFromOci(printPrefix, module.Source.Oci.Repository, module.Source.Oci.Insecure, module.Source.Oci.Tag)
+				op := &oci.Operation{
+					ImageRepo: module.Source.Oci.Repository,
+					ImageTag:  module.Source.Oci.Tag,
+					Insecure:  module.Source.Oci.Insecure,
+					WorkDir:   packageParams.workDir,
+					Anonymous: false,
+				}
+				archive, err = oci.GetChartArchiveFromOci(printPrefix, op)
 				if err != nil {
 					return nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.HelmRepository != nil {
-				_, helmClient, err := setupHelmRepo(module.Source.HelmRepository.Url, module.Name)
+				op := &helmrepo.Operation{
+					WorkDir:      packageParams.workDir,
+					RepoUrl:      module.Source.HelmRepository.Url,
+					ChartName:    module.Source.HelmRepository.Chart,
+					ChartVersion: module.Source.HelmRepository.Version,
+				}
+				_, helmClient, err := helmrepo.SetupHelmRepo(op, module.Name)
 				if err != nil {
 					return nil, fmt.Errorf("module '%s': error on helmRepository settings: %w", module.Name, err)
 				}
-				_, archive, err = getChartArchiveFromHelmRepo(printPrefix, helmClient, module.Name, module.Source.HelmRepository.Chart, module.Source.HelmRepository.Version)
+				_, archive, err = helmrepo.GetChartArchiveFromHelmRepo(printPrefix, helmClient, module.Name, op)
 				if err != nil {
 					return nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -240,11 +276,11 @@ func buildAssembly(assemblyPath string, archives []archiveInfo) error {
 func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool) error {
 	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
 	// 0. Create a file store
-	fs, err := file.New(assemblyPath)
+	ociFs, err := file.New(assemblyPath)
 	if err != nil {
 		return fmt.Errorf("failed to create OCI file system: %w", err)
 	}
-	defer fs.Close()
+	defer ociFs.Close()
 	ctx := context.Background()
 
 	// 1. Add files to the file store
@@ -252,7 +288,7 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	fileNames := []string{"assembly.tgz"}
 	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
-		fileDescriptor, err := fs.Add(ctx, name, mediaType, "")
+		fileDescriptor, err := ociFs.Add(ctx, name, mediaType, "")
 		if err != nil {
 			panic(err)
 		}
@@ -261,7 +297,7 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	}
 
 	// Add config stuff
-	configFileDescriptor, err := fs.Add(ctx, "manifest.json", global.ApplicationConfigMediaType, "")
+	configFileDescriptor, err := ociFs.Add(ctx, "manifest.json", global.ApplicationConfigMediaType, "")
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := ""
@@ -269,13 +305,13 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 		Layers:           fileDescriptors,
 		ConfigDescriptor: &configFileDescriptor,
 	}
-	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, artifactType, opts)
+	manifestDescriptor, err := oras.PackManifest(ctx, ociFs, oras.PackManifestVersion1_1, artifactType, opts)
 	if err != nil {
 		return fmt.Errorf("failed to pack manifest: %w", err)
 	}
 	//fmt.Println("manifest descriptor:", manifestDescriptor)
 
-	if err = fs.Tag(ctx, manifestDescriptor, tag); err != nil {
+	if err = ociFs.Tag(ctx, manifestDescriptor, tag); err != nil {
 		return fmt.Errorf("failed to tag manifest: %w", err)
 	}
 
@@ -288,7 +324,7 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 
 	splits := strings.Split(repository, "/")
 	regHost := splits[0]
-	userName, secret, err := getCredentials(regHost)
+	userName, secret, err := oci.GetCredentials(regHost)
 	if err != nil {
 		return fmt.Errorf("failed to get credentials for repository '%s': %v", regHost, err)
 	}
@@ -304,10 +340,150 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 		}
 	}
 	// 4. Copy from the file store to the remote repository
-	_, err = oras.Copy(ctx, fs, tag, remoteRepo, tag, oras.DefaultCopyOptions)
+	_, err = oras.Copy(ctx, ociFs, tag, remoteRepo, tag, oras.DefaultCopyOptions)
 	if err != nil {
 		return fmt.Errorf("failed to copy OCI image: %w", err)
 	}
 	fmt.Printf("    Successfully pushed\n")
 	return nil
+}
+
+func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string) (string, error) {
+	// Prepare target archive folder
+	loc := path.Join(packageParams.workDir, "git-workdir")
+	err := misc.SafeEnsureEmpty(loc)
+	if err != nil {
+		return "", err
+	}
+	repoLocation := path.Join(loc, "repo")
+	chartLocation := path.Join(repoLocation, chartPath)
+	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
+
+	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, url)
+
+	_, err = git.PlainClone(repoLocation, false, &git.CloneOptions{
+		//Auth:          auth,		// See KAD git services for auth handling
+		URL:           url,
+		Progress:      io.Discard,
+		ReferenceName: misc.Ternary(tag == "", plumbing.NewBranchReferenceName(branch), plumbing.NewTagReferenceName(tag)),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to clone repo: %w", err)
+	}
+
+	// ----------------------------------------------------------- Build chart archive
+	out, err := os.Create(archive)
+	if err != nil {
+		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
+	}
+	gw := gzip.NewWriter(out)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	chartLocationLen := len(chartLocation)
+	err = filepath.WalkDir(chartLocation, func(thePath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			slog.Error("Error while walking git repository on path: %s: %s", thePath, err.Error())
+			return nil
+		}
+		if !d.IsDir() {
+			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
+			err := addToArchive(tw, thePath, targetFileName)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return archive, nil
+
+}
+
+func addToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file '%s': %w", filePath, err)
+	}
+	defer f.Close()
+
+	// Get FileInfo about our file providing file size, mode, etc.
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat file '%s': %w", filePath, err)
+	}
+	// Create a tar Header from the FileInfo data
+	header, err := tar.FileInfoHeader(info, info.Name())
+	if err != nil {
+		return fmt.Errorf("failed to create header for file '%s': %w", filePath, err)
+	}
+	// https://golang.org/src/archive/tar/common.go?#L626
+	header.Name = inArchiveName
+	// Write file header to the tar archive
+	err = tw.WriteHeader(header)
+	if err != nil {
+		return fmt.Errorf("failed to write tar header for file '%s': %w", filePath, err)
+	}
+	// Copy file content to tar archive
+	_, err = io.Copy(tw, f)
+	if err != nil {
+		return fmt.Errorf("failed to copy file %s to archive: %w", filePath, err)
+	}
+	return nil
+}
+
+// Extract the chart name and version from a chart archive
+func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
+
+	// Open the .tgz file
+	tgzFile, err := os.Open(tgzPath)
+	if err != nil {
+		return "", "", err
+	}
+	defer tgzFile.Close()
+
+	// Create a gzip reader
+	gzReader, err := gzip.NewReader(tgzFile)
+	if err != nil {
+		return "", "", err
+	}
+	defer gzReader.Close()
+
+	// Create a tar reader
+	tarReader := tar.NewReader(gzReader)
+
+	// Iterate through the archive to find the YAML file
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			return "", "", err
+		}
+
+		// Check if the file is the target YAML file
+		if header.Typeflag == tar.TypeReg {
+			fileName := header.Name
+			//fmt.Printf("archive file: %s\n", fileName)
+			if path.Base(fileName) == "Chart.yaml" {
+				// Got it. Read the file content
+				yamlChart, err := io.ReadAll(tarReader)
+				if err != nil {
+					return "", "", err
+				}
+				// Unmarshal YAML into the Chart.yaml struct
+				var chartMeta chart.Metadata
+				err = yaml.Unmarshal(yamlChart, &chartMeta)
+				if err != nil {
+					return "", "", err
+				}
+				return chartMeta.Name, chartMeta.Version, nil
+			}
+		}
+	}
+	return "", "", fmt.Errorf("file Chart.yaml not found in archive")
 }

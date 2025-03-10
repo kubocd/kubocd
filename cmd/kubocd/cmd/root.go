@@ -28,6 +28,9 @@ func init() {
 	rootCmd.AddCommand(controllerCmd)
 	rootCmd.AddCommand(webhookCmd)
 	rootCmd.AddCommand(renderCmd)
+	rootCmd.AddCommand(dumpCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(packageCmd)
 
 	rootCmd.PersistentFlags().StringVar(&rootParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	rootCmd.PersistentFlags().StringVar(&rootParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
