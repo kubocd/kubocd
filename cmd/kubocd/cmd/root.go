@@ -5,24 +5,17 @@ import (
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
-	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
-	"kubocd/internal/misc"
 	"os"
 )
 
 var (
-	scheme  = runtime.NewScheme()
-	rootLog logr.Logger
+	scheme = runtime.NewScheme()
 )
-
-var rootParams struct {
-	logConfig misc.LogConfig
-}
 
 func init() {
 	rootCmd.AddCommand(controllerCmd)
@@ -31,9 +24,6 @@ func init() {
 	rootCmd.AddCommand(dumpCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(packageCmd)
-
-	rootCmd.PersistentFlags().StringVar(&rootParams.logConfig.Level, "logLevel", "INFO", "Log level")
-	rootCmd.PersistentFlags().StringVar(&rootParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
 
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -47,14 +37,6 @@ func init() {
 var rootCmd = &cobra.Command{
 	Use:   "kubocd",
 	Short: "KuboCD Application deployment system",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		var err error
-		rootLog, err = misc.HandleLog(&rootParams.logConfig)
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Unable to load logging configuration: %v\n", err)
-			os.Exit(2)
-		}
-	},
 }
 
 var debug = true

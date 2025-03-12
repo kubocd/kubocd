@@ -7,7 +7,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func LoadYaml(fileName string, target interface{}) error {
+func LoadYaml(fileName string, targets ...interface{}) error {
 	content, err := os.ReadFile(fileName)
 	if err != nil {
 		return err
@@ -16,7 +16,13 @@ func LoadYaml(fileName string, target interface{}) error {
 	if err != nil {
 		return fmt.Errorf("error in '%s': %w", fileName, err)
 	}
-	return YamlDecode(cnt, target)
+	for _, target := range targets {
+		err = YamlDecode(cnt, target)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func YamlDecode(content string, target interface{}) error {

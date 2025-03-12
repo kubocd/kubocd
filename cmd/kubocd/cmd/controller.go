@@ -17,6 +17,7 @@ import (
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
+	"kubocd/internal/misc"
 	"net/http"
 	"os"
 	"path"
@@ -31,7 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+var controllerRootLog logr.Logger
+
 var controllerParams struct {
+	logConfig misc.LogConfig
+
 	probeAddr            string
 	enableLeaderElection bool
 	enableHTTP2          bool
@@ -49,6 +54,9 @@ var controllerParams struct {
 }
 
 func init() {
+	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Level, "logLevel", "INFO", "Log level")
+	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
+
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.probeAddr, "healthProbeBindAddress", ":8081", "The address the probe endpoint binds to.")
 	controllerCmd.PersistentFlags().BoolVar(&controllerParams.enableLeaderElection, "leaderElect", false, "Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
 	controllerCmd.PersistentFlags().BoolVar(&controllerParams.enableHTTP2, "enableHttp2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -70,13 +78,21 @@ var controllerCmd = &cobra.Command{
 	Use:   "controller",
 	Short: "Run controller",
 	Args:  cobra.NoArgs,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		var err error
+		controllerRootLog, err = misc.HandleLog(&controllerParams.logConfig)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to load logging configuration: %v\n", err)
+			os.Exit(2)
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		var tlsOpts []func(*tls.Config)
 
-		ctrl.SetLogger(rootLog)
+		ctrl.SetLogger(controllerRootLog)
 		setupLog := ctrl.Log.WithName("setup")
 
-		rootLog.Info("kubocd controller start", "version", global.Version, "build", global.BuildTs, "logLevel", rootParams.logConfig.Level)
+		controllerRootLog.Info("kubocd controller start", "version", global.Version, "build", global.BuildTs, "logLevel", controllerParams.logConfig.Level)
 
 		if controllerParams.helmRepoAdvAddr == "" {
 			setupLog.Error(nil, "'helmRepoAdvAddr' is required")
@@ -203,7 +219,7 @@ var controllerCmd = &cobra.Command{
 			err := mgr.GetClient().List(context.Background(), &releases, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					rootLog.Error(err, "findReleaseFromContext(): Unable to find Context bindings")
+					controllerRootLog.Error(err, "findReleaseFromContext(): Unable to find Context bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -223,7 +239,7 @@ var controllerCmd = &cobra.Command{
 			Client:          mgr.GetClient(),
 			Scheme:          mgr.GetScheme(),
 			EventRecorder:   mgr.GetEventRecorderFor("release"),
-			Logger:          rootLog.WithName("ReleaseReconciler"),
+			Logger:          controllerRootLog.WithName("ReleaseReconciler"),
 			Fetcher:         archiveFetcher,
 			ServerRoot:      serverRoot,
 			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
@@ -269,7 +285,7 @@ var controllerCmd = &cobra.Command{
 			err := mgr.GetClient().List(context.Background(), &children, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					rootLog.Error(err, "findChildFromParent(): Unable to find Context bindings")
+					controllerRootLog.Error(err, "findChildFromParent(): Unable to find Context bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -289,7 +305,7 @@ var controllerCmd = &cobra.Command{
 			Client:        mgr.GetClient(),
 			Scheme:        mgr.GetScheme(),
 			EventRecorder: mgr.GetEventRecorderFor("context"),
-			Logger:        rootLog.WithName("ContextReconciler"),
+			Logger:        controllerRootLog.WithName("ContextReconciler"),
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
@@ -326,7 +342,7 @@ var controllerCmd = &cobra.Command{
 			// to handle that.
 			<-mgr.Elected()
 
-			startFileServer(serverRoot, controllerParams.helmRepoBindAddr, rootLog.WithName("helmRepositoryServer"))
+			startFileServer(serverRoot, controllerParams.helmRepoBindAddr, controllerRootLog.WithName("helmRepositoryServer"))
 		}()
 
 		setupLog.Info("starting manager")

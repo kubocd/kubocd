@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -79,15 +80,17 @@ var packageCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
-			app := &application.Application{}
-			err := misc.LoadYaml(args[0], app)
+			appOriginal := &application.Application{}
+			appGroomed := &application.Application{}
+			err := misc.LoadYaml(args[0], appOriginal, appGroomed)
 			if err != nil {
 				return err
 			}
-			err = app.Validate()
+			err = appGroomed.Validate()
 			if err != nil {
 				return err
 			}
+			appGroomed.Groom()
 
 			// --------------------- Handle entry parameters
 			repository := packageParams.ociRepoPrefix
@@ -97,9 +100,9 @@ var packageCmd = &cobra.Command{
 					return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
 				}
 			}
-			repository = path.Join(repository, app.Metadata.Name)
+			repository = path.Join(repository, appGroomed.Metadata.Name)
 
-			tag := app.Metadata.Version
+			tag := appGroomed.Metadata.Version
 
 			// ---------- Prepare the target layout
 			fsPath := path.Join(packageParams.workDir, "fs")
@@ -113,7 +116,7 @@ var packageCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, err := fetchArchives(app, assemblyPath)
+			chartSet, status, err := fetchArchives(appGroomed, assemblyPath)
 			if err != nil {
 				return err
 			}
@@ -134,13 +137,23 @@ var packageCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			// Generate the manifest.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "manifest.yaml"), misc.Map2Yaml(app), os.ModePerm)
+			// Generate the original.yaml file to be included in archive
+			err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Map2Yaml(appOriginal), os.ModePerm)
+			if err != nil {
+				return err
+			}
+			// Generate the groomed.yaml file to be included in archive
+			err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Map2Yaml(appGroomed), os.ModePerm)
+			if err != nil {
+				return err
+			}
+			// Generate the groomed.yaml file to be included in archive
+			err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Map2Yaml(status), os.ModePerm)
 			if err != nil {
 				return err
 			}
 			// Generate the manifest.json file to be set as config in the image
-			err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(app), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(appOriginal), os.ModePerm)
 			if err != nil {
 				return err
 			}
@@ -168,11 +181,14 @@ var packageCmd = &cobra.Command{
 
 // lookupArchive load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
-// - Populate the status of the Application with a map of chartInfo by module
-func fetchArchives(app *application.Application, assemblyPath string) ([]archiveInfo, error) {
+// - return a status with a map of chartInfo by module
+func fetchArchives(app *application.Application, assemblyPath string) ([]archiveInfo, *application.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]archiveInfo, 0, len(app.Spec.Modules))
-	app.Status.ChartByModule = make(map[string]application.ChartRef)
+	status := &application.Status{
+		ApiVersion:    global.ApplicationApiVersion,
+		ChartByModule: make(map[string]application.ChartRef),
+	}
 	for _, module := range app.Spec.Modules {
 		fmt.Printf("--- Building module '%s':\n", module.Name)
 		printPrefix := "    "
@@ -187,9 +203,9 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 					WorkDir:   packageParams.workDir,
 					Anonymous: false,
 				}
-				archive, err = oci.GetChartArchiveFromOci(printPrefix, op)
+				archive, err = oci.GetContentFromOci(printPrefix, op, global.HelmChartMediaType)
 				if err != nil {
-					return nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
+					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.HelmRepository != nil {
 				op := &helmrepo.Operation{
@@ -200,16 +216,16 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 				}
 				_, helmClient, err := helmrepo.SetupHelmRepo(op, module.Name)
 				if err != nil {
-					return nil, fmt.Errorf("module '%s': error on helmRepository settings: %w", module.Name, err)
+					return nil, nil, fmt.Errorf("module '%s': error on helmRepository settings: %w", module.Name, err)
 				}
 				_, archive, err = helmrepo.GetChartArchiveFromHelmRepo(printPrefix, helmClient, module.Name, op)
 				if err != nil {
-					return nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
+					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.Git != nil {
 				archive, err = getHelmChartArchiveFromGit(printPrefix, module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name)
 				if err != nil {
-					return nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
+					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else {
 				panic("Unrecognized module source")
@@ -219,7 +235,7 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 		}
 		chartName, chartVersion, err := extractChartInfo(archive)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		targetArchiveName := fmt.Sprintf("%s-%s.tgz", chartName, chartVersion)
 		targetArchivePath := path.Join(assemblyPath, targetArchiveName)
@@ -232,16 +248,16 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 			})
 			err = misc.CopyFile(archive, targetArchivePath)
 			if err != nil {
-				return nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
+				return nil, nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
 			}
 		}
-		app.Status.ChartByModule[module.Name] = application.ChartRef{
+		status.ChartByModule[module.Name] = application.ChartRef{
 			Name:    chartName,
 			Version: chartVersion,
 		}
 		fmt.Printf("    Chart: %s:%s\n", chartName, chartVersion)
 	}
-	return archives, nil
+	return archives, status, nil
 }
 
 func buildAssembly(assemblyPath string, archives []archiveInfo) error {
@@ -256,13 +272,21 @@ func buildAssembly(assemblyPath string, archives []archiveInfo) error {
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	err = addToArchive(tw, path.Join(assemblyPath, "manifest.yaml"), "manifest.yaml")
+	err = addToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
 	if err != nil {
-		return fmt.Errorf("could not add 'manifest.yaml' to archive '%s': %w", assemblyArchiveName, err)
+		return fmt.Errorf("could not add 'original.yaml' to archive '%s': %w", assemblyArchiveName, err)
+	}
+	err = addToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
+	if err != nil {
+		return fmt.Errorf("could not add 'groomed.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
 	err = addToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", assemblyArchiveName, err)
+	}
+	err = addToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
+	if err != nil {
+		return fmt.Errorf("could not add 'status.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
 	for _, archiveInfo := range archives {
 		err = addToArchive(tw, archiveInfo.path, archiveInfo.name)
@@ -437,53 +461,15 @@ func addToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
 
 // Extract the chart name and version from a chart archive
 func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
-
-	// Open the .tgz file
-	tgzFile, err := os.Open(tgzPath)
+	ba, err := tgz.ExtractDataFromTgz(tgzPath, "Chart.yaml")
 	if err != nil {
 		return "", "", err
 	}
-	defer tgzFile.Close()
-
-	// Create a gzip reader
-	gzReader, err := gzip.NewReader(tgzFile)
+	var chartMeta chart.Metadata
+	// Unmarshal YAML into the recipient
+	err = yaml.Unmarshal(ba, &chartMeta)
 	if err != nil {
 		return "", "", err
 	}
-	defer gzReader.Close()
-
-	// Create a tar reader
-	tarReader := tar.NewReader(gzReader)
-
-	// Iterate through the archive to find the YAML file
-	for {
-		header, err := tarReader.Next()
-		if err == io.EOF {
-			break // End of archive
-		}
-		if err != nil {
-			return "", "", err
-		}
-
-		// Check if the file is the target YAML file
-		if header.Typeflag == tar.TypeReg {
-			fileName := header.Name
-			//fmt.Printf("archive file: %s\n", fileName)
-			if path.Base(fileName) == "Chart.yaml" {
-				// Got it. Read the file content
-				yamlChart, err := io.ReadAll(tarReader)
-				if err != nil {
-					return "", "", err
-				}
-				// Unmarshal YAML into the Chart.yaml struct
-				var chartMeta chart.Metadata
-				err = yaml.Unmarshal(yamlChart, &chartMeta)
-				if err != nil {
-					return "", "", err
-				}
-				return chartMeta.Name, chartMeta.Version, nil
-			}
-		}
-	}
-	return "", "", fmt.Errorf("file Chart.yaml not found in archive")
+	return chartMeta.Name, chartMeta.Version, nil
 }

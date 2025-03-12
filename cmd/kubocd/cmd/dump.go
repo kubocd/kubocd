@@ -3,15 +3,17 @@ package cmd
 import (
 	"fmt"
 	"github.com/spf13/cobra"
+	"kubocd/cmd/kubocd/cmd/app"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/internal/misc"
 	"os"
-	"strings"
 )
 
 func init() {
 	dumpCmd.AddCommand(dumpOciCmd)
 	dumpCmd.AddCommand(dumpHrCmd)
+	dumpCmd.AddCommand(dumpAppCmd)
 }
 
 var dumpParams struct {
@@ -58,26 +60,12 @@ var dumpOciCmd = &cobra.Command{
 	Short: "Dump OCI metadata",
 	Args:  cobra.ExactArgs(1),
 	Run: func(command *cobra.Command, args []string) {
-		var imageName = args[0]
-		if strings.HasPrefix(imageName, "oci://") {
-			imageName = imageName[7:]
-		}
-
-		var imageRepo string
-		var imageTag string
 
 		err := func() error {
-			a := strings.Split(imageName, ":")
-			if len(a) == 2 {
-				imageRepo = a[0]
-				imageTag = a[1]
-			} else if len(a) == 1 {
-				imageRepo = a[0]
-				imageTag = "latest"
-			} else {
-				return fmt.Errorf("invalid image name: %s", imageName)
+			imageRepo, imageTag, err := oci.DecodeImageUrl(args[0])
+			if err != nil {
+				return err
 			}
-			//fmt.Printf("OCI dump of %s:%s\n", imageRepo, imageTag)
 			op := &oci.Operation{
 				WorkDir:   dumpParams.workDir,
 				ImageRepo: imageRepo,
@@ -87,7 +75,6 @@ var dumpOciCmd = &cobra.Command{
 			}
 			return oci.DumpOci(op)
 		}()
-
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 			os.Exit(1)
@@ -119,5 +106,43 @@ var dumpHrCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 			os.Exit(1)
 		}
+	},
+}
+
+// --------------------------------------------------------------------------------- dump application
+
+var dumpAppParams struct {
+	output    string
+	insecure  bool
+	anonymous bool
+}
+
+func init() {
+	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
+	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
+	dumpAppCmd.PersistentFlags().StringVarP(&dumpAppParams.output, "output", "o", "", "Output dump directory")
+}
+
+var dumpAppCmd = &cobra.Command{
+	Use:     "application <application.yaml|oci://repo:version>",
+	Short:   "Dump KuboCD Application",
+	Args:    cobra.ExactArgs(1),
+	Aliases: []string{"app", "Application", "App"},
+	Run: func(command *cobra.Command, args []string) {
+		err := func() error {
+			output := dumpAppParams.output
+			if output != "" {
+				err := misc.SafeEnsureEmpty(output)
+				if err != nil {
+					return err
+				}
+			}
+			return app.Dump(args[0], dumpParams.workDir, dumpAppParams.insecure, dumpAppParams.anonymous, output)
+		}()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
+			os.Exit(1)
+		}
+
 	},
 }

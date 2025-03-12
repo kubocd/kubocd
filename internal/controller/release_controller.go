@@ -59,6 +59,7 @@ type releaseOperation struct {
 	logger             logr.Logger
 	release            *kv1alpha1.Release
 	application        *application.Application
+	status             *application.Status
 	ociRepositoryName  string
 	helmRepositoryName string
 }
@@ -202,14 +203,24 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	} else {
 		logger.V(1).Info("Use already existing artifact")
 	}
-	// Set Application object
+	// --------  Set Application object
 	op.application = &application.Application{}
-	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "manifest.yaml"), op.application)
+	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), op.application)
 	if err != nil {
-		return r.reportError(op, fmt.Errorf("error while parsing Manifest.yaml file: %w", err), true, "OCIImage")
+		return r.reportError(op, fmt.Errorf("error while parsing application original.yaml file: %w", err), true, "OCIImage")
 	}
+	err = op.application.Validate()
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("invalid application manifest: %w", err), true, "OCIImage")
+	}
+	op.application.Groom()
 	//fmt.Printf("Manifest: %s\n", misc.Map2Yaml(op.application))
-
+	// -------- And set status
+	op.status = &application.Status{}
+	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), op.status)
+	if err != nil {
+		return r.reportError(op, fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage")
+	}
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
 	helmRepository, reconcileError := r.handleHelmRepository(op, repoUrl)
@@ -227,9 +238,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
-	for module := range op.application.Status.ChartByModule {
-		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module)
-		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module)
+	for _, module := range op.application.Spec.Modules {
+		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module.Name)
+		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module.Name)
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 		}

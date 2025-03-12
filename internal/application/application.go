@@ -3,6 +3,7 @@ package application
 import (
 	"fmt"
 	"kubocd/internal/global"
+	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 )
 
@@ -23,45 +24,36 @@ type KcdSchema map[string]interface{}
 
 type Application struct {
 	// required:true
-	ApiVersion string `yaml:"apiVersion" json:"apiVersion"` // v1alpha1
+	ApiVersion string `json:"apiVersion"` // v1alpha1
 	Metadata   struct {
 		// This is NOT a k8s object. To overemphasis this, we use Type instead of Kind. and define it as metadata
 		// required:true
-		Type string `yaml:"type" json:"type"` // Always 'Application'
+		Type string `json:"type"` // Always 'Application'
 		// required:true
-		Name string `yaml:"name" json:"name"`
+		Name string `json:"name"`
 		// required:true
-		Version string `yaml:"version" json:"version"`
-	} `yaml:"metadata" json:"metadata"`
+		Version string `json:"version"`
+	} `json:"metadata"`
 	Spec struct {
 		// A template aimed to be rendered on deployment.
 		// Intended to provide user with usage information // (Access link, configuration, ....)
 		// 0ne and only one of the properties must be defined
-		Usage           KcdTemplateString `yaml:"usage" json:"usage"`
-		ReleaseDefaults struct {
-			// Set of default values for the Parameters provided by the release.
-			Parameters map[string]interface{} `yaml:"parameters" json:"parameters"`
-			// Default value for the corresponding release property
-			// default: false
-			Protected bool `yaml:"protected" json:"protected"`
-		} `yaml:"releaseDefaults" json:"releaseDefaults"`
-		ParametersSchema KcdSchema `yaml:"parametersSchema" json:"parametersSchema"`
-		ContextSchema    KcdSchema `yaml:"contextSchema" json:"contextSchema"`
-		Modules          []Module  `yaml:"modules" json:"modules"`
-		Roles            []KcdRole `yaml:"roles" json:"roles"`
-		DependsOn        []KcdRole `yaml:"dependsOn" json:"dependsOn"`
+		Usage KcdTemplateString `json:"usage,omitempty"`
+		// Prevent deletion
+		// Default: {{ .Release.protected }}
+		Protected        KcdTemplateBool        `json:"protected,omitempty"`
+		ParametersSchema map[string]interface{} `json:"parametersSchema,omitempty"`
+		ContextSchema    map[string]interface{} `json:"contextSchema,omitempty"`
+		// required: true
+		Modules   []Module  `json:"modules"`
+		Roles     []KcdRole `json:"roles,omitempty"`
+		DependsOn []KcdRole `json:"dependsOn,omitempty"`
 	} `yaml:"spec" json:"spec"`
-	Status struct {
-		// Fulfilled when packaging
-		ChartByModule map[string]ChartRef `yaml:"chartByModule" json:"chartByModule"`
-		// TODO: extract from schema
-		DefaultParameters map[string]interface{} `yaml:"defaultParameters" json:"defaultParameters"`
-	} `yaml:"status" json:"status"`
 }
 
 type ChartRef struct {
-	Name    string `yaml:"name" json:"name"`
-	Version string `yaml:"version" json:"version"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 func (app *Application) Validate() error {
@@ -79,10 +71,24 @@ func (app *Application) Validate() error {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
 	if app.Spec.ParametersSchema != nil {
-		// TODO: Validate schema (And make it required)
+		schemaDoc, err := kuboschema.Kubo2openAPI(app.Spec.ParametersSchema, false)
+		if err != nil {
+			return fmt.Errorf("invalid 'parametersSchema': %w", err)
+		}
+		_, err = kuboschema.Defaulter(schemaDoc)
+		if err != nil {
+			return fmt.Errorf("invalid 'parametersSchema' defaults: %w", err)
+		}
 	}
 	if app.Spec.ContextSchema != nil {
-		// TODO: Validate schema
+		schemaDoc, err := kuboschema.Kubo2openAPI(app.Spec.ContextSchema, true)
+		if err != nil {
+			return fmt.Errorf("invalid 'parametersSchema': %w", err)
+		}
+		_, err = kuboschema.Defaulter(schemaDoc)
+		if err != nil {
+			return fmt.Errorf("invalid 'parametersSchema' defaults: %w", err)
+		}
 	}
 	if app.Spec.Modules == nil || len(app.Spec.Modules) == 0 {
 		return fmt.Errorf("an application must have at least one module")
@@ -113,7 +119,7 @@ func (app *Application) Validate() error {
 	return nil
 }
 
-func (app *Application) SetDefault() {
+func (app *Application) Groom() {
 	// ------------------------ Normalize
 	if app.Spec.Roles == nil {
 		app.Spec.Roles = []KcdRole{}
@@ -121,10 +127,10 @@ func (app *Application) SetDefault() {
 	if app.Spec.DependsOn == nil {
 		app.Spec.DependsOn = []KcdRole{}
 	}
-	if app.Spec.ReleaseDefaults.Parameters == nil {
-		app.Spec.ReleaseDefaults.Parameters = map[string]interface{}{}
+	if app.Spec.Protected == "" {
+		app.Spec.Protected = "{{ .Release.protected }}"
 	}
 	for idx := range app.Spec.Modules {
-		app.Spec.Modules[idx].setDefault(idx)
+		app.Spec.Modules[idx].groom(idx)
 	}
 }

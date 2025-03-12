@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"crypto/tls"
+	"fmt"
+	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"kubocd/internal/global"
+	"kubocd/internal/misc"
 	webhookkubocdv1alpha1 "kubocd/internal/webhook/v1alpha1"
 	"os"
 	"path/filepath"
@@ -15,7 +18,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
+var webhookRootLog logr.Logger
+
 var webhookParams struct {
+	logConfig misc.LogConfig
+
 	probeAddr   string
 	enableHTTP2 bool
 
@@ -31,6 +38,9 @@ var webhookParams struct {
 }
 
 func init() {
+	webhookCmd.PersistentFlags().StringVar(&webhookParams.logConfig.Level, "logLevel", "INFO", "Log level")
+	webhookCmd.PersistentFlags().StringVar(&webhookParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
+
 	webhookCmd.PersistentFlags().StringVar(&webhookParams.probeAddr, "healthProbeBindAddress", ":8081", "The address the probe endpoint binds to.")
 	webhookCmd.PersistentFlags().BoolVar(&webhookParams.enableHTTP2, "enableHttp2", false, "If set, HTTP/2 will be enabled for the metrics and webhook servers")
 
@@ -49,13 +59,21 @@ var webhookCmd = &cobra.Command{
 	Use:   "webhook",
 	Short: "Run webhook server",
 	Args:  cobra.NoArgs,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		var err error
+		webhookRootLog, err = misc.HandleLog(&webhookParams.logConfig)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to load logging configuration: %v\n", err)
+			os.Exit(2)
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		var tlsOpts []func(*tls.Config)
 
-		ctrl.SetLogger(rootLog)
+		ctrl.SetLogger(webhookRootLog)
 		setupLog := ctrl.Log.WithName("setup")
 
-		rootLog.Info("kubocd webhook server start", "version", global.Version, "build", global.BuildTs, "logLevel", rootParams.logConfig.Level)
+		webhookRootLog.Info("kubocd webhook server start", "version", global.Version, "build", global.BuildTs, "logLevel", webhookParams.logConfig.Level)
 
 		// if the enable-http2 flag is false (the default), http/2 should be disabled
 		// due to its vulnerabilities. More specifically, disabling http/2 will

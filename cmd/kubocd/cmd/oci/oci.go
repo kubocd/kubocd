@@ -32,7 +32,7 @@ type Operation struct {
 
 func DumpOci(op *Operation) error {
 
-	loc, err := fetchOciImage("", op)
+	loc, err := FetchOciImage("", op)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func DumpOci(op *Operation) error {
 
 }
 
-func fetchOciImage(printPrefix string, op *Operation) (string, error) {
+func FetchOciImage(printPrefix string, op *Operation) (string, error) {
 	ctx := context.Background()
 
 	// Prepare target archive folder
@@ -222,8 +222,8 @@ func getDockerCredentialsHelper() (string, error) {
 	return "", nil
 }
 
-func GetChartArchiveFromOci(printPrefix string, op *Operation) (archivePath string, err error) {
-	loc, err := fetchOciImage(printPrefix, op)
+func GetContentFromOci(printPrefix string, op *Operation, mediaType string) (archivePath string, err error) {
+	loc, err := FetchOciImage(printPrefix, op)
 	if err != nil {
 		return "", err
 	}
@@ -237,9 +237,9 @@ func GetChartArchiveFromOci(printPrefix string, op *Operation) (archivePath stri
 			if err := misc.LoadJson(digestToFile(descriptor.Digest, op.WorkDir), manifest); err != nil {
 				fmt.Printf("fail to decode manifest '%s': %v", descriptor.Digest, err)
 			}
-			// And dump loyers
+			// And dump layers
 			for _, layer := range manifest.Layers {
-				if layer.MediaType == "application/vnd.cncf.helm.chart.content.v1.tar+gzip" {
+				if layer.MediaType == mediaType {
 					// GOT IT
 					return digestToFile(layer.Digest, op.WorkDir), nil
 				}
@@ -247,4 +247,34 @@ func GetChartArchiveFromOci(printPrefix string, op *Operation) (archivePath stri
 		}
 	}
 	return "", fmt.Errorf("fail to find chart archive")
+}
+
+func DecodeImageUrl(image string) (repo string, tag string, err error) {
+	if strings.HasPrefix(image, "oci://") {
+		image = image[6:]
+	}
+	a := strings.Split(image, ":")
+	if len(a) == 3 {
+		// It is host port/path version
+		return fmt.Sprintf("%s:%s", a[0], a[1]), a[2], nil
+	} else if len(a) == 2 {
+		// It may be:
+		// host/path version (no port)
+		// host port/path (no version)
+		if strings.Contains(a[0], "/") {
+			// it's host/path version (no port)
+			return a[0], a[1], nil
+		} else if strings.Contains(a[1], "/") {
+			// it's host port/path (no version)
+			return fmt.Sprintf("%s:%s", a[0], a[1]), "latest", nil
+		} else {
+			return "", "", fmt.Errorf("invalid image name: %s", image)
+		}
+	} else if len(a) == 1 {
+		// it is  host/path  (no port, no version)
+		return a[0], "latest", nil
+	} else {
+		return "", "", fmt.Errorf("invalid image name: %s", image)
+	}
+
 }

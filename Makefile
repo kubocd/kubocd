@@ -1,7 +1,8 @@
 APP_VERSION ?= 0.1.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
-IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
+#IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
+IMG ?= localhost:5001/kubocd:${DOCKER_TAG}
 
 HELM_VERSION ?= 0.1.1-snapshot
 HELM_DOCKER_REPO := quay.io/kubocd/charts
@@ -125,7 +126,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 
 .PHONY: docker
-docker: docker-build docker-push  ## Build controller docker image and push
+docker: version docker-build docker-push  ## Build controller docker image and push
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -144,6 +145,7 @@ docker-push: ## Push docker image with the manager.
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 # - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+# NB: DOES NOT WORK on our local (https) registry
 #PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
@@ -155,6 +157,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm kubocd-builder
 	rm Dockerfile.cross
+
 
 .PHONY: build-installer
 build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.

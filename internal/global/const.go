@@ -20,6 +20,10 @@ const ApplicationContentMediaType = "application/vnd.kubotal.kubocd.application.
 
 const ApplicationConfigMediaType = "application/vnd.kubotal.kubocd.application.config.v1alpha1+json"
 
+// --------------------- Media type in helm chart OCI image
+
+const HelmChartMediaType = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+
 // ----------------------
 
 const FinalizerName = "kubocd.kubotal.io/finalizer"

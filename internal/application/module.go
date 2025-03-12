@@ -9,64 +9,65 @@ import (
 type Module struct {
 	// required:true
 	// default: id<idx>
-	Name   string `yaml:"name" json:"name"`
-	Type   string `yaml:"type" json:"type"` // HelmChart or Application
+	Name string `json:"name,omitempty"`
+	// required:true
+	// default: HelmChart
+	Type   string `json:"type,omitempty"` // HelmChart or Application
 	Source struct {
 		// Only for HelmChart
 		HelmRepository *struct {
 			// required:true
-			Url string `yaml:"url" json:"url"`
+			Url string `json:"url"`
 			// required:true
 			Chart   string `yaml:"chart" json:"chart"`
-			Version string `yaml:"version" json:"version"`
-		} `yaml:"helmRepository" json:"helmRepository"`
+			Version string `json:"version,omitempty"`
+		} `json:"helmRepository,omitempty"`
 		Oci *struct {
 			// required:true
-			Repository string `yaml:"repository" json:"repository"`
+			Repository string `json:"repository"`
 			// required:true
-			Tag      string `yaml:"tag" json:"tag"`
-			Insecure bool   `yaml:"insecure" json:"insecure"`
-		} `yaml:"oci" json:"oci"`
+			Tag      string `json:"tag"`
+			Insecure bool   `json:"insecure"`
+		} `json:"oci,omitempty"`
 		Git *struct {
 			// required:true
-			Url    string `yaml:"url" json:"url"`
-			Branch string `yaml:"branch" json:"branch"`
-			Tag    string `yaml:"tag" json:"tag"`
+			Url    string `json:"url"`
+			Branch string `json:"branch,omitempty"`
+			Tag    string `json:"tag,omitempty"`
 			// The folder where is located 'Chart.yaml'
 			// required:true
-			Path string `yaml:"path" json:"path"`
-		} `yaml:"git" json:"git"`
+			Path string `json:"path"`
+		} `json:"git,omitempty"`
 	} `yaml:"source" json:"source"`
 	// For Type == Application
-	Parameters KcdTemplateMap `yaml:"parameters" json:"parameters"`
+	Parameters KcdTemplateMap `json:"parameters,omitempty"`
 	// For Type == HelmChart
-	Values KcdTemplateMap `yaml:"values" json:"values"`
+	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be  inserted in the configuration of fluxCD helmRelease.spec
-	Config KcdTemplateMap `yaml:"config" json:"config"`
+	Config KcdTemplateMap `json:"config,omitempty"`
 	// Default: {{ .Release.namespace }}
-	Namespace KcdTemplateString `yaml:"namespace" json:"namespace"`
+	Namespace KcdTemplateString `json:"namespace,omitempty"`
 	// Default: {{ .Release.enabled }}
-	Enabled KcdTemplateBool `yaml:"enabled" json:"enabled"`
+	Enabled KcdTemplateBool `json:"enabled,omitempty"`
 	// Default: {{ .Release.suspended }}
-	Suspended KcdTemplateBool `yaml:"suspended" json:"suspended"`
+	Suspended KcdTemplateBool `json:"suspended,omitempty"`
 	// Default: {{ .Release.protected }}
-	Protected KcdTemplateBool `yaml:"protected" json:"protected"`
+	Protected KcdTemplateBool `json:"protected,omitempty"`
 	// Default: {{ .Release.createNamespace }}
-	CreateNamespace KcdTemplateBool `yaml:"createNamespace" json:"createNamespace"`
+	CreateNamespace KcdTemplateBool `json:"createNamespace,omitempty"`
 	// Intra-application dependency. List of module names
-	DependsOn []string `yaml:"dependsOn" json:"dependsOn"`
+	DependsOn []string `json:"dependsOn,omitempty"`
 }
 
 func (m *Module) validate(idx int) error {
-	if m.Name == "" {
-		m.Name = fmt.Sprintf("module%02d", idx)
+	// We don't want validate() to alter the Module. So, use local variable
+	var mType string = m.Type
+	if mType == "" {
+		mType = global.HelmChartType
 	}
-	if m.Type == "" {
-		m.Type = global.HelmChartType
-		//return fmt.Errorf("module type is required")
-	}
-	if m.Type != global.ApplicationType && m.Type != global.HelmChartType {
-		return fmt.Errorf("invalid application type: %s", m.Type)
+
+	if mType != global.ApplicationType && mType != global.HelmChartType {
+		return fmt.Errorf("invalid application type: %s", mType)
 	}
 	x := misc.CountNonZero(m.Source.HelmRepository, m.Source.Oci, m.Source.Git)
 	if x != 1 {
@@ -96,17 +97,17 @@ func (m *Module) validate(idx int) error {
 			return fmt.Errorf("one and only one of 'branch' and 'tag' should be set for 'source.git'")
 		}
 	}
-	if m.Type == global.ApplicationType && !misc.IsZero(m.Values) {
+	if mType == global.ApplicationType && !misc.IsZero(m.Values) {
 		return fmt.Errorf("'values' should not be defined for 'type.Application'")
 
 	}
-	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
+	if mType == global.HelmChartType && !misc.IsZero(m.Parameters) {
 		return fmt.Errorf("'parameters' should not be defined for 'type.HelmChart'")
 	}
 	return nil
 }
 
-func (m *Module) setDefault(idx int) {
+func (m *Module) groom(idx int) {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
