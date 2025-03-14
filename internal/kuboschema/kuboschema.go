@@ -4,18 +4,20 @@ import (
 	"fmt"
 )
 
-func Kubo2openAPI(sch interface{}, additionalProperties bool) (map[string]interface{}, error) {
-	if sch == nil {
+type KuboSchema map[string]interface{}
+
+func Kubo2openAPI(schema KuboSchema, additionalProperties bool) (map[string]interface{}, error) {
+	if schema == nil {
 		return nil, nil
 	}
-	schema, ok := sch.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("base object is not a map (type: %T)", sch)
-	}
+	//schema, ok := sch.(map[string]interface{})
+	//if !ok {
+	//	return nil, fmt.Errorf("base object is not a map (type: %T)", sch)
+	//}
 	if len(schema) == 0 {
 		return nil, nil
 	}
-	_, ok = schema["$schema"]
+	_, ok := schema["$schema"]
 	if ok {
 		// It is already an openAPI schema
 		return schema, nil
@@ -57,7 +59,7 @@ func handleNode(path string, node map[string]interface{}, additionalProperties b
 		}
 	}
 	if t == nil {
-		return nil, false, fmt.Errorf("missing type|properties|array for node '%s'", path)
+		return nil, false, fmt.Errorf("missing type for node '%s'", path)
 	}
 	typ, ok := t.(string)
 	if !ok {

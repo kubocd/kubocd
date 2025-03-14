@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/cache"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"time"
 )
 
 var controllerRootLog logr.Logger
@@ -236,13 +238,14 @@ var controllerCmd = &cobra.Command{
 		}
 
 		releaseReconciler := &controller.ReleaseReconciler{
-			Client:          mgr.GetClient(),
-			Scheme:          mgr.GetScheme(),
-			EventRecorder:   mgr.GetEventRecorderFor("release"),
-			Logger:          controllerRootLog.WithName("ReleaseReconciler"),
-			Fetcher:         archiveFetcher,
-			ServerRoot:      serverRoot,
-			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
+			Client:           mgr.GetClient(),
+			Scheme:           mgr.GetScheme(),
+			EventRecorder:    mgr.GetEventRecorderFor("release"),
+			Logger:           controllerRootLog.WithName("ReleaseReconciler"),
+			Fetcher:          archiveFetcher,
+			ServerRoot:       serverRoot,
+			HelmRepoAdvAddr:  controllerParams.helmRepoAdvAddr,
+			ApplicationCache: cache.NewCache(time.Second*60, controllerRootLog.WithName("ApplicationCache")),
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).

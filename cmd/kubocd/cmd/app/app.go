@@ -22,6 +22,7 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 }
 
 func Dump(arg string, workDir string, insecure bool, anonymous bool, output string) error {
+	apOriginal := &application.Application{}
 	if strings.HasPrefix(arg, "oci://") {
 		imageRepo, imageTag, err := oci.DecodeImageUrl(arg)
 		if err != nil {
@@ -41,14 +42,13 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 			return err
 		}
 		fmt.Printf("Fetched OCI image content: %s\n", archive)
-		apOriginal := &application.Application{}
-		apGroomed := &application.Application{}
+		apGroomedOci := &application.Application{}
 		status := &application.Status{}
 		err = UnmarshalDataFromTgz(archive, "original.yaml", &apOriginal)
 		if err != nil {
 			return err
 		}
-		err = UnmarshalDataFromTgz(archive, "groomed.yaml", &apGroomed)
+		err = UnmarshalDataFromTgz(archive, "groomed.yaml", &apGroomedOci)
 		if err != nil {
 			return err
 		}
@@ -56,50 +56,43 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 		if err != nil {
 			return err
 		}
-		err = dump(output, "original.yaml", apOriginal)
-		if err != nil {
-			return err
-		}
-		err = apOriginal.Validate()
-		if err != nil {
-			return err
-		}
-		apOriginal.Groom()
-		err = dump(output, "groomed-local.yaml", apOriginal)
-		if err != nil {
-			return err
-		}
-		err = dump(output, "groomed-oci.yaml", apGroomed)
-		if err != nil {
-			return err
-		}
 		err = dump(output, "status.yaml", status)
 		if err != nil {
 			return err
 		}
-		return nil
+		err = dump(output, "groomed-oci.yaml", apGroomedOci)
+		if err != nil {
+			return err
+		}
 	} else {
-		ap := &application.Application{}
 		// The manifest is a local file
-		err := misc.LoadYaml(arg, ap)
+		err := misc.LoadYaml(arg, apOriginal)
 		if err != nil {
 			return err
 		}
-		err = dump(output, "original.yaml", ap)
-		if err != nil {
-			return err
-		}
-		err = ap.Validate()
-		if err != nil {
-			return err
-		}
-		ap.Groom()
-		err = dump(output, "groomed.yaml", ap)
-		if err != nil {
-			return err
-		}
-		return nil
 	}
+	err := dump(output, "original.yaml", apOriginal)
+	if err != nil {
+		return err
+	}
+	appContainer := &application.AppContainer{}
+	err = appContainer.SetApplication(apOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
+	if err != nil {
+		return err
+	}
+	err = dump(output, "groomed.yaml", appContainer.Application)
+	if err != nil {
+		return err
+	}
+	err = dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
+	if err != nil {
+		return err
+	}
+	err = dump(output, "default-context.yaml", appContainer.DefaultContext)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func dump(output string, fileName string, ap interface{}) error {

@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/application"
+	"kubocd/internal/cache"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"os"
@@ -47,10 +48,11 @@ type ReleaseReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	record.EventRecorder
-	Logger          logr.Logger
-	Fetcher         *fetch.ArchiveFetcher
-	ServerRoot      string
-	HelmRepoAdvAddr string
+	Logger           logr.Logger
+	Fetcher          *fetch.ArchiveFetcher
+	ServerRoot       string
+	HelmRepoAdvAddr  string
+	ApplicationCache cache.Cache
 }
 
 // Just a container to avoid messy parameters passing
@@ -58,8 +60,7 @@ type releaseOperation struct {
 	ctx                context.Context
 	logger             logr.Logger
 	release            *kv1alpha1.Release
-	application        *application.Application
-	status             *application.Status
+	appContainer       *application.AppContainer
 	ociRepositoryName  string
 	helmRepositoryName string
 }
@@ -122,6 +123,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		helmRepositoryName: fmt.Sprintf(helmRepositoryNameFormat, release.Name),
 	}
 
+	// NB: path and folder are specific to this release.
 	helmRepositoryPath := path.Join("hr", op.release.Namespace, op.release.Name)
 	helmRepositoryFolder := path.Join(r.ServerRoot, helmRepositoryPath)
 
@@ -174,19 +176,20 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
 	}
 
-	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content
+	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content, if not in cache
 	ociArtifact := ociRepository.Status.Artifact
-
+	revision := ociArtifact.Revision
 	revisionFile := path.Join(helmRepositoryFolder, "revision.txt")
 
-	revision, err := os.ReadFile(revisionFile)
+	revisionCached, err := os.ReadFile(revisionFile)
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			// Just log. Don't stop processing
 			op.logger.Error(err, "Failed to read revision file")
 		}
+		// If notFound, it is a normal case. revision == "", so load it below
 	}
-	if string(revision) != ociArtifact.Revision {
+	if string(revisionCached) != revision {
 		err = misc.SafeEnsureEmpty(helmRepositoryFolder)
 		if err != nil {
 			return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
@@ -201,25 +204,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return r.reportError(op, fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS")
 		}
 	} else {
-		logger.V(1).Info("Use already existing artifact")
-	}
-	// --------  Set Application object
-	op.application = &application.Application{}
-	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), op.application)
-	if err != nil {
-		return r.reportError(op, fmt.Errorf("error while parsing application original.yaml file: %w", err), true, "OCIImage")
-	}
-	err = op.application.Validate()
-	if err != nil {
-		return r.reportError(op, fmt.Errorf("invalid application manifest: %w", err), true, "OCIImage")
-	}
-	op.application.Groom()
-	//fmt.Printf("Manifest: %s\n", misc.Map2Yaml(op.application))
-	// -------- And set status
-	op.status = &application.Status{}
-	err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), op.status)
-	if err != nil {
-		return r.reportError(op, fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage")
+		logger.V(1).Info("Use already existing application artifact")
 	}
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
@@ -232,13 +217,44 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		// No need to requeue, as we should be notified when the Helm repo status will change
 		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
 	}
+
+	// ---------------------------------------------------------- Retrieve application from cache, or load it
+	appObj := r.ApplicationCache.Get(revision)
+	if appObj != nil {
+		// Use value in cache
+		var ok bool
+		op.appContainer, ok = appObj.(*application.AppContainer)
+		if !ok {
+			panic("Not an appContainer in cache!")
+		}
+	} else {
+		// Fetch application from the image
+		app := &application.Application{}
+		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), app)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("error while parsing application original.yaml file: %w", err), true, "OCIImage")
+		}
+		// -------- And fetch status
+		status := &application.Status{}
+		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), status)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage")
+		}
+		op.appContainer = &application.AppContainer{}
+		err := op.appContainer.SetApplication(app, status, revision)
+		if err != nil {
+			return r.reportError(op, fmt.Errorf("error while loading application from image: %w", err), true, "OCIImage")
+		}
+		r.ApplicationCache.Set(revision, op.appContainer)
+	}
+
 	// ---------------------------------------------------------- Compute context, and store in status, if requested
 	theContext, reconcileError := r.computeContext(op)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
-	for _, module := range op.application.Spec.Modules {
+	for _, module := range op.appContainer.Application.Spec.Modules {
 		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module.Name)
 		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module.Name)
 		if reconcileError != nil {
@@ -269,7 +285,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 func (r *ReleaseReconciler) computeContext(op *releaseOperation) (map[string]interface{}, *ReconcileError) {
 	// ------ And now, build the current context
-	theContext := make(map[string]interface{})
+	theContext := op.appContainer.DefaultContext
 	for _, contextNs := range op.release.Spec.Contexts {
 		kContext := &kv1alpha1.Context{}
 		err := r.Get(op.ctx, contextNs.ToObjectKey(), kContext)

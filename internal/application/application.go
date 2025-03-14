@@ -18,8 +18,6 @@ type KcdTemplateString string
 
 type KcdRole string
 
-type KcdSchema map[string]interface{}
-
 // ------------------------------------------------
 
 type Application struct {
@@ -41,9 +39,9 @@ type Application struct {
 		Usage KcdTemplateString `json:"usage,omitempty"`
 		// Prevent deletion
 		// Default: {{ .Release.protected }}
-		Protected        KcdTemplateBool        `json:"protected,omitempty"`
-		ParametersSchema map[string]interface{} `json:"parametersSchema,omitempty"`
-		ContextSchema    map[string]interface{} `json:"contextSchema,omitempty"`
+		Protected        KcdTemplateBool       `json:"protected,omitempty"`
+		ParametersSchema kuboschema.KuboSchema `json:"parametersSchema,omitempty"`
+		ContextSchema    kuboschema.KuboSchema `json:"contextSchema,omitempty"`
 		// required: true
 		Modules   []Module  `json:"modules"`
 		Roles     []KcdRole `json:"roles,omitempty"`

@@ -5,15 +5,27 @@ import (
 	"kubocd/internal/misc"
 )
 
-func Defaulter(sch interface{}) (interface{}, error) {
-	if misc.IsZero(sch) {
+func Defaulter(schema KuboSchema) (map[string]interface{}, error) {
+	def, err := BaseDefaulter(schema)
+	if err != nil {
+		return nil, err
+	}
+	_, ok := def.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("resulting default value is not a map")
+	}
+	return def.(map[string]interface{}), nil
+}
+
+func BaseDefaulter(schema KuboSchema) (interface{}, error) {
+	if misc.IsZero(schema) {
 		return map[string]interface{}{}, nil
 	}
-	schema, ok := sch.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("schema is not a map")
-	}
-	_, ok = schema["$schema"]
+	//schema, ok := sch.(map[string]interface{})
+	//if !ok {
+	//	return nil, fmt.Errorf("schema is not a map")
+	//}
+	_, ok := schema["$schema"]
 	if !ok {
 		return nil, fmt.Errorf("$schema is not defined. Seems it is not an openAPI schema")
 	}
