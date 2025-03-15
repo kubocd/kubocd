@@ -70,7 +70,7 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// We have nothing to cleanup with this kind. So no need to setup a finalizer
 	rErr := groomContext(kcontext, logger)
 	if rErr != nil {
-		return r.reportError(op, rErr.error, rErr.fatal, rErr.eventReason)
+		return r.reportError(op, rErr)
 	}
 	if len(kcontext.Spec.Parents) == 0 {
 		// Must ensure status is empty
@@ -95,13 +95,13 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			err = r.Get(ctx, parent.ToObjectKey(), parentContext)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					return r.reportError(op, err, true, "GetParent")
+					return r.reportError(op, NewReconcileError(err, true, "GetParent"))
 				} else {
-					return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent")
+					return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent"))
 				}
 			}
 			if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
-				return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")
+				return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError"))
 			}
 			// OK. Merge our info on top of our parent
 			ctx := parentContext.Status.Context
@@ -110,18 +110,18 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			}
 			base, err = merge(base, ctx)
 			if err != nil {
-				return r.reportError(op, fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError") // Should not occurs, as detected before
+				return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")) // Should not occurs, as detected before
 			}
 		}
 		// And merge out own content
 		base, err = merge(base, kcontext.Spec.Context)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("invalid context content"), false, "ContextError") // Should not occurs, as detected before
+			return r.reportError(op, NewReconcileError(fmt.Errorf("invalid context content"), false, "ContextError")) // Should not occurs, as detected before
 		}
 		// And store in status
 		ba, err := json.Marshal(&base)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("unable to marshal result"), false, "ContextError") // Should not occurs
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal result"), false, "ContextError")) // Should not occurs
 		}
 		kcontext.Status.Context = &apiextensionsv1.JSON{
 			Raw: ba,
@@ -130,7 +130,7 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 }
 
-func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) *ReconcileError {
+func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) ReconcileError {
 	for i := range kcontext.Spec.Parents {
 		child := &kcontext.Spec.Parents[i]
 		if child.Namespace == "" {
@@ -149,19 +149,19 @@ func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) *ReconcileErr
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
-func (r *ContextReconciler) reportError(op *contextOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
+func (r *ContextReconciler) reportError(op *contextOperation, rErr ReconcileError) (ctrl.Result, error) {
 	err2 := r.updatePhase(op, kv1alpha1.ContextPhaseError, false)
 	if err2 != nil {
-		return ctrl.Result{}, err // Will retry
+		return ctrl.Result{}, rErr // Will retry
 	}
-	if eventReason != "" && err != nil {
-		r.Event(op.kcontext, "Warning", eventReason, err.Error())
+	if rErr.GetEventReason() != "" && rErr.GetBaseError() != nil {
+		r.Event(op.kcontext, "Warning", rErr.GetEventReason(), rErr.Error())
 	}
-	if fatal {
-		op.logger.Error(err, "Wait for this to be fixed")
+	if rErr.IsFatal() {
+		op.logger.Error(rErr, "Wait for this to be fixed")
 		return ctrl.Result{}, nil
 	} else {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, rErr
 	}
 }
 

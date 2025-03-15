@@ -56,7 +56,7 @@ type ChartRef struct {
 
 func (app *Application) Validate() error {
 	if app.ApiVersion != global.ApplicationApiVersion {
-		return fmt.Errorf("'apiVersion' must be %s", global.ApplicationApiVersion)
+		return fmt.Errorf("'apiVersion' must be %s (is '%s')", global.ApplicationApiVersion, app.ApiVersion)
 	}
 	if app.Metadata.Type != global.ApplicationType {
 		return fmt.Errorf("'type' must be %s", global.ApplicationType)

@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1b2.OCIRepository, *ReconcileError) {
+func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1b2.OCIRepository, ReconcileError) {
 	// Fetch associated OCIRepository
 	ociRepository := &sourcev1b2.OCIRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.ociRepositoryName, Namespace: op.release.Namespace}, ociRepository)
@@ -89,7 +89,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
 	populateOciRepository(ociRepository, op, mediaType, ociOperation)
-	err := ctrl.SetControllerReference(op.release, ociRepository, r.Scheme)
+	err := ctrl.SetControllerReference(op.release, ociRepository, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set owner reference on OCIRepository '%s': %w", op.ociRepositoryName, err)
 	}

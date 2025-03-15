@@ -23,7 +23,6 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
@@ -46,7 +45,6 @@ const helmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
 	record.EventRecorder
 	Logger           logr.Logger
 	Fetcher          *fetch.ArchiveFetcher
@@ -68,18 +66,39 @@ type releaseOperation struct {
 // ReconcileError is a specialized error. Will allow to:
 // - Specify if error is recoverable or not (fatal)
 // - Specify we want to generate a Warning event.
-type ReconcileError struct {
+type ReconcileError interface {
+	Error() string
+	IsFatal() bool
+	GetEventReason() string
+	GetBaseError() error
+}
+
+type reconcileErrorImpl struct {
 	error       error
 	fatal       bool
 	eventReason string
 }
 
-func (e ReconcileError) Error() string {
+var _ ReconcileError = &reconcileErrorImpl{}
+
+func (e reconcileErrorImpl) IsFatal() bool {
+	return e.fatal
+}
+
+func (e reconcileErrorImpl) GetEventReason() string {
+	return e.eventReason
+}
+
+func (e reconcileErrorImpl) Error() string {
 	return e.error.Error()
 }
 
-func NewReconcileError(err error, fatal bool, eventReason string) *ReconcileError {
-	return &ReconcileError{
+func (e reconcileErrorImpl) GetBaseError() error {
+	return e.error
+}
+
+func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError {
+	return &reconcileErrorImpl{
 		error:       err,
 		fatal:       fatal,
 		eventReason: eventReason,
@@ -160,15 +179,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//}
 	}
 
-	rErr := groomRelease(release, logger)
-	if rErr != nil {
-		return r.reportError(op, rErr.error, rErr.fatal, rErr.eventReason)
-	}
+	GroomRelease(release, logger)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
 	ociRepository, reconcileError := r.handleOciRepository(op, global.ApplicationContentMediaType, "extract")
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+		return r.reportError(op, reconcileError)
 	}
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
@@ -192,16 +208,16 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if string(revisionCached) != revision {
 		err = misc.SafeEnsureEmpty(helmRepositoryFolder)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS"))
 		}
 		logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
 		err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository"))
 		}
 		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS"))
 		}
 	} else {
 		logger.V(1).Info("Use already existing application artifact")
@@ -210,7 +226,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
 	helmRepository, reconcileError := r.handleHelmRepository(op, repoUrl)
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+		return r.reportError(op, reconcileError)
 	}
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
@@ -232,42 +248,42 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		app := &application.Application{}
 		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), app)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("error while parsing application original.yaml file: %w", err), true, "OCIImage")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing application original.yaml file: %w", err), true, "OCIImage"))
 		}
 		// -------- And fetch status
 		status := &application.Status{}
 		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), status)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"))
 		}
 		op.appContainer = &application.AppContainer{}
 		err := op.appContainer.SetApplication(app, status, revision)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("error while loading application from image: %w", err), true, "OCIImage")
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading application from image: %w", err), true, "OCIImage"))
 		}
 		r.ApplicationCache.Set(revision, op.appContainer)
 	}
 
-	// ---------------------------------------------------------- Compute context, and store in status, if requested
-	theContext, reconcileError := r.computeContext(op)
+	// ---------------------------------------------------------- Compute context
+	theContext, reconcileError := ComputeContext(op.ctx, r, op.release, op.appContainer)
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+		return r.reportError(op, reconcileError)
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	for _, module := range op.appContainer.Application.Spec.Modules {
 		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module.Name)
 		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module.Name)
 		if reconcileError != nil {
-			return r.reportError(op, reconcileError.error, reconcileError.fatal, reconcileError.eventReason)
+			return r.reportError(op, reconcileError)
 		}
 		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
 	forceUpdate := false
 	if op.release.Spec.Debug != nil && op.release.Spec.Debug.DumpContext {
-		// Sore in status
+		// Sore context in status
 		ba, err := json.Marshal(&theContext)
 		if err != nil {
-			return r.reportError(op, fmt.Errorf("unable to marshal context"), false, "ContextError") // Should not occur
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal context"), false, "ContextError")) // Should not occur
 		}
 		op.release.Status.Context = &apiextensionsv1.JSON{
 			Raw: ba,
@@ -283,12 +299,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseReady, forceUpdate)
 }
 
-func (r *ReleaseReconciler) computeContext(op *releaseOperation) (map[string]interface{}, *ReconcileError) {
+// ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
+func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, appContainer *application.AppContainer) (map[string]interface{}, ReconcileError) {
 	// ------ And now, build the current context
-	theContext := op.appContainer.DefaultContext
-	for _, contextNs := range op.release.Spec.Contexts {
+	theContext := appContainer.DefaultContext
+	for _, contextNs := range release.Spec.Contexts {
 		kContext := &kv1alpha1.Context{}
-		err := r.Get(op.ctx, contextNs.ToObjectKey(), kContext)
+		err := k8sClient.Get(ctx, contextNs.ToObjectKey(), kContext)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return nil, NewReconcileError(err, true, "ContextNotFound")
@@ -314,19 +331,19 @@ func (r *ReleaseReconciler) computeContext(op *releaseOperation) (map[string]int
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
-func (r *ReleaseReconciler) reportError(op *releaseOperation, err error, fatal bool, eventReason string) (ctrl.Result, error) {
+func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError) (ctrl.Result, error) {
 	err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, false)
 	if err2 != nil {
-		return ctrl.Result{}, err // Will retry
+		return ctrl.Result{}, rErr // Will retry
 	}
-	if eventReason != "" && err != nil {
-		r.Event(op.release, "Warning", eventReason, err.Error())
+	if rErr.GetEventReason() != "" && rErr.GetBaseError() != nil {
+		r.Event(op.release, "Warning", rErr.GetEventReason(), rErr.Error())
 	}
-	if fatal {
-		op.logger.Error(err, "Wait for this to be fixed")
+	if rErr.IsFatal() {
+		op.logger.Error(rErr, "Wait for this to be fixed")
 		return ctrl.Result{}, nil
 	} else {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, rErr
 	}
 }
 
@@ -366,7 +383,8 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 	return statusByType
 }
 
-func groomRelease(release *kv1alpha1.Release, logger logr.Logger) *ReconcileError {
+// GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
+func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	for i := range release.Spec.Contexts {
 		kctx := &release.Spec.Contexts[i]
 		if kctx.Namespace == "" {
@@ -374,5 +392,4 @@ func groomRelease(release *kv1alpha1.Release, logger logr.Logger) *ReconcileErro
 			kctx.Namespace = release.ObjectMeta.Namespace
 		}
 	}
-	return nil
 }

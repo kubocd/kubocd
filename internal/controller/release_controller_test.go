@@ -69,7 +69,7 @@ var _ = Describe("Release Controller", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &ReleaseReconciler{
 				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				//Scheme: k8sClient.Scheme(),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

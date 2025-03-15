@@ -239,7 +239,6 @@ var controllerCmd = &cobra.Command{
 
 		releaseReconciler := &controller.ReleaseReconciler{
 			Client:           mgr.GetClient(),
-			Scheme:           mgr.GetScheme(),
 			EventRecorder:    mgr.GetEventRecorderFor("release"),
 			Logger:           controllerRootLog.WithName("ReleaseReconciler"),
 			Fetcher:          archiveFetcher,

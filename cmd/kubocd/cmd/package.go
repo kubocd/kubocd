@@ -7,15 +7,16 @@ import (
 	"fmt"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
 	"io"
 	"io/fs"
+	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
-	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -116,7 +117,7 @@ var packageCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, status, err := fetchArchives(appGroomed, assemblyPath)
+			chartSet, status, err := fetchArchives("", appGroomed, assemblyPath)
 			if err != nil {
 				return err
 			}
@@ -182,7 +183,7 @@ var packageCmd = &cobra.Command{
 // lookupArchive load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
 // - return a status with a map of chartInfo by module
-func fetchArchives(app *application.Application, assemblyPath string) ([]archiveInfo, *application.Status, error) {
+func fetchArchives(printPrefix string, app *application.Application, assemblyPath string) ([]archiveInfo, *application.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]archiveInfo, 0, len(app.Spec.Modules))
 	status := &application.Status{
@@ -190,8 +191,7 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 		ChartByModule: make(map[string]application.ChartRef),
 	}
 	for _, module := range app.Spec.Modules {
-		fmt.Printf("--- Building module '%s':\n", module.Name)
-		printPrefix := "    "
+		fmt.Printf("%s--- Building module '%s':\n", printPrefix, module.Name)
 		var archive string
 		var err error
 		if module.Type == global.HelmChartType {
@@ -203,7 +203,7 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 					WorkDir:   packageParams.workDir,
 					Anonymous: false,
 				}
-				archive, err = oci.GetContentFromOci(printPrefix, op, global.HelmChartMediaType)
+				archive, err = oci.GetContentFromOci(printPrefix+"    ", op, global.HelmChartMediaType)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -218,12 +218,12 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': error on helmRepository settings: %w", module.Name, err)
 				}
-				_, archive, err = helmrepo.GetChartArchiveFromHelmRepo(printPrefix, helmClient, module.Name, op)
+				_, archive, err = helmrepo.GetChartArchiveFromHelmRepo(printPrefix+"    ", helmClient, module.Name, op)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.Git != nil {
-				archive, err = getHelmChartArchiveFromGit(printPrefix, module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name)
+				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -255,7 +255,7 @@ func fetchArchives(app *application.Application, assemblyPath string) ([]archive
 			Name:    chartName,
 			Version: chartVersion,
 		}
-		fmt.Printf("    Chart: %s:%s\n", chartName, chartVersion)
+		fmt.Printf("%s    Chart: %s:%s\n", printPrefix, chartName, chartVersion)
 	}
 	return archives, status, nil
 }
@@ -384,13 +384,20 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
 
 	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, url)
-
-	_, err = git.PlainClone(repoLocation, false, &git.CloneOptions{
+	options := &git.CloneOptions{
 		//Auth:          auth,		// See KAD git services for auth handling
 		URL:           url,
 		Progress:      io.Discard,
 		ReferenceName: misc.Ternary(tag == "", plumbing.NewBranchReferenceName(branch), plumbing.NewTagReferenceName(tag)),
-	})
+	}
+	gitToken := os.Getenv("GITHUB_TOKEN")
+	if gitToken != "" {
+		options.Auth = &http.BasicAuth{
+			Username: "git",
+			Password: gitToken,
+		}
+	}
+	_, err = git.PlainClone(repoLocation, false, options)
 	if err != nil {
 		return "", fmt.Errorf("failed to clone repo: %w", err)
 	}
@@ -461,7 +468,7 @@ func addToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
 
 // Extract the chart name and version from a chart archive
 func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
-	ba, err := tgz.ExtractDataFromTgz(tgzPath, "Chart.yaml")
+	ba, err := cmn.ExtractDataFromTgz(tgzPath, "Chart.yaml")
 	if err != nil {
 		return "", "", err
 	}

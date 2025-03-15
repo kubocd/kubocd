@@ -1,4 +1,4 @@
-package tgz
+package cmn
 
 import (
 	"archive/tar"

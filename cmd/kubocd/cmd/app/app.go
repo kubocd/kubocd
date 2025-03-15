@@ -2,19 +2,17 @@ package app
 
 import (
 	"fmt"
+	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
-	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
-	"os"
-	"path"
 	"sigs.k8s.io/yaml"
 	"strings"
 )
 
 func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) error {
-	ba, err := tgz.ExtractDataFromTgz(tgzPath, fileName)
+	ba, err := cmn.ExtractDataFromTgz(tgzPath, fileName)
 	if err != nil {
 		return err
 	}
@@ -56,14 +54,8 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 		if err != nil {
 			return err
 		}
-		err = dump(output, "status.yaml", status)
-		if err != nil {
-			return err
-		}
-		err = dump(output, "groomed-oci.yaml", apGroomedOci)
-		if err != nil {
-			return err
-		}
+		cmn.Dump(output, "status.yaml", status)
+		cmn.Dump(output, "groomed-oci.yaml", apGroomedOci)
 	} else {
 		// The manifest is a local file
 		err := misc.LoadYaml(arg, apOriginal)
@@ -71,41 +63,16 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 			return err
 		}
 	}
-	err := dump(output, "original.yaml", apOriginal)
-	if err != nil {
-		return err
-	}
-	appContainer := &application.AppContainer{}
-	err = appContainer.SetApplication(apOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
-	if err != nil {
-		return err
-	}
-	err = dump(output, "groomed.yaml", appContainer.Application)
-	if err != nil {
-		return err
-	}
-	err = dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
-	if err != nil {
-		return err
-	}
-	err = dump(output, "default-context.yaml", appContainer.DefaultContext)
-	if err != nil {
-		return err
-	}
-	return nil
-}
+	cmn.Dump(output, "original.yaml", apOriginal)
 
-func dump(output string, fileName string, ap interface{}) error {
-	out := fmt.Sprintf("# ====================================  %s:\n---\n%s\n", fileName, misc.Map2Yaml(ap))
-	if output != "" {
-		target := path.Join(output, fileName)
-		err := os.WriteFile(target, []byte(out), 0644)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Create %s\n", target)
-	} else {
-		fmt.Print(out)
+	appContainer := &application.AppContainer{}
+	err := appContainer.SetApplication(apOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
+	if err != nil {
+		return err
 	}
+
+	cmn.Dump(output, "groomed.yaml", appContainer.Application)
+	cmn.Dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
+	cmn.Dump(output, "default-context.yaml", appContainer.DefaultContext)
 	return nil
 }

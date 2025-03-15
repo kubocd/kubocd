@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl string) (*sourcev1.HelmRepository, *ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl string) (*sourcev1.HelmRepository, ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
@@ -68,7 +68,7 @@ func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, repoUrl s
 	helmRepository.SetName(op.helmRepositoryName)
 	helmRepository.SetNamespace(op.release.Namespace)
 	populateHelmRepository(helmRepository, op, repoUrl)
-	err := ctrl.SetControllerReference(op.release, helmRepository, r.Scheme)
+	err := ctrl.SetControllerReference(op.release, helmRepository, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set owner reference on HelmRepository '%s': %w", op.helmRepositoryName, err)
 	}

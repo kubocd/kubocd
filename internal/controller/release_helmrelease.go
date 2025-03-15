@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, moduleName string) (*fluxv2.HelmRelease, *ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, moduleName string) (*fluxv2.HelmRelease, ReconcileError) {
 	// Fetch associated OCIRepository
 	helmRelease := &fluxv2.HelmRelease{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: name, Namespace: op.release.Namespace}, helmRelease)
@@ -65,7 +65,7 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string,
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
 	populateHelmRelease(helmRelease, op, moduleName)
-	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme)
+	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
 	}
