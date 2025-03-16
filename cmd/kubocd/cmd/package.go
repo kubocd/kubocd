@@ -87,11 +87,10 @@ var packageCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			err = appGroomed.Validate()
+			err = appGroomed.Groom()
 			if err != nil {
 				return err
 			}
-			appGroomed.Groom()
 
 			// --------------------- Handle entry parameters
 			repository := packageParams.ociRepoPrefix
@@ -117,7 +116,7 @@ var packageCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, status, err := fetchArchives("", appGroomed, assemblyPath)
+			chartSet, status, err := fetchArchives("", appGroomed, assemblyPath, packageParams.workDir)
 			if err != nil {
 				return err
 			}
@@ -183,7 +182,7 @@ var packageCmd = &cobra.Command{
 // lookupArchive load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
 // - return a status with a map of chartInfo by module
-func fetchArchives(printPrefix string, app *application.Application, assemblyPath string) ([]archiveInfo, *application.Status, error) {
+func fetchArchives(printPrefix string, app *application.Application, assemblyPath string, workDir string) ([]archiveInfo, *application.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]archiveInfo, 0, len(app.Spec.Modules))
 	status := &application.Status{
@@ -200,7 +199,7 @@ func fetchArchives(printPrefix string, app *application.Application, assemblyPat
 					ImageRepo: module.Source.Oci.Repository,
 					ImageTag:  module.Source.Oci.Tag,
 					Insecure:  module.Source.Oci.Insecure,
-					WorkDir:   packageParams.workDir,
+					WorkDir:   workDir,
 					Anonymous: false,
 				}
 				archive, err = oci.GetContentFromOci(printPrefix+"    ", op, global.HelmChartMediaType)
@@ -209,7 +208,7 @@ func fetchArchives(printPrefix string, app *application.Application, assemblyPat
 				}
 			} else if module.Source.HelmRepository != nil {
 				op := &helmrepo.Operation{
-					WorkDir:      packageParams.workDir,
+					WorkDir:      workDir,
 					RepoUrl:      module.Source.HelmRepository.Url,
 					ChartName:    module.Source.HelmRepository.Chart,
 					ChartVersion: module.Source.HelmRepository.Version,
@@ -223,7 +222,7 @@ func fetchArchives(printPrefix string, app *application.Application, assemblyPat
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.Git != nil {
-				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name)
+				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -372,9 +371,9 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	return nil
 }
 
-func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string) (string, error) {
+func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string, workDir string) (string, error) {
 	// Prepare target archive folder
-	loc := path.Join(packageParams.workDir, "git-workdir")
+	loc := path.Join(workDir, "git-workdir")
 	err := misc.SafeEnsureEmpty(loc)
 	if err != nil {
 		return "", err

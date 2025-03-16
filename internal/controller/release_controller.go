@@ -38,9 +38,11 @@ import (
 	"strings"
 )
 
-const ociRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
-const helmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
-const helmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
+const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
+const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
+const HelmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
+
+var Yes bool = true
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -138,8 +140,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		ctx:                ctx,
 		logger:             logger,
 		release:            release,
-		ociRepositoryName:  fmt.Sprintf(ociRepositoryNameFormat, release.Name),
-		helmRepositoryName: fmt.Sprintf(helmRepositoryNameFormat, release.Name),
+		ociRepositoryName:  fmt.Sprintf(OciRepositoryNameFormat, release.Name),
+		helmRepositoryName: fmt.Sprintf(HelmRepositoryNameFormat, release.Name),
 	}
 
 	// NB: path and folder are specific to this release.
@@ -271,7 +273,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	for _, module := range op.appContainer.Application.Spec.Modules {
-		helmReleaseName := fmt.Sprintf(helmReleaseNameFormat, op.release.Name, module.Name)
+		helmReleaseName := fmt.Sprintf(HelmReleaseNameFormat, op.release.Name, module.Name)
 		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module.Name)
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError)
@@ -321,7 +323,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		if ctx == nil {
 			ctx = kContext.Spec.Context
 		}
-		theContext, err = merge(theContext, ctx)
+		theContext, err = Merge(theContext, ctx)
 		if err != nil {
 			return nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextNs.String())), true, "ContextRetrieval")
 		}
@@ -385,6 +387,21 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 
 // GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
 func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
+	if release.Spec.Contexts == nil {
+		release.Spec.Contexts = make([]kv1alpha1.NamespacedName, 0)
+	}
+	if release.Spec.Enabled == nil {
+		release.Spec.Enabled = &Yes
+	}
+	if release.Spec.Roles == nil {
+		release.Spec.Roles = make([]string, 0)
+	}
+	if release.Spec.DependsOn == nil {
+		release.Spec.DependsOn = make([]string, 0)
+	}
+	if release.Spec.Debug == nil {
+		release.Spec.Debug = &kv1alpha1.ReleaseDebug{}
+	}
 	for i := range release.Spec.Contexts {
 		kctx := &release.Spec.Contexts[i]
 		if kctx.Namespace == "" {

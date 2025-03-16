@@ -6,6 +6,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -58,8 +59,8 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl s
 	return helmRepository, nil
 }
 
-func populateHelmRepository(helmRepository *sourcev1.HelmRepository, op *releaseOperation, repoUrl string) {
-	helmRepository.Spec.Interval = op.release.Spec.Application.Interval
+func PopulateHelmRepository(helmRepository *sourcev1.HelmRepository, release *kv1alpha1.Release, repoUrl string) {
+	helmRepository.Spec.Interval = release.Spec.Application.Interval
 	helmRepository.Spec.URL = repoUrl
 }
 
@@ -67,7 +68,7 @@ func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, repoUrl s
 	helmRepository := &sourcev1.HelmRepository{}
 	helmRepository.SetName(op.helmRepositoryName)
 	helmRepository.SetNamespace(op.release.Namespace)
-	populateHelmRepository(helmRepository, op, repoUrl)
+	PopulateHelmRepository(helmRepository, op.release, repoUrl)
 	err := ctrl.SetControllerReference(op.release, helmRepository, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set owner reference on HelmRepository '%s': %w", op.helmRepositoryName, err)
@@ -81,7 +82,7 @@ func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, repoUrl s
 func (r *ReleaseReconciler) patchHelmRepository(op *releaseOperation, helmRepository *sourcev1.HelmRepository, repoUrl string) (bool, error) {
 	originalGeneration := helmRepository.Generation
 	patch := client.MergeFrom(helmRepository.DeepCopy())
-	populateHelmRepository(helmRepository, op, repoUrl)
+	PopulateHelmRepository(helmRepository, op.release, repoUrl)
 	err := r.Patch(op.ctx, helmRepository, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching HelmRepository '%s': %w", helmRepository.Name, err)

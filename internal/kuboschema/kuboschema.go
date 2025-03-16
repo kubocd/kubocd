@@ -2,6 +2,7 @@ package kuboschema
 
 import (
 	"fmt"
+	"maps"
 )
 
 type KuboSchema map[string]interface{}
@@ -44,7 +45,8 @@ func Kubo2openAPI(schema KuboSchema, additionalProperties bool) (map[string]inte
 	return node, nil
 }
 
-func handleNode(path string, node map[string]interface{}, additionalProperties bool) (openAPI map[string]interface{}, required bool, err error) {
+func handleNode(path string, node2 map[string]interface{}, additionalProperties bool) (openAPI map[string]interface{}, required bool, err error) {
+	node := maps.Clone(node2)
 	// Lookup type
 	t, ok := node["type"]
 	if !ok {

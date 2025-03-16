@@ -108,13 +108,13 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			if ctx == nil {
 				ctx = parentContext.Spec.Context
 			}
-			base, err = merge(base, ctx)
+			base, err = Merge(base, ctx)
 			if err != nil {
 				return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError")) // Should not occurs, as detected before
 			}
 		}
 		// And merge out own content
-		base, err = merge(base, kcontext.Spec.Context)
+		base, err = Merge(base, kcontext.Spec.Context)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("invalid context content"), false, "ContextError")) // Should not occurs, as detected before
 		}

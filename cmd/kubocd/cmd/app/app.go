@@ -67,12 +67,12 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 
 	appContainer := &application.AppContainer{}
 	err := appContainer.SetApplication(apOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
-	if err != nil {
-		return err
-	}
-
+	// We dump even in case of error, to let user have a look.
 	cmn.Dump(output, "groomed.yaml", appContainer.Application)
 	cmn.Dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
 	cmn.Dump(output, "default-context.yaml", appContainer.DefaultContext)
+	if err != nil {
+		return err
+	}
 	return nil
 }

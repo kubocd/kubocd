@@ -59,15 +59,32 @@ type Module struct {
 	DependsOn []string `json:"dependsOn,omitempty"`
 }
 
-func (m *Module) validate(idx int) error {
-	// We don't want validate() to alter the Module. So, use local variable
-	var mType string = m.Type
-	if mType == "" {
-		mType = global.HelmChartType
+func (m *Module) groom(idx int) error {
+	if m.Name == "" {
+		m.Name = fmt.Sprintf("module%02d", idx)
 	}
-
-	if mType != global.ApplicationType && mType != global.HelmChartType {
-		return fmt.Errorf("invalid application type: %s", mType)
+	if m.Type == "" {
+		m.Type = global.HelmChartType
+		//return fmt.Errorf("module type is required")
+	}
+	if misc.IsZero(m.Namespace) {
+		m.Namespace = "{{ .Release.namespace }}"
+	}
+	if misc.IsZero(m.Enabled) {
+		m.Enabled = "{{ .Release.enabled }}"
+	}
+	if misc.IsZero(m.Suspended) {
+		m.Suspended = "{{ .Release.suspended }}"
+	}
+	if misc.IsZero(m.Protected) {
+		m.Protected = "{{ .Release.protected }}"
+	}
+	if misc.IsZero(m.CreateNamespace) {
+		m.CreateNamespace = "{{ .Release.createNamespace }}"
+	}
+	// Normalize
+	if m.DependsOn == nil {
+		m.DependsOn = []string{}
 	}
 	x := misc.CountNonZero(m.Source.HelmRepository, m.Source.Oci, m.Source.Git)
 	if x != 1 {
@@ -97,41 +114,12 @@ func (m *Module) validate(idx int) error {
 			return fmt.Errorf("one and only one of 'branch' and 'tag' should be set for 'source.git'")
 		}
 	}
-	if mType == global.ApplicationType && !misc.IsZero(m.Values) {
+	if m.Type == global.ApplicationType && !misc.IsZero(m.Values) {
 		return fmt.Errorf("'values' should not be defined for 'type.Application'")
 
 	}
-	if mType == global.HelmChartType && !misc.IsZero(m.Parameters) {
+	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
 		return fmt.Errorf("'parameters' should not be defined for 'type.HelmChart'")
 	}
 	return nil
-}
-
-func (m *Module) groom(idx int) {
-	if m.Name == "" {
-		m.Name = fmt.Sprintf("module%02d", idx)
-	}
-	if m.Type == "" {
-		m.Type = global.HelmChartType
-		//return fmt.Errorf("module type is required")
-	}
-	if misc.IsZero(m.Namespace) {
-		m.Namespace = "{{ .Release.namespace }}"
-	}
-	if misc.IsZero(m.Enabled) {
-		m.Enabled = "{{ .Release.enabled }}"
-	}
-	if misc.IsZero(m.Suspended) {
-		m.Suspended = "{{ .Release.suspended }}"
-	}
-	if misc.IsZero(m.Protected) {
-		m.Protected = "{{ .Release.protected }}"
-	}
-	if misc.IsZero(m.CreateNamespace) {
-		m.CreateNamespace = "{{ .Release.createNamespace }}"
-	}
-	// Normalize
-	if m.DependsOn == nil {
-		m.DependsOn = []string{}
-	}
 }

@@ -5,6 +5,8 @@ import (
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/application"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -40,9 +42,9 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, module
 	}
 }
 
-func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *releaseOperation, moduleName string) {
-	helmRelease.Spec.Interval = op.release.Spec.Application.Interval
-	chartRef, ok := op.appContainer.Status.ChartByModule[moduleName]
+func PopulateHelmRelease(helmRelease *fluxv2.HelmRelease, release *kv1alpha1.Release, appContainer *application.AppContainer, helmRepositoryName string, moduleName string) {
+	helmRelease.Spec.Interval = release.Spec.Application.Interval
+	chartRef, ok := appContainer.Status.ChartByModule[moduleName]
 	if !ok {
 		panic("Internal error chart not found by module name")
 	}
@@ -52,10 +54,10 @@ func populateHelmRelease(helmRelease *fluxv2.HelmRelease, op *releaseOperation, 
 			Version: chartRef.Version,
 			SourceRef: fluxv2.CrossNamespaceObjectReference{
 				Kind:      "HelmRepository",
-				Name:      op.helmRepositoryName,
-				Namespace: op.release.Namespace,
+				Name:      helmRepositoryName,
+				Namespace: release.Namespace,
 			},
-			Interval: &op.release.Spec.Application.Interval,
+			Interval: &release.Spec.Application.Interval,
 		},
 	}
 }
@@ -64,7 +66,7 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string,
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
-	populateHelmRelease(helmRelease, op, moduleName)
+	PopulateHelmRelease(helmRelease, op.release, op.appContainer, op.helmRepositoryName, moduleName)
 	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
@@ -78,7 +80,7 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string,
 func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, moduleName string) (bool, error) {
 	originalGeneration := helmRelease.Generation
 	patch := client.MergeFrom(helmRelease.DeepCopy())
-	populateHelmRelease(helmRelease, op, moduleName)
+	PopulateHelmRelease(helmRelease, op.release, op.appContainer, op.helmRepositoryName, moduleName)
 	err := r.Patch(op.ctx, helmRelease, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching HelmRelease '%s': %w", helmRelease.Name, err)

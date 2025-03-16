@@ -54,7 +54,18 @@ type ChartRef struct {
 	Version string `json:"version"`
 }
 
-func (app *Application) Validate() error {
+func (app *Application) Groom() error {
+	// ------------------------ Normalize
+	if app.Spec.Roles == nil {
+		app.Spec.Roles = []KcdRole{}
+	}
+	if app.Spec.DependsOn == nil {
+		app.Spec.DependsOn = []KcdRole{}
+	}
+	if app.Spec.Protected == "" {
+		app.Spec.Protected = "{{ .Release.protected }}"
+	}
+	// Validation
 	if app.ApiVersion != global.ApplicationApiVersion {
 		return fmt.Errorf("'apiVersion' must be %s (is '%s')", global.ApplicationApiVersion, app.ApiVersion)
 	}
@@ -68,24 +79,17 @@ func (app *Application) Validate() error {
 	if !misc.ValidateK8sName(app.Metadata.Name) {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
+	var err error
 	if app.Spec.ParametersSchema != nil {
-		schemaDoc, err := kuboschema.Kubo2openAPI(app.Spec.ParametersSchema, false)
+		app.Spec.ParametersSchema, err = kuboschema.Kubo2openAPI(app.Spec.ParametersSchema, false)
 		if err != nil {
 			return fmt.Errorf("invalid 'parametersSchema': %w", err)
-		}
-		_, err = kuboschema.Defaulter(schemaDoc)
-		if err != nil {
-			return fmt.Errorf("invalid 'parametersSchema' defaults: %w", err)
 		}
 	}
 	if app.Spec.ContextSchema != nil {
-		schemaDoc, err := kuboschema.Kubo2openAPI(app.Spec.ContextSchema, true)
+		app.Spec.ContextSchema, err = kuboschema.Kubo2openAPI(app.Spec.ContextSchema, true)
 		if err != nil {
-			return fmt.Errorf("invalid 'parametersSchema': %w", err)
-		}
-		_, err = kuboschema.Defaulter(schemaDoc)
-		if err != nil {
-			return fmt.Errorf("invalid 'parametersSchema' defaults: %w", err)
+			return fmt.Errorf("invalid 'contextSchema': %w", err)
 		}
 	}
 	if app.Spec.Modules == nil || len(app.Spec.Modules) == 0 {
@@ -95,7 +99,7 @@ func (app *Application) Validate() error {
 	moduleByName := make(map[string]*Module)
 	for idx := range app.Spec.Modules {
 		module := &app.Spec.Modules[idx]
-		err := app.Spec.Modules[idx].validate(idx)
+		err := app.Spec.Modules[idx].groom(idx)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
 		}
@@ -115,20 +119,4 @@ func (app *Application) Validate() error {
 		}
 	}
 	return nil
-}
-
-func (app *Application) Groom() {
-	// ------------------------ Normalize
-	if app.Spec.Roles == nil {
-		app.Spec.Roles = []KcdRole{}
-	}
-	if app.Spec.DependsOn == nil {
-		app.Spec.DependsOn = []KcdRole{}
-	}
-	if app.Spec.Protected == "" {
-		app.Spec.Protected = "{{ .Release.protected }}"
-	}
-	for idx := range app.Spec.Modules {
-		app.Spec.Modules[idx].groom(idx)
-	}
 }

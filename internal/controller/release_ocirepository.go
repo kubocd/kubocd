@@ -6,6 +6,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -58,37 +59,36 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 	return ociRepository, nil
 }
 
-func populateOciRepository(ociRepository *sourcev1b2.OCIRepository, op *releaseOperation, mediaType string, ociOperation string) {
-	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", op.release.Spec.Application.Repository)
+func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string) {
+	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Application.Repository)
 	ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
-		Tag: op.release.Spec.Application.Tag,
+		Tag: release.Spec.Application.Tag,
 	}
 	ociRepository.Spec.LayerSelector = nil // Wll take the first one
 	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
 		MediaType: mediaType,
 		Operation: ociOperation,
 	}
-	ociRepository.Spec.Provider = op.release.Spec.Application.Provider
-	ociRepository.Spec.SecretRef = op.release.Spec.Application.SecretRef
-	ociRepository.Spec.Verify = op.release.Spec.Application.Verify
-	ociRepository.Spec.ServiceAccountName = op.release.Spec.Application.ServiceAccountName
-	ociRepository.Spec.CertSecretRef = op.release.Spec.Application.CertSecretRef
-	ociRepository.Spec.ProxySecretRef = op.release.Spec.Application.ProxySecretRef
-	ociRepository.Spec.Interval = op.release.Spec.Application.Interval
-	ociRepository.Spec.Timeout = op.release.Spec.Application.Timeout
-	ociRepository.Spec.Ignore = op.release.Spec.Application.Ignore
-	ociRepository.Spec.Insecure = op.release.Spec.Application.Insecure
+	ociRepository.Spec.Provider = release.Spec.Application.Provider
+	ociRepository.Spec.SecretRef = release.Spec.Application.SecretRef
+	ociRepository.Spec.Verify = release.Spec.Application.Verify
+	ociRepository.Spec.ServiceAccountName = release.Spec.Application.ServiceAccountName
+	ociRepository.Spec.CertSecretRef = release.Spec.Application.CertSecretRef
+	ociRepository.Spec.ProxySecretRef = release.Spec.Application.ProxySecretRef
+	ociRepository.Spec.Interval = release.Spec.Application.Interval
+	ociRepository.Spec.Timeout = release.Spec.Application.Timeout
+	ociRepository.Spec.Ignore = release.Spec.Application.Ignore
+	ociRepository.Spec.Insecure = release.Spec.Application.Insecure
 	// TODO: Check this with Release.Spec.suspended
-	ociRepository.Spec.Suspend = op.release.Spec.Application.Suspend
+	ociRepository.Spec.Suspend = release.Spec.Application.Suspend
 	// TODO: Patch with url rewriters
-
 }
 
 func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType string, ociOperation string) error {
 	ociRepository := &sourcev1b2.OCIRepository{}
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
-	populateOciRepository(ociRepository, op, mediaType, ociOperation)
+	PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation)
 	err := ctrl.SetControllerReference(op.release, ociRepository, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set owner reference on OCIRepository '%s': %w", op.ociRepositoryName, err)
@@ -102,7 +102,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1b2.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
 	patch := client.MergeFrom(ociRepository.DeepCopy())
-	populateOciRepository(ociRepository, op, mediaType, ociOperation)
+	PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation)
 	err := r.Patch(op.ctx, ociRepository, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
