@@ -30,6 +30,9 @@ func TernaryF[T any](cond bool, fTrue func() T, fFalse func() T) T {
 }
 
 func IsZero(value interface{}) bool {
+	if value == nil {
+		return true
+	}
 	return reflect.DeepEqual(value, reflect.Zero(reflect.TypeOf(value)).Interface())
 }
 

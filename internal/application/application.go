@@ -5,10 +5,12 @@ import (
 	"kubocd/internal/global"
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
+	"kubocd/internal/tmpl"
 )
 
-// KcdTemplateMap A template where expected result is a map[string]interface{}
-type KcdTemplateMap string
+// KcdTemplateMap A template where expected result is a map[string]interface{}.
+// May be a string or a map[string]interface{}
+type KcdTemplateMap interface{}
 
 // KcdTemplateBool A template where expected result is a boolean
 type KcdTemplateBool string
@@ -38,15 +40,20 @@ type Application struct {
 		// 0ne and only one of the properties must be defined
 		Usage KcdTemplateString `json:"usage,omitempty"`
 		// Prevent deletion
-		// Default: {{ .Release.protected }}
-		Protected        KcdTemplateBool       `json:"protected,omitempty"`
+		// Default: false
+		// Act as default for corresponding Release value
+		Protected bool `json:"protected"`
+		// Allow Release.spec.parameters validation. And provide default values
 		ParametersSchema kuboschema.KuboSchema `json:"parametersSchema,omitempty"`
-		ContextSchema    kuboschema.KuboSchema `json:"contextSchema,omitempty"`
+		// Allow context validation. And provide default values
+		ContextSchema kuboschema.KuboSchema `json:"contextSchema,omitempty"`
 		// required: true
 		Modules   []Module  `json:"modules"`
 		Roles     []KcdRole `json:"roles,omitempty"`
 		DependsOn []KcdRole `json:"dependsOn,omitempty"`
 	} `yaml:"spec" json:"spec"`
+	// ------------------- Private part
+	templates *applicationTemplates
 }
 
 type ChartRef struct {
@@ -61,9 +68,6 @@ func (app *Application) Groom() error {
 	}
 	if app.Spec.DependsOn == nil {
 		app.Spec.DependsOn = []KcdRole{}
-	}
-	if app.Spec.Protected == "" {
-		app.Spec.Protected = "{{ .Release.protected }}"
 	}
 	// Validation
 	if app.ApiVersion != global.ApplicationApiVersion {
@@ -118,5 +122,42 @@ func (app *Application) Groom() error {
 			}
 		}
 	}
+	app.templates = &applicationTemplates{}
+	app.templates.usage, err = tmpl.New("", string(app.Spec.Usage))
+	if err != nil {
+		return fmt.Errorf("could not parse 'usage' template: %w", err)
+	}
 	return nil
+}
+
+type applicationTemplates struct {
+	usage tmpl.Tmpl
+}
+
+// Rendered object is a proxy for a release e of an application.
+// Aim is to concentrate all error detection in its constructor
+// Standard way should be to hev Getters on module object.
+// But each getter may generate an error, thus complicate the code.
+type Rendered struct {
+	Usage                string
+	ModuleRenderedByName map[string]*ModuleRendered
+}
+
+func (app *Application) Render(model map[string]interface{}) (*Rendered, error) {
+	r := &Rendered{
+		ModuleRenderedByName: make(map[string]*ModuleRendered),
+	}
+	var err error
+	r.Usage, err = app.templates.usage.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'usage' template: %w", err)
+	}
+	for _, module := range app.Spec.Modules {
+		//fmt.Printf("*********************** module.name %s\n", module.Name)
+		r.ModuleRenderedByName[module.Name], err = module.Render(model)
+		if err != nil {
+			return nil, fmt.Errorf("module '%s': %w", module.Name, err)
+		}
+	}
+	return r, nil
 }

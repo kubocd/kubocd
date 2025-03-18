@@ -7,11 +7,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/application"
+	"kubocd/internal/misc"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
-func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, moduleName string) (*fluxv2.HelmRelease, ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *application.Rendered, name, moduleName string) (*fluxv2.HelmRelease, ReconcileError) {
 	// Fetch associated OCIRepository
 	helmRelease := &fluxv2.HelmRelease{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: name, Namespace: op.release.Namespace}, helmRelease)
@@ -22,14 +24,14 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, module
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create helmRelease", "name", name, "namespace", op.release.Namespace, "module", moduleName)
-		err := r.createHelmRelease(op, name, moduleName)
+		err := r.createHelmRelease(op, rendered, name, moduleName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "HelmReleaseCreate")
 		}
 		r.Event(op.release, "Normal", "HelmReleaseCreated", fmt.Sprintf("Created HelmRelease %q", op.release.Name))
 		return helmRelease, nil
 	} else {
-		changed, err := r.patchHelmRelease(op, helmRelease, moduleName)
+		changed, err := r.patchHelmRelease(op, helmRelease, rendered, moduleName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "HelmReleasePatch")
 		}
@@ -42,31 +44,59 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, name, module
 	}
 }
 
-func PopulateHelmRelease(helmRelease *fluxv2.HelmRelease, release *kv1alpha1.Release, appContainer *application.AppContainer, helmRepositoryName string, moduleName string) {
+func PopulateHelmRelease(helmRelease *fluxv2.HelmRelease, release *kv1alpha1.Release, appContainer *application.AppContainer, rendered *application.Rendered, helmRepositoryName string, moduleName string) {
 	helmRelease.Spec.Interval = release.Spec.Application.Interval
 	chartRef, ok := appContainer.Status.ChartByModule[moduleName]
 	if !ok {
 		panic("Internal error chart not found by module name")
 	}
-	helmRelease.Spec.Chart = &fluxv2.HelmChartTemplate{
-		Spec: fluxv2.HelmChartTemplateSpec{
-			Chart:   chartRef.Name,
-			Version: chartRef.Version,
-			SourceRef: fluxv2.CrossNamespaceObjectReference{
-				Kind:      "HelmRepository",
-				Name:      helmRepositoryName,
-				Namespace: release.Namespace,
+	moduleRendered := rendered.ModuleRenderedByName[moduleName]
+
+	spec := map[string]interface{}{
+		"chart": map[string]interface{}{
+			"spec": map[string]interface{}{
+				"chart":   chartRef.Name,
+				"version": chartRef.Version,
+				"sourceRef": map[string]interface{}{
+					"kind":      "HelmRepository",
+					"name":      helmRepositoryName,
+					"namespace": release.Namespace,
+				},
+				"interval": release.Spec.Application.Interval,
 			},
-			Interval: &release.Spec.Application.Interval,
 		},
+		"values":          moduleRendered.Values,
+		"targetNamespace": moduleRendered.Namespace,
 	}
+	spec = misc.MergeMaps(spec, moduleRendered.Config)
+	specTxt, err := yaml.Marshal(spec)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("================= specTxt\n%s\n", specTxt)
+	err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
+	if err != nil {
+		panic(err)
+	}
+	//helmRelease.Spec.Chart = &fluxv2.HelmChartTemplate{
+	//	Spec: fluxv2.HelmChartTemplateSpec{
+	//		Chart:   chartRef.Name,
+	//		Version: chartRef.Version,
+	//		SourceRef: fluxv2.CrossNamespaceObjectReference{
+	//			Kind:      "HelmRepository",
+	//			Name:      helmRepositoryName,
+	//			Namespace: release.Namespace,
+	//		},
+	//		Interval: &release.Spec.Application.Interval,
+	//	},
+	//}
 }
 
-func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string, moduleName string) error {
+func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *application.Rendered, name string, moduleName string) error {
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
-	PopulateHelmRelease(helmRelease, op.release, op.appContainer, op.helmRepositoryName, moduleName)
+	PopulateHelmRelease(helmRelease, op.release, op.appContainer, rendered, op.helmRepositoryName, moduleName)
 	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
@@ -77,10 +107,10 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, name string,
 	return nil
 }
 
-func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, moduleName string) (bool, error) {
+func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, rendered *application.Rendered, moduleName string) (bool, error) {
 	originalGeneration := helmRelease.Generation
 	patch := client.MergeFrom(helmRelease.DeepCopy())
-	PopulateHelmRelease(helmRelease, op.release, op.appContainer, op.helmRepositoryName, moduleName)
+	PopulateHelmRelease(helmRelease, op.release, op.appContainer, rendered, op.helmRepositoryName, moduleName)
 	err := r.Patch(op.ctx, helmRelease, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching HelmRelease '%s': %w", helmRelease.Name, err)

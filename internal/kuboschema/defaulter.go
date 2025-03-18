@@ -33,6 +33,9 @@ func BaseDefaulter(schema KuboSchema) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return map[string]interface{}{}, nil
+	}
 	return result, nil
 }
 
@@ -61,6 +64,9 @@ func defaulterHandleNode(path string, node map[string]interface{}) (interface{},
 			if node2 != nil {
 				result[k] = node2
 			}
+		}
+		if len(result) == 0 {
+			return nil, nil
 		}
 		return result, nil
 	}

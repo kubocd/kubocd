@@ -159,6 +159,13 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			// -------------------------------------------------------------------- Render all values
+			model := controller.BuildModel(kcontext, parameters, release)
+			rendered, err := appContainer.Application.Render(model)
+			if err != nil {
+				return err
+			}
+
 			// -------------------------------------------------------------------------Generate OCI repository
 			ociRepository := &sourcev1b2.OCIRepository{
 				TypeMeta: metav1.TypeMeta{
@@ -203,7 +210,7 @@ var renderCmd = &cobra.Command{
 						Namespace: release.Namespace,
 					},
 				}
-				controller.PopulateHelmRelease(helmRelease, release, appContainer, helmRepositoryName, module.Name)
+				controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module.Name)
 				cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 			}
 			return nil
@@ -215,37 +222,3 @@ var renderCmd = &cobra.Command{
 		}
 	},
 }
-
-//func appendSettings(ctx context.Context, client client.Client, newSettings []kapi.NamespacedName, defaultNamespace string, collector []*kapi.Setting) ([]*kapi.Setting, error) {
-//	for _, settingNs := range newSettings {
-//		if settingNs.Namespace == "" {
-//			settingNs.Namespace = defaultNamespace
-//		}
-//		setting := &kapi.Setting{}
-//		err := client.Get(ctx, settingNs.ToObjectKey(), setting)
-//		if err != nil {
-//			return nil, err
-//		}
-//		if len(setting.Spec.Parents) > 0 {
-//			collector, err = appendSettings(ctx, client, setting.Spec.Parents, setting.Namespace, collector)
-//			if err != nil {
-//				return nil, err
-//			}
-//		}
-//		collector = append(collector, setting)
-//	}
-//	return collector, nil
-//}
-//
-//func computeSetting(ctx context.Context, client client.Client, settings []kapi.NamespacedName, defaultNamespace string) (*kapi.Setting, error) {
-//	collector := make([]*kapi.Setting, 0)
-//	var err error
-//	collector, err = appendSettings(ctx, client, settings, defaultNamespace, collector)
-//	if err != nil {
-//		return nil, err
-//	}
-//	for _, setting := range collector {
-//		fmt.Printf("Setting: %s:%s\n", setting.Name, setting.Namespace)
-//	}
-//	return nil, nil
-//}

@@ -42,7 +42,7 @@ const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
 const HelmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
 
-var Yes bool = true
+var Yes = true
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -271,10 +271,31 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError)
 	}
+	err = op.appContainer.ValidateContext(theContext)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), false, "Context"))
+	}
+	// ----------------------------------------------------------------------- Handle parameters
+	parameters := op.appContainer.DefaultParameters
+	parameters, err = Merge(parameters, release.Spec.Parameters)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error while merging parameters context: %w", err), true, "Parameters"))
+	}
+	err = op.appContainer.ValidateParameters(parameters)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating parameters: %w", err), true, "Parameters"))
+	}
+	// -------------------------------------------------------------------- Render all values
+	model := BuildModel(theContext, parameters, release)
+	rendered, err := op.appContainer.Application.Render(model)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
+	}
+
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	for _, module := range op.appContainer.Application.Spec.Modules {
 		helmReleaseName := fmt.Sprintf(HelmReleaseNameFormat, op.release.Name, module.Name)
-		_, reconcileError := r.handleHelmRelease(op, helmReleaseName, module.Name)
+		_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module.Name)
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError)
 		}
@@ -297,7 +318,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			forceUpdate = true
 		}
 	}
-
+	// TODO: store usage in status
+	// TODO: Stare helmReleases in status
 	return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseReady, forceUpdate)
 }
 
@@ -409,4 +431,17 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 			kctx.Namespace = release.ObjectMeta.Namespace
 		}
 	}
+}
+
+func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release) map[string]interface{} {
+	model := map[string]interface{}{
+		"Context":    context,
+		"Parameters": parameters,
+		"Release": map[string]interface{}{
+			"name":            release.Name,
+			"namespace":       release.Namespace,
+			"createNamespace": release.Spec.CreateNamespace,
+		},
+	}
+	return model
 }
