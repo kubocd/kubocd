@@ -53,11 +53,6 @@ type ReleaseSpec struct {
 	// Default: []
 	Contexts []NamespacedName `json:"contexts,omitempty"`
 
-	// If false, this release is not deployed (And deleted if existing and unprotected)
-	// +kubebuilder:validation:Optional
-	// Default: true
-	Enabled *bool `json:"enabled,omitempty"`
-
 	// If true, HelmRelease update is suspended at KuboCD level
 	// (This is NOT the helmRelease.spec.suspend flag, which may be set by Config part)
 	// +kubebuilder:validation:Optional
@@ -68,23 +63,28 @@ type ReleaseSpec struct {
 	// TODO: Ensure some fallback if no webhook (Break ownership of helmReleases ?)
 	// +kubebuilder:validation:Optional
 	// Default: false
-	Protected bool `json:"protected,omitempty"`
+	Protected *bool `json:"protected,omitempty"`
 
 	// The Release configuration variables
 	// +kubebuilder:validation:Optional
 	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
 
+	// Allow to patch the HelmRelease.spec for each module
+	// +kubebuilder:validation:Optional
+	SpecAddonByModule map[string]*apiextensionsv1.JSON `json:"specAddonByModule,omitempty"`
+
 	// If true, add  { install: { createNamespace: true } } to config map.
+	// Must be set, as used in module.Render()
 	// +kubebuilder:validation:Optional
 	// Default: false
-	CreateNamespace bool `json:"createNamespace,omitempty"`
+	CreateNamespace bool `json:"createNamespace"`
 
 	// The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
 	// Not required, as it can be setup another way, depending on the application
 	// (i.e the application has a fixed namespace, or several ones).
 	// +kubebuilder:validation:Optional
-	// Default: ""
-	Namespace string `json:"namespace,omitempty"`
+	// Default: Release.metadata.namespace
+	TargetNamespace string `json:"targetNamespace,omitempty"`
 
 	// List of roles fulfilled by this release. (appended to the one of the underlying application)
 	// +kubebuilder:validation:Optional
@@ -108,6 +108,12 @@ const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_HELM_REPO")
 
+// HelmReleaseState describe the observed state of a child HelmRelease
+type HelmReleaseState struct {
+	Ready  string `json:"ready"`
+	Status string `json:"status,omitempty"`
+}
+
 // ReleaseStatus defines the observed state of Release.
 type ReleaseStatus struct {
 	Phase ReleasePhase `json:"phase"`
@@ -119,6 +125,16 @@ type ReleaseStatus struct {
 	// Context is the resulting context, if requested in debug options
 	// +kubebuilder:validation:Optional
 	Context *apiextensionsv1.JSON `json:"context,omitempty"`
+
+	// Usage is the rendering of the Application.spec.usage. Aimed to provide user informations
+	// +kubebuilder:validation:Optional
+	Usage string `json:"usage,omitempty"`
+
+	// Protected result of Release.spec.protected defaulted to Application.spec.protected
+	Protected bool `json:"protected"`
+
+	// HelmReleaseState describe the observed state of child HelmReleases by name
+	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates,omitempty"`
 }
 
 // +kubebuilder:object:root=true

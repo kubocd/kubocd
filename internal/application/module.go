@@ -44,15 +44,13 @@ type Module struct {
 	Parameters KcdTemplateMap `json:"parameters,omitempty"`
 	// For Type == HelmChart
 	Values KcdTemplateMap `json:"values,omitempty"`
-	// Rendered value must be a Map, which will be  inserted in the configuration of fluxCD helmRelease.spec
-	Config KcdTemplateMap `json:"config,omitempty"`
-	// Default: {{ .Release.namespace }}
-	Namespace KcdTemplateString `json:"namespace,omitempty"`
+	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
+	SpecAddon KcdTemplateMap `json:"specAddon,omitempty"`
+	// Default: {{ .Release.spec.targetNamespace | default .Release.metadata.namespace }}
+	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
 	// Default: "true"
 	Enabled KcdTemplateBool `json:"enabled,omitempty"`
-	// Default: {{ .Release.createNamespace }}
-	CreateNamespace KcdTemplateBool `json:"createNamespace,omitempty"`
 	// Intra-application dependency. List of module names
 	DependsOn []string `json:"dependsOn,omitempty"`
 	// ------------------- Private part
@@ -67,14 +65,11 @@ func (m *Module) groom(idx int) error {
 		m.Type = global.HelmChartType
 		//return fmt.Errorf("module type is required")
 	}
-	if misc.IsZero(m.Namespace) {
-		m.Namespace = "{{ .Release.namespace }}"
+	if misc.IsZero(m.TargetNamespace) {
+		m.TargetNamespace = "{{.Release.spec.targetNamespace|default .Release.metadata.namespace}}"
 	}
 	if m.Enabled == "" {
 		m.Enabled = "true"
-	}
-	if misc.IsZero(m.CreateNamespace) {
-		m.CreateNamespace = "{{ .Release.createNamespace }}"
 	}
 	// Normalize
 	if m.DependsOn == nil {
@@ -126,21 +121,17 @@ func (m *Module) groom(idx int) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.config, err = tmpl.NewFromAny("", m.Config)
+	m.templates.specAddon, err = tmpl.NewFromAny("", m.SpecAddon)
 	if err != nil {
-		return fmt.Errorf("could not parse 'config' template: %w", err)
+		return fmt.Errorf("could not parse 'specAddon' template: %w", err)
 	}
-	m.templates.namespace, err = tmpl.New("", string(m.Namespace))
+	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace))
 	if err != nil {
-		return fmt.Errorf("could not parse 'namespace' template: %w", err)
+		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
 	}
 	m.templates.enabled, err = tmpl.New("", string(m.Enabled))
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
-	}
-	m.templates.createNamespace, err = tmpl.New("", string(m.CreateNamespace))
-	if err != nil {
-		return fmt.Errorf("could not parse 'createNamespace' template: %w", err)
 	}
 	return nil
 }
@@ -148,21 +139,20 @@ func (m *Module) groom(idx int) error {
 type moduleTemplates struct {
 	parameters      tmpl.Tmpl
 	values          tmpl.Tmpl
-	config          tmpl.Tmpl
-	namespace       tmpl.Tmpl
+	specAddon       tmpl.Tmpl
+	targetNamespace tmpl.Tmpl
 	enabled         tmpl.Tmpl
-	createNamespace tmpl.Tmpl
 }
 
 // ModuleRendered object is a proxy for module. Aim is to concentrate all error detection in its constructor
 // Standard way should be to hev Getters on module object.
 // But each getter may generate an error, thus complicate the code.
 type ModuleRendered struct {
-	Parameters map[string]interface{}
-	Values     map[string]interface{}
-	Config     map[string]interface{}
-	Namespace  string
-	Enabled    bool
+	Parameters      map[string]interface{}
+	Values          map[string]interface{}
+	SpecAddon       map[string]interface{}
+	TargetNamespace string
+	Enabled         bool
 }
 
 var createNamespacePatch = map[string]interface{}{
@@ -182,24 +172,20 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'values' template: %w", err)
 	}
-	mr.Config, _, err = m.templates.config.RenderToMap(model)
+	mr.SpecAddon, _, err = m.templates.specAddon.RenderToMap(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'config' template: %w", err)
+		return nil, fmt.Errorf("could not render 'specAddon' template: %w", err)
 	}
-	mr.Namespace, err = m.templates.namespace.RenderToText(model)
+	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToText(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'namespace' template: %w", err)
+		return nil, fmt.Errorf("could not render 'targetNamespace' template: %w", err)
 	}
 	mr.Enabled, _, err = m.templates.enabled.RenderToBool(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'enabled' template: %w", err)
 	}
-	createNamespace, _, err := m.templates.createNamespace.RenderToBool(model)
-	if err != nil {
-		return nil, fmt.Errorf("could not render 'createNamespace' template: %w", err)
-	}
-	if createNamespace {
-		mr.Config = misc.MergeMaps(mr.Config, createNamespacePatch)
+	if model["Release"].(map[string]interface{})["spec"].(map[string]interface{})["createNamespace"].(bool) {
+		mr.SpecAddon = misc.MergeMaps(mr.SpecAddon, createNamespacePatch)
 	}
 	//fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
 	//fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))

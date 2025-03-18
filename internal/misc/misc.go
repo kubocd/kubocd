@@ -80,6 +80,16 @@ func Map2Json(data interface{}) []byte {
 	return b.Bytes()
 }
 
+func ObjectToMap(obj interface{}) map[string]interface{} {
+	ba := Map2Yaml(obj)
+	result := make(map[string]interface{})
+	err := yaml.Unmarshal(ba, &result)
+	if err != nil {
+		panic(err)
+	}
+	return result
+}
+
 //
 //func map2JsonBuffer(data interface{}) *bytes.Buffer {
 //	b := bytes.Buffer{}

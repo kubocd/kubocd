@@ -121,7 +121,7 @@ func (v *ReleaseCustomValidator) ValidateDelete(ctx context.Context, obj runtime
 	}
 	v.logger.Info("Validation for Release upon deletion", "name", release.GetName())
 
-	if release.Spec.Protected {
+	if release.Status.Protected {
 		return nil, fmt.Errorf("release %s is protected", release.GetName())
 	}
 	return nil, nil

@@ -593,6 +593,7 @@ spec:
               createNamespace:
                 description: |-
                   If true, add  { install: { createNamespace: true } } to config map.
+                  Must be set, as used in module.Render()
                   Default: false
                 type: boolean
               debug:
@@ -615,18 +616,6 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
-              enabled:
-                description: |-
-                  If false, this release is not deployed (And deleted if existing and unprotected)
-                  Default: true
-                type: boolean
-              namespace:
-                description: |-
-                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
-                  Not required, as it can be setup another way, depending on the application
-                  (i.e the application has a fixed namespace, or several ones).
-                  Default: ""
-                type: string
               parameters:
                 description: The Release configuration variables
                 x-kubernetes-preserve-unknown-fields: true
@@ -642,12 +631,24 @@ spec:
                 items:
                   type: string
                 type: array
+              specAddonByModule:
+                additionalProperties:
+                  x-kubernetes-preserve-unknown-fields: true
+                description: Allow to patch the HelmRelease.spec for each module
+                type: object
               suspended:
                 description: |-
                   If true, HelmRelease update is suspended at KuboCD level
                   (This is NOT the helmRelease.spec.suspend flag, which may be set by Config part)
                   Default: false
                 type: boolean
+              targetNamespace:
+                description: |-
+                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
+                  Not required, as it can be setup another way, depending on the application
+                  (i.e the application has a fixed namespace, or several ones).
+                  Default: Release.metadata.namespace
+                type: string
             required:
             - application
             type: object
@@ -665,8 +666,17 @@ spec:
                 type: string
               phase:
                 type: string
+              protected:
+                description: Protected result of Release.spec.protected defaulted
+                  to Application.spec.protected
+                type: boolean
+              usage:
+                description: Usage is the rendering of the Application.spec.usage.
+                  Aimed to provide user informations
+                type: string
             required:
             - phase
+            - protected
             type: object
         type: object
     served: true

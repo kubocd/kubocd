@@ -6,14 +6,14 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func Merge(base map[string]interface{}, addon *apiextensionsv1.JSON) (map[string]interface{}, error) {
+func Merge(base map[string]interface{}, addon *apiextensionsv1.JSON) map[string]interface{} {
 	if addon == nil {
-		return base, nil
+		return base
 	}
 	inc := make(map[string]interface{})
 	err := yaml.Unmarshal(addon.Raw, &inc)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	return misc.MergeMaps(base, inc), nil
+	return misc.MergeMaps(base, inc)
 }

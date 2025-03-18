@@ -35,6 +35,8 @@ type Application struct {
 		Version string `json:"version"`
 	} `json:"metadata"`
 	Spec struct {
+		// Application description. Can be completed by ParametersSchema descriptions
+		Description string `json:"description,omitempty"`
 		// A template aimed to be rendered on deployment.
 		// Intended to provide user with usage information // (Access link, configuration, ....)
 		// 0ne and only one of the properties must be defined

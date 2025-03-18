@@ -277,10 +277,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ----------------------------------------------------------------------- Handle parameters
 	parameters := op.appContainer.DefaultParameters
-	parameters, err = Merge(parameters, release.Spec.Parameters)
-	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error while merging parameters context: %w", err), true, "Parameters"))
-	}
+	parameters = Merge(parameters, release.Spec.Parameters)
 	err = op.appContainer.ValidateParameters(parameters)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating parameters: %w", err), true, "Parameters"))
@@ -345,10 +342,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		if ctx == nil {
 			ctx = kContext.Spec.Context
 		}
-		theContext, err = Merge(theContext, ctx)
-		if err != nil {
-			return nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextNs.String())), true, "ContextRetrieval")
-		}
+		theContext = Merge(theContext, ctx)
 	}
 	return theContext, nil
 }
@@ -412,9 +406,6 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	if release.Spec.Contexts == nil {
 		release.Spec.Contexts = make([]kv1alpha1.NamespacedName, 0)
 	}
-	if release.Spec.Enabled == nil {
-		release.Spec.Enabled = &Yes
-	}
 	if release.Spec.Roles == nil {
 		release.Spec.Roles = make([]string, 0)
 	}
@@ -437,11 +428,7 @@ func BuildModel(context map[string]interface{}, parameters map[string]interface{
 	model := map[string]interface{}{
 		"Context":    context,
 		"Parameters": parameters,
-		"Release": map[string]interface{}{
-			"name":            release.Name,
-			"namespace":       release.Namespace,
-			"createNamespace": release.Spec.CreateNamespace,
-		},
+		"Release":    misc.ObjectToMap(release),
 	}
 	return model
 }

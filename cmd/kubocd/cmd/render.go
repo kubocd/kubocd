@@ -141,19 +141,16 @@ var renderCmd = &cobra.Command{
 			// ------------------------------------------------------------------------ handle context
 			kcontext, err := controller.ComputeContext(context.Background(), k8sClient, release, appContainer)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not compute context: %w", err)
 			}
 			cmn.Dump(output, "context.yaml", kcontext)
 			err = appContainer.ValidateContext(kcontext)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not validate context: %w", err)
 			}
 			// ----------------------------------------------------------------------- Handle parameters
 			parameters := appContainer.DefaultParameters
-			parameters, err = controller.Merge(parameters, release.Spec.Parameters)
-			if err != nil {
-				return err
-			}
+			parameters = controller.Merge(parameters, release.Spec.Parameters)
 			cmn.Dump(output, "parameters.yaml", parameters)
 			err = appContainer.ValidateParameters(parameters)
 			if err != nil {

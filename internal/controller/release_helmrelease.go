@@ -66,9 +66,13 @@ func PopulateHelmRelease(helmRelease *fluxv2.HelmRelease, release *kv1alpha1.Rel
 			},
 		},
 		"values":          moduleRendered.Values,
-		"targetNamespace": moduleRendered.Namespace,
+		"targetNamespace": moduleRendered.TargetNamespace,
 	}
-	spec = misc.MergeMaps(spec, moduleRendered.Config)
+	spec = misc.MergeMaps(spec, moduleRendered.SpecAddon)
+	addon, ok := release.Spec.SpecAddonByModule[moduleName]
+	if ok {
+		spec = Merge(spec, addon)
+	}
 	specTxt, err := yaml.Marshal(spec)
 	if err != nil {
 		panic(err)
