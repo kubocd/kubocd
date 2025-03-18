@@ -73,7 +73,7 @@ func PopulateHelmRelease(helmRelease *fluxv2.HelmRelease, release *kv1alpha1.Rel
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("================= specTxt\n%s\n", specTxt)
+	// fmt.Printf("================= specTxt\n%s\n", specTxt)
 	err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
 	if err != nil {
 		panic(err)

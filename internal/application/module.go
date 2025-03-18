@@ -201,8 +201,8 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if createNamespace {
 		mr.Config = misc.MergeMaps(mr.Config, createNamespacePatch)
 	}
-	fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
-	fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))
-	fmt.Printf("****** namespace:\n%s\n", misc.Map2Yaml(mr.Namespace))
+	//fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
+	//fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))
+	//fmt.Printf("****** namespace:\n%s\n", misc.Map2Yaml(mr.Namespace))
 	return mr, nil
 }
