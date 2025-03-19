@@ -38,11 +38,12 @@ type ConfigSpec struct {
 	// Each entry allow substitution of oci data source.
 	// Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
 	// This will also allow to add authentication and proxy information.
-	// When merging Configs, values are simply appended.
+	// When merging Configs, values are simply appended. (Configs are sorted by name)
 	// +kubebuilder:validation:Optional
 	OciRedirects []OciRedirectSpec `json:"ociRedirects,omitempty"`
 
 	// Allow to define Roles already provided by the k8s cluster, independently of any KuboCD deployment.
+	// When merging, values are appended
 	// +kubebuilder:validation:Optional
 	// Default: []
 	ClusterRoles []string `json:"clusterRoles,omitempty"`

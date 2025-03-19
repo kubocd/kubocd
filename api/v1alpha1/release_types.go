@@ -108,6 +108,7 @@ const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
 const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HR")
+const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
 type HelmReleaseState struct {

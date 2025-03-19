@@ -2,10 +2,9 @@
 
 # TODO
 
-- Implements Roles dependencies
-- Implement intra-module dependencies
-- Implement Release.suspended
 - Implement config stuff
+
+- Implements Roles dependencies
 
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
 - Set Application in the model ?
@@ -21,4 +20,8 @@
 - Implements Usage in Release.Status
 - Helm release reporting in Release.status
 - Implement Protected in status and in the webhook.
+- Implement Release.suspended
+- Implement intra-module dependencies
+
+
 

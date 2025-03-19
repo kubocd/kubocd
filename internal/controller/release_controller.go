@@ -58,13 +58,14 @@ type ReleaseReconciler struct {
 
 // Just a container to avoid messy parameters passing
 type releaseOperation struct {
-	ctx                context.Context
-	logger             logr.Logger
-	release            *kv1alpha1.Release
-	appContainer       *application.AppContainer
-	ociRepositoryName  string
-	helmRepositoryName string
-	helmReleaseStates  map[string]kv1alpha1.HelmReleaseState // To collect values
+	ctx                         context.Context
+	logger                      logr.Logger
+	release                     *kv1alpha1.Release
+	appContainer                *application.AppContainer
+	ociRepositoryName           string
+	helmRepositoryName          string
+	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values
+	helmReleaseNameByModuleName map[string]string
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -291,13 +292,21 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
 	}
 
-	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
-	op.helmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
+	// -------------------------------------------------------- Build a map of module by name for dependencies handling.
+	op.helmReleaseNameByModuleName = make(map[string]string)
 	for _, module := range op.appContainer.Application.Spec.Modules {
-		helmReleaseName := fmt.Sprintf(HelmReleaseNameFormat, op.release.Name, module.Name)
-		_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module.Name)
-		if reconcileError != nil {
-			return r.reportError(op, reconcileError)
+		op.helmReleaseNameByModuleName[module.Name] = BuildHelmReleaseName(op.release.Name, module.Name)
+	}
+
+	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
+	if !op.release.Spec.Suspended {
+		op.helmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
+		for _, module := range op.appContainer.Application.Spec.Modules {
+			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
+			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
+			if reconcileError != nil {
+				return r.reportError(op, reconcileError)
+			}
 		}
 	}
 	// -------------------------------------------------------- Adjust status
@@ -342,11 +351,21 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.Protected = protected
 		forceUpdate = true
 	}
-	phase := kv1alpha1.ReleasePhaseWaitHelmReleases
-	if allReady {
-		phase = kv1alpha1.ReleasePhaseReady
+	var phase kv1alpha1.ReleasePhase
+	if op.release.Spec.Suspended {
+		phase = kv1alpha1.ReleasePhaseSuspended
+	} else {
+		if allReady {
+			phase = kv1alpha1.ReleasePhaseReady
+		} else {
+			phase = kv1alpha1.ReleasePhaseWaitHelmReleases
+		}
 	}
 	return ctrl.Result{}, r.updateStatus(op, phase, forceUpdate)
+}
+
+func BuildHelmReleaseName(releaseName, moduleName string) string {
+	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
 }
 
 func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {

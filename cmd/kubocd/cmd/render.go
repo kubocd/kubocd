@@ -199,6 +199,10 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "helmRepository.yaml", helmRepository)
 
 			// ---------------------------------------------------------------------- Generate helm releases
+			helmReleaseNameByModuleName := make(map[string]string)
+			for _, module := range appContainer.Application.Spec.Modules {
+				helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
+			}
 			for _, module := range appContainer.Application.Spec.Modules {
 				enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 				if enabled {
@@ -208,11 +212,11 @@ var renderCmd = &cobra.Command{
 							Kind:       fluxv2.HelmReleaseKind,
 						},
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      fmt.Sprintf(controller.HelmReleaseNameFormat, release.Name, module.Name),
+							Name:      controller.BuildHelmReleaseName(release.Name, module.Name),
 							Namespace: release.Namespace,
 						},
 					}
-					controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module.Name)
+					controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName)
 					cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 				}
 			}

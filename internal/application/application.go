@@ -50,7 +50,7 @@ type Application struct {
 		// Allow context validation. And provide default values
 		ContextSchema kuboschema.KuboSchema `json:"contextSchema,omitempty"`
 		// required: true
-		Modules   []Module  `json:"modules"`
+		Modules   []*Module `json:"modules"`
 		Roles     []KcdRole `json:"roles,omitempty"`
 		DependsOn []KcdRole `json:"dependsOn,omitempty"`
 	} `yaml:"spec" json:"spec"`
@@ -104,7 +104,7 @@ func (app *Application) Groom() error {
 	// ------- Now, check modules
 	moduleByName := make(map[string]*Module)
 	for idx := range app.Spec.Modules {
-		module := &app.Spec.Modules[idx]
+		module := app.Spec.Modules[idx]
 		err := app.Spec.Modules[idx].groom(idx)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
@@ -113,7 +113,7 @@ func (app *Application) Groom() error {
 		if ok {
 			return fmt.Errorf("duplicate module name: %s", module.Name)
 		}
-		moduleByName[module.Name] = &app.Spec.Modules[idx]
+		moduleByName[module.Name] = app.Spec.Modules[idx]
 	}
 	// And another loop to check internal dependencies
 	for _, module := range app.Spec.Modules {
