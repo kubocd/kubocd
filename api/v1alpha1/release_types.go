@@ -106,12 +106,13 @@ type ReleasePhase string
 const ReleasePhaseReady = ReleasePhase("READY")
 const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
-const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_HELM_REPO")
+const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
+const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HR")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
 type HelmReleaseState struct {
-	Ready  string `json:"ready"`
-	Status string `json:"status,omitempty"`
+	Ready  metav1.ConditionStatus `json:"ready"`
+	Status string                 `json:"status,omitempty"`
 }
 
 // ReleaseStatus defines the observed state of Release.
@@ -135,6 +136,10 @@ type ReleaseStatus struct {
 
 	// HelmReleaseState describe the observed state of child HelmReleases by name
 	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates,omitempty"`
+
+	// ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
+	// as printcolumn
+	ReadyReleases string `json:"readyReleases,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -143,8 +148,9 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.application.tag`
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.contexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 
 // Release is the Schema for the releases API.
 type Release struct {

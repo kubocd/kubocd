@@ -380,12 +380,15 @@ spec:
     - jsonPath: .status.phase
       name: Status
       type: string
-    - jsonPath: .spec.description
-      name: Description
+    - jsonPath: .status.readyReleases
+      name: Ready
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .spec.description
+      name: Description
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -664,12 +667,32 @@ spec:
                   Contexts is a string to list our context. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              helmReleaseStates:
+                additionalProperties:
+                  description: HelmReleaseState describe the observed state of a child
+                    HelmRelease
+                  properties:
+                    ready:
+                      type: string
+                    status:
+                      type: string
+                  required:
+                  - ready
+                  type: object
+                description: HelmReleaseState describe the observed state of child
+                  HelmReleases by name
+                type: object
               phase:
                 type: string
               protected:
                 description: Protected result of Release.spec.protected defaulted
                   to Application.spec.protected
                 type: boolean
+              readyReleases:
+                description: |-
+                  ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               usage:
                 description: Usage is the rendering of the Application.spec.usage.
                   Aimed to provide user informations

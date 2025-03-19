@@ -177,6 +177,9 @@ var renderCmd = &cobra.Command{
 			controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract")
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
+			// -------------------------------------------------------------------------Generate Usage
+			cmn.DumpTxt(output, "usage.txt", rendered.Usage)
+
 			// -------------------------------------------------------------------------Generate Helm repository
 			helmRepositoryName := fmt.Sprintf(controller.HelmRepositoryNameFormat, release.Name)
 			helmRepositoryNamespace := release.Namespace
@@ -197,18 +200,21 @@ var renderCmd = &cobra.Command{
 
 			// ---------------------------------------------------------------------- Generate helm releases
 			for _, module := range appContainer.Application.Spec.Modules {
-				helmRelease := &fluxv2.HelmRelease{
-					TypeMeta: metav1.TypeMeta{
-						APIVersion: fluxv2.GroupVersion.String(),
-						Kind:       fluxv2.HelmReleaseKind,
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf(controller.HelmReleaseNameFormat, release.Name, module.Name),
-						Namespace: release.Namespace,
-					},
+				enabled := rendered.ModuleRenderedByName[module.Name].Enabled
+				if enabled {
+					helmRelease := &fluxv2.HelmRelease{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: fluxv2.GroupVersion.String(),
+							Kind:       fluxv2.HelmReleaseKind,
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      fmt.Sprintf(controller.HelmReleaseNameFormat, release.Name, module.Name),
+							Namespace: release.Namespace,
+						},
+					}
+					controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module.Name)
+					cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 				}
-				controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module.Name)
-				cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 			}
 			return nil
 		}()

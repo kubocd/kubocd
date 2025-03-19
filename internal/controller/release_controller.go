@@ -32,6 +32,7 @@ import (
 	"kubocd/internal/misc"
 	"os"
 	"path"
+	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -63,6 +64,7 @@ type releaseOperation struct {
 	appContainer       *application.AppContainer
 	ociRepositoryName  string
 	helmRepositoryName string
+	helmReleaseStates  map[string]kv1alpha1.HelmReleaseState // To collect values
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -290,14 +292,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
+	op.helmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
 	for _, module := range op.appContainer.Application.Spec.Modules {
 		helmReleaseName := fmt.Sprintf(HelmReleaseNameFormat, op.release.Name, module.Name)
 		_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module.Name)
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError)
 		}
-		op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 	}
+	// -------------------------------------------------------- Adjust status
 	forceUpdate := false
 	if op.release.Spec.Debug != nil && op.release.Spec.Debug.DumpContext {
 		// Sore context in status
@@ -315,9 +318,45 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			forceUpdate = true
 		}
 	}
-	// TODO: store usage in status
-	// TODO: Stare helmReleases in status
-	return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseReady, forceUpdate)
+	// And store helmReleases status
+	readyReleases, allReady := computeReadyReleases(op)
+	if readyReleases != op.release.Status.ReadyReleases {
+		op.release.Status.ReadyReleases = readyReleases
+		forceUpdate = true
+	}
+	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
+		op.release.Status.HelmReleaseStates = op.helmReleaseStates
+		forceUpdate = true
+	}
+	// And store usage
+	if rendered.Usage != op.release.Status.Usage {
+		op.release.Status.Usage = rendered.Usage
+		forceUpdate = true
+	}
+	// Store protected in status
+	protected := op.appContainer.Application.Spec.Protected
+	if op.release.Spec.Protected != nil {
+		protected = *op.release.Spec.Protected
+	}
+	if protected != op.release.Status.Protected {
+		op.release.Status.Protected = protected
+		forceUpdate = true
+	}
+	phase := kv1alpha1.ReleasePhaseWaitHelmReleases
+	if allReady {
+		phase = kv1alpha1.ReleasePhaseReady
+	}
+	return ctrl.Result{}, r.updateStatus(op, phase, forceUpdate)
+}
+
+func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
+	cnt := 0
+	for _, releaseState := range op.helmReleaseStates {
+		if releaseState.Ready == metav1.ConditionTrue {
+			cnt++
+		}
+	}
+	return fmt.Sprintf("%d/%d", cnt, len(op.helmReleaseStates)), cnt == len(op.helmReleaseStates)
 }
 
 // ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
