@@ -14,24 +14,28 @@ import (
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/internal/application"
+	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"kubocd/internal/k8sapi"
 	"kubocd/internal/misc"
 	"os"
 	"path"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var renderParams struct {
-	output  string
-	workDir string
+	output          string
+	workDir         string
+	kubocdNamespace string
 }
 
 var renderLog logr.Logger
 
 func init() {
-	renderCmd.Flags().StringVarP(&renderParams.output, "output", "o", "", "Output directory")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "", "Output directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "n", "kubocd", "The namespace where the kubocd controller is installed in")
 }
 
 var renderCmd = &cobra.Command{
@@ -81,6 +85,22 @@ var renderCmd = &cobra.Command{
 
 			cmn.Dump(output, "release.yaml", release)
 
+			k8sClient, err := k8sapi.GetKubeClient(scheme)
+			if err != nil {
+				return err
+			}
+
+			// ------------------------------------------------------------------------ handle config
+			configStore := configstore.New()
+			configs := &kapi.ConfigList{}
+			err = k8sClient.List(context.Background(), configs, client.InNamespace(renderParams.kubocdNamespace))
+			if err != nil {
+				return fmt.Errorf("could not list configs: %w", err)
+			}
+			configStore.AddConfigs(configs)
+			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
+
+			// ----------------------------------------------------------------------- Retrieve application
 			appOriginal := &application.Application{}
 			appContainer := &application.AppContainer{}
 			var errorOnContainer error
@@ -91,14 +111,24 @@ var renderCmd = &cobra.Command{
 				}
 				errorOnContainer = appContainer.SetApplication(appOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
 			} else {
+				var repo, tag string
+				kuboAppRedirectSpec, newUrl := configStore.GetKuboAppRedirect(fmt.Sprintf("%s:%s", release.Spec.Application.Repository, release.Spec.Application.Tag))
+				if kuboAppRedirectSpec != nil {
+					repo, tag, err = misc.DecodeImageUrl(newUrl)
+					if err != nil {
+						return fmt.Errorf("invalid OCI repository URL: %w", err)
+					}
+				} else {
+					repo = release.Spec.Application.Repository
+					tag = release.Spec.Application.Tag
+				}
 				op := &oci.Operation{
 					WorkDir:   renderParams.workDir,
-					ImageRepo: release.Spec.Application.Repository,
-					ImageTag:  release.Spec.Application.Tag,
+					ImageRepo: repo,
+					ImageTag:  tag,
 					Insecure:  release.Spec.Application.Insecure,
 					Anonymous: false,
 				}
-
 				archive, err := oci.GetContentFromOci("# ", op, global.ApplicationContentMediaType)
 				if err != nil {
 					return err
@@ -134,10 +164,7 @@ var renderCmd = &cobra.Command{
 				fmt.Printf("\n")
 			}
 			cmn.Dump(output, "status.yaml", appContainer.Status)
-			k8sClient, err := k8sapi.GetKubeClient(scheme)
-			if err != nil {
-				return err
-			}
+
 			// ------------------------------------------------------------------------ handle context
 			kcontext, err := controller.ComputeContext(context.Background(), k8sClient, release, appContainer)
 			if err != nil {
@@ -174,7 +201,7 @@ var renderCmd = &cobra.Command{
 					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
 				},
 			}
-			controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract")
+			controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract", configStore)
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
 			// -------------------------------------------------------------------------Generate Usage

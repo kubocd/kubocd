@@ -1,0 +1,18 @@
+{{ range .Values.contexts }}
+---
+apiVersion: kubocd.kubotal.io/v1alpha1
+kind: Context
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace | default $.Release.Namespace }}
+spec:
+  {{- with .description }}
+  description: {{ . }}
+  {{- end }}
+  {{- with .parents }}
+  parents:
+{{- toYaml . | nindent 4 }}
+  {{- end }}
+  context:
+{{- toYaml .context | nindent 4 }}
+{{ end }}

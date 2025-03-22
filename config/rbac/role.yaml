@@ -7,6 +7,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs
   - contexts
   - releases
   verbs:
@@ -20,6 +21,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs/finalizers
   - contexts/finalizers
   - releases/finalizers
   verbs:
@@ -27,6 +29,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs/status
   - contexts/status
   - releases/status
   verbs:

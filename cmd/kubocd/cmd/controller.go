@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/cache"
+	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -98,6 +99,12 @@ var controllerCmd = &cobra.Command{
 
 		if controllerParams.helmRepoAdvAddr == "" {
 			setupLog.Error(nil, "'helmRepoAdvAddr' is required")
+			os.Exit(2)
+		}
+
+		myPodNamespace := os.Getenv("MY_POD_NAMESPACE")
+		if myPodNamespace == "" {
+			setupLog.Error(nil, "'MY_POD_NAMESPACE' environment variable must be set")
 			os.Exit(2)
 		}
 
@@ -192,6 +199,8 @@ var controllerCmd = &cobra.Command{
 
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
+		configStore := configstore.New()
+
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
 		// Create an index to retrieve a Release from a context in an efficient way
 		// index release by contexts
@@ -245,6 +254,7 @@ var controllerCmd = &cobra.Command{
 			ServerRoot:       serverRoot,
 			HelmRepoAdvAddr:  controllerParams.helmRepoAdvAddr,
 			ApplicationCache: cache.NewCache(time.Second*60, controllerRootLog.WithName("ApplicationCache")),
+			ConfigStore:      configStore,
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
@@ -304,8 +314,8 @@ var controllerCmd = &cobra.Command{
 		}
 
 		contextReconciler := &controller.ContextReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
+			Client: mgr.GetClient(),
+			//Scheme:        mgr.GetScheme(),
 			EventRecorder: mgr.GetEventRecorderFor("context"),
 			Logger:        controllerRootLog.WithName("ContextReconciler"),
 		}
@@ -317,6 +327,24 @@ var controllerCmd = &cobra.Command{
 			Complete(contextReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Context")
+			os.Exit(1)
+		}
+
+		// -------------------------------------------------------------------------------------- Config controller setup
+		configReconciler := &controller.ConfigReconciler{
+			Client:         mgr.GetClient(),
+			EventRecorder:  mgr.GetEventRecorderFor("config"),
+			Logger:         controllerRootLog.WithName("ConfigReconciler"),
+			ConfigStore:    configStore,
+			MyPodNamespace: myPodNamespace,
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Config{}).
+			Named("kubocd-config").
+			Complete(configReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Config")
 			os.Exit(1)
 		}
 

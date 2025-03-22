@@ -6,7 +6,6 @@ import (
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
@@ -19,7 +18,7 @@ import (
 // ContextReconciler reconciles a Context object
 type ContextReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	//Scheme *runtime.Scheme
 	record.EventRecorder
 	Logger logr.Logger
 }

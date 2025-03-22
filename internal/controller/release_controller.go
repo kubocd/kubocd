@@ -28,6 +28,7 @@ import (
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/application"
 	"kubocd/internal/cache"
+	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"os"
@@ -41,9 +42,7 @@ import (
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
-const HelmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
-
-var Yes = true
+const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -54,6 +53,7 @@ type ReleaseReconciler struct {
 	ServerRoot       string
 	HelmRepoAdvAddr  string
 	ApplicationCache cache.Cache
+	ConfigStore      configstore.ConfigStore
 }
 
 // Just a container to avoid messy parameters passing
@@ -387,7 +387,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		err := k8sClient.Get(ctx, contextNs.ToObjectKey(), kContext)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				return nil, NewReconcileError(err, true, "ContextNotFound")
+				return nil, NewReconcileError(fmt.Errorf("context '%s' not found", contextNs.String()), true, "ContextNotFound")
 			} else {
 				return nil, NewReconcileError(err, false, "ContextRetrieval")
 			}

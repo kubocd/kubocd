@@ -7,6 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/configstore"
+	"kubocd/internal/misc"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -59,37 +61,62 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 	return ociRepository, nil
 }
 
-func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string) {
-	ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Application.Repository)
-	ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
-		Tag: release.Spec.Application.Tag,
+func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
+	kuboAppRedirectSpec, newUrl := configStore.GetKuboAppRedirect(fmt.Sprintf("%s:%s", release.Spec.Application.Repository, release.Spec.Application.Tag))
+	if kuboAppRedirectSpec != nil {
+		repo, tag, err := misc.DecodeImageUrl(newUrl)
+		if err != nil {
+			return fmt.Errorf("invalid OCI repository URL: %w", err)
+		}
+		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", repo)
+		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
+			Tag: tag,
+		}
+		ociRepository.Spec.Provider = kuboAppRedirectSpec.Provider
+		ociRepository.Spec.SecretRef = kuboAppRedirectSpec.SecretRef
+		ociRepository.Spec.Verify = kuboAppRedirectSpec.Verify
+		ociRepository.Spec.ServiceAccountName = kuboAppRedirectSpec.ServiceAccountName
+		ociRepository.Spec.CertSecretRef = kuboAppRedirectSpec.CertSecretRef
+		ociRepository.Spec.ProxySecretRef = kuboAppRedirectSpec.ProxySecretRef
+		ociRepository.Spec.Interval = kuboAppRedirectSpec.Interval
+		ociRepository.Spec.Timeout = kuboAppRedirectSpec.Timeout
+		ociRepository.Spec.Ignore = kuboAppRedirectSpec.Ignore
+		ociRepository.Spec.Insecure = kuboAppRedirectSpec.Insecure
+		ociRepository.Spec.Suspend = kuboAppRedirectSpec.Suspend
+	} else {
+		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Application.Repository)
+		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
+			Tag: release.Spec.Application.Tag,
+		}
+		ociRepository.Spec.Provider = release.Spec.Application.Provider
+		ociRepository.Spec.SecretRef = release.Spec.Application.SecretRef
+		ociRepository.Spec.Verify = release.Spec.Application.Verify
+		ociRepository.Spec.ServiceAccountName = release.Spec.Application.ServiceAccountName
+		ociRepository.Spec.CertSecretRef = release.Spec.Application.CertSecretRef
+		ociRepository.Spec.ProxySecretRef = release.Spec.Application.ProxySecretRef
+		ociRepository.Spec.Interval = release.Spec.Application.Interval
+		ociRepository.Spec.Timeout = release.Spec.Application.Timeout
+		ociRepository.Spec.Ignore = release.Spec.Application.Ignore
+		ociRepository.Spec.Insecure = release.Spec.Application.Insecure
+		ociRepository.Spec.Suspend = release.Spec.Application.Suspend
 	}
-	ociRepository.Spec.LayerSelector = nil // Wll take the first one
+	//ociRepository.Spec.LayerSelector = nil // Wll take the first one
 	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
 		MediaType: mediaType,
 		Operation: ociOperation,
 	}
-	ociRepository.Spec.Provider = release.Spec.Application.Provider
-	ociRepository.Spec.SecretRef = release.Spec.Application.SecretRef
-	ociRepository.Spec.Verify = release.Spec.Application.Verify
-	ociRepository.Spec.ServiceAccountName = release.Spec.Application.ServiceAccountName
-	ociRepository.Spec.CertSecretRef = release.Spec.Application.CertSecretRef
-	ociRepository.Spec.ProxySecretRef = release.Spec.Application.ProxySecretRef
-	ociRepository.Spec.Interval = release.Spec.Application.Interval
-	ociRepository.Spec.Timeout = release.Spec.Application.Timeout
-	ociRepository.Spec.Ignore = release.Spec.Application.Ignore
-	ociRepository.Spec.Insecure = release.Spec.Application.Insecure
-	// TODO: Check this with Release.Spec.suspended
-	ociRepository.Spec.Suspend = release.Spec.Application.Suspend
-	// TODO: Patch with url rewriters
+	return nil
 }
 
 func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType string, ociOperation string) error {
 	ociRepository := &sourcev1b2.OCIRepository{}
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
-	PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation)
-	err := ctrl.SetControllerReference(op.release, ociRepository, r.Scheme())
+	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)
+	if err != nil {
+		return fmt.Errorf("error while creating associated OCIRepository '%s': %w", op.ociRepositoryName, err)
+	}
+	err = ctrl.SetControllerReference(op.release, ociRepository, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set owner reference on OCIRepository '%s': %w", op.ociRepositoryName, err)
 	}
@@ -102,8 +129,11 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1b2.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
 	patch := client.MergeFrom(ociRepository.DeepCopy())
-	PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation)
-	err := r.Patch(op.ctx, ociRepository, patch)
+	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)
+	if err != nil {
+		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
+	}
+	err = r.Patch(op.ctx, ociRepository, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
 	}

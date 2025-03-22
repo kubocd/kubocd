@@ -62,7 +62,7 @@ var dumpOciCmd = &cobra.Command{
 	Run: func(command *cobra.Command, args []string) {
 
 		err := func() error {
-			imageRepo, imageTag, err := oci.DecodeImageUrl(args[0])
+			imageRepo, imageTag, err := misc.DecodeImageUrl(args[0])
 			if err != nil {
 				return err
 			}

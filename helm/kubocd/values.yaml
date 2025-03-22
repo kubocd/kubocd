@@ -12,6 +12,24 @@ image:
   pullPolicy: IfNotPresent
 
 
+contexts: []
+#  - name: # TBD
+#    namespace: # Default to .Release.namespace
+#    description: #TBD
+#    parents: []
+#    context: {}
+
+config:
+  kuboAppRedirects: []
+#    - oldPrefix: # TBD
+#      newPrefix: # TBD
+#      certSecretRef:
+#        name: # TBD
+#     # Other OciRepositorySpec elements
+  clusterRoles: []
+#    - storage
+
+
 
 controller:
   enabled: true

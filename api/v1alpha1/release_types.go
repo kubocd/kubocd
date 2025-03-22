@@ -25,7 +25,11 @@ type ApplicationSource struct {
 	// +kubebuilder:validation:Required
 	Repository string `json:"repository"`
 
-	ApplicationSourceAddOn `json:",inline"`
+	// Part of OCI url oci://<repository>:<tag>
+	// +kubebuilder:validation:Required
+	Tag string `json:"tag"`
+
+	OciAddOn `json:",inline"`
 }
 
 type ReleaseDebug struct {

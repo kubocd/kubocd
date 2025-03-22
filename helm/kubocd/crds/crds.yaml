@@ -45,16 +45,54 @@ spec:
               clusterRoles:
                 description: |-
                   Allow to define Roles already provided by the k8s cluster, independently of any KuboCD deployment.
+                  When merging, values are appended
                   Default: []
                 items:
                   type: string
                 type: array
-              ociRedirects:
+              imageRedirects:
                 description: |-
+                  This may apply to image referenced in Helm Chart
+                  It is intended to be used by some templating functions, inserted in the `values` template of the application
+                  Each entry allow substitution of oci data source.
+                  Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
+                  This will also allow to add authentication information.
+                  When merging Configs, values are simply appended. (Configs are sorted by name)
+                  Default: []
+                items:
+                  properties:
+                    imagePullPolicy:
+                      enum:
+                      - IfNotPresent
+                      - Always
+                      - Never
+                      type: string
+                    imagePullSecrets:
+                      items:
+                        type: string
+                      type: array
+                    newPrefix:
+                      description: The prefix part will be replaced by this value.
+                      type: string
+                    oldPrefix:
+                      description: All image repo where the Url begin by this value
+                        will be impacted.
+                      type: string
+                  required:
+                  - imagePullPolicy
+                  - imagePullSecrets
+                  - newPrefix
+                  - oldPrefix
+                  type: object
+                type: array
+              kuboAppRedirects:
+                description: |-
+                  This will apply to KuboCD application oci image.
                   Each entry allow substitution of oci data source.
                   Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
                   This will also allow to add authentication and proxy information.
-                  When merging Configs, values are simply appended.
+                  When merging Configs, values are simply appended. (Configs are sorted by name)
+                  Default: []
                 items:
                   properties:
                     certSecretRef:
@@ -99,12 +137,12 @@ spec:
                         efficient use of resources.
                       pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                       type: string
-                    newRepositoryPrefix:
+                    newPrefix:
                       description: The prefix part will be replaced by this value.
                       type: string
-                    oldRepositoryPrefix:
-                      description: All OIC repo where the Url begin by this value
-                        will be impacted.
+                    oldPrefix:
+                      description: All KuboCD application repository where the Url
+                        begin by this value will be impacted.
                       type: string
                     provider:
                       description: |-
@@ -152,9 +190,6 @@ spec:
                       description: This flag tells the controller to suspend the reconciliation
                         of this source.
                       type: boolean
-                    tag:
-                      description: Part of OCI url oci://<repository>:<tag>
-                      type: string
                     timeout:
                       default: 60s
                       description: The timeout for remote OCI Repository operations
@@ -219,9 +254,8 @@ spec:
                       type: object
                   required:
                   - interval
-                  - newRepositoryPrefix
-                  - oldRepositoryPrefix
-                  - tag
+                  - newPrefix
+                  - oldPrefix
                   type: object
                 type: array
             type: object

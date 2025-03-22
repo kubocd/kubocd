@@ -22,7 +22,7 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 func Dump(arg string, workDir string, insecure bool, anonymous bool, output string) error {
 	apOriginal := &application.Application{}
 	if strings.HasPrefix(arg, "oci://") {
-		imageRepo, imageTag, err := oci.DecodeImageUrl(arg)
+		imageRepo, imageTag, err := misc.DecodeImageUrl(arg)
 		if err != nil {
 			return err
 		}

@@ -126,6 +126,7 @@ func PopulateHelmRelease(
 		},
 		"values":          moduleRendered.Values,
 		"targetNamespace": moduleRendered.TargetNamespace,
+		"releaseName":     helmRelease.Name, // We remove namespace from the releaseName
 		"dependsOn":       dependsOn,
 	}
 	spec = misc.MergeMaps(spec, moduleRendered.SpecAddon)

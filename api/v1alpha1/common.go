@@ -26,11 +26,7 @@ func (in *NamespacedName) String() string {
 	return fmt.Sprintf("%s:%s", in.Namespace, in.Name)
 }
 
-type ApplicationSourceAddOn struct {
-
-	// Part of OCI url oci://<repository>:<tag>
-	// +kubebuilder:validation:Required
-	Tag string `json:"tag"`
+type OciAddOn struct {
 
 	// The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator
 	// All following fields will be replicated in this object
