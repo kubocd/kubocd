@@ -5,22 +5,14 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
-	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
-	"io"
-	"io/fs"
 	"kubocd/cmd/kubocd/cmd/cmn"
-	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
-	"log/slog"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -28,8 +20,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 	"os"
 	"path"
-	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"strings"
 )
 
@@ -44,11 +34,6 @@ import (
 	....
 
 */
-
-type archiveInfo struct {
-	name string
-	path string
-}
 
 var packageParams struct {
 	ociRepoPrefix string
@@ -116,7 +101,7 @@ var packageCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, status, err := fetchArchives("", appGroomed, assemblyPath, packageParams.workDir)
+			chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir)
 			if err != nil {
 				return err
 			}
@@ -179,87 +164,7 @@ var packageCmd = &cobra.Command{
 	},
 }
 
-// lookupArchive load all module's archive and
-// - return a list of archive (de-duplicated, if two modules use the same chart)
-// - return a status with a map of chartInfo by module
-func fetchArchives(printPrefix string, app *application.Application, assemblyPath string, workDir string) ([]archiveInfo, *application.Status, error) {
-	chartSet := make(map[string]bool) // To deduplicate
-	archives := make([]archiveInfo, 0, len(app.Spec.Modules))
-	status := &application.Status{
-		ApiVersion:    global.ApplicationApiVersion,
-		ChartByModule: make(map[string]application.ChartRef),
-	}
-	for _, module := range app.Spec.Modules {
-		fmt.Printf("%s--- Building module '%s':\n", printPrefix, module.Name)
-		var archive string
-		var err error
-		if module.Type == global.HelmChartType {
-			if module.Source.Oci != nil {
-				op := &oci.Operation{
-					ImageRepo: module.Source.Oci.Repository,
-					ImageTag:  module.Source.Oci.Tag,
-					Insecure:  module.Source.Oci.Insecure,
-					WorkDir:   workDir,
-					Anonymous: false,
-				}
-				archive, err = oci.GetContentFromOci(printPrefix+"    ", op, global.HelmChartMediaType)
-				if err != nil {
-					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
-				}
-			} else if module.Source.HelmRepository != nil {
-				op := &helmrepo.Operation{
-					WorkDir:      workDir,
-					RepoUrl:      module.Source.HelmRepository.Url,
-					ChartName:    module.Source.HelmRepository.Chart,
-					ChartVersion: module.Source.HelmRepository.Version,
-				}
-				_, helmClient, err := helmrepo.SetupHelmRepo(op, module.Name)
-				if err != nil {
-					return nil, nil, fmt.Errorf("module '%s': error on helmRepository settings: %w", module.Name, err)
-				}
-				_, archive, err = helmrepo.GetChartArchiveFromHelmRepo(printPrefix+"    ", helmClient, module.Name, op)
-				if err != nil {
-					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
-				}
-			} else if module.Source.Git != nil {
-				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir)
-				if err != nil {
-					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
-				}
-			} else {
-				panic("Unrecognized module source")
-			}
-		} else {
-			panic("Unrecognized module type")
-		}
-		chartName, chartVersion, err := extractChartInfo(archive)
-		if err != nil {
-			return nil, nil, err
-		}
-		targetArchiveName := fmt.Sprintf("%s-%s.tgz", chartName, chartVersion)
-		targetArchivePath := path.Join(assemblyPath, targetArchiveName)
-		_, ok := chartSet[targetArchiveName]
-		if !ok {
-			chartSet[targetArchiveName] = true
-			archives = append(archives, archiveInfo{
-				name: targetArchiveName,
-				path: targetArchivePath,
-			})
-			err = misc.CopyFile(archive, targetArchivePath)
-			if err != nil {
-				return nil, nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
-			}
-		}
-		status.ChartByModule[module.Name] = application.ChartRef{
-			Name:    chartName,
-			Version: chartVersion,
-		}
-		fmt.Printf("%s    Chart: %s:%s\n", printPrefix, chartName, chartVersion)
-	}
-	return archives, status, nil
-}
-
-func buildAssembly(assemblyPath string, archives []archiveInfo) error {
+func buildAssembly(assemblyPath string, archives []cmn.ArchiveInfo) error {
 	assemblyArchiveName := path.Join(assemblyPath, "assembly.tgz")
 	out, err := os.Create(assemblyArchiveName)
 	if err != nil {
@@ -271,26 +176,26 @@ func buildAssembly(assemblyPath string, archives []archiveInfo) error {
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	err = addToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
+	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'original.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = addToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
+	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'groomed.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = addToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
+	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = addToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
+	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'status.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
 	for _, archiveInfo := range archives {
-		err = addToArchive(tw, archiveInfo.path, archiveInfo.name)
+		err = cmn.AddToArchive(tw, archiveInfo.Path, archiveInfo.Name)
 		if err != nil {
-			return fmt.Errorf("could not add '%s' to archive '%s': %w", archiveInfo.name, assemblyArchiveName, err)
+			return fmt.Errorf("could not add '%s' to archive '%s': %w", archiveInfo.Name, assemblyArchiveName, err)
 		}
 	}
 	return nil
@@ -369,113 +274,4 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	}
 	fmt.Printf("    Successfully pushed\n")
 	return nil
-}
-
-func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string, workDir string) (string, error) {
-	// Prepare target archive folder
-	loc := path.Join(workDir, "git-workdir")
-	err := misc.SafeEnsureEmpty(loc)
-	if err != nil {
-		return "", err
-	}
-	repoLocation := path.Join(loc, "repo")
-	chartLocation := path.Join(repoLocation, chartPath)
-	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
-
-	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, url)
-	options := &git.CloneOptions{
-		//Auth:          auth,		// See KAD git services for auth handling
-		URL:           url,
-		Progress:      io.Discard,
-		ReferenceName: misc.Ternary(tag == "", plumbing.NewBranchReferenceName(branch), plumbing.NewTagReferenceName(tag)),
-	}
-	gitToken := os.Getenv("GITHUB_TOKEN")
-	if gitToken != "" {
-		options.Auth = &http.BasicAuth{
-			Username: "git",
-			Password: gitToken,
-		}
-	}
-	_, err = git.PlainClone(repoLocation, false, options)
-	if err != nil {
-		return "", fmt.Errorf("failed to clone repo: %w", err)
-	}
-
-	// ----------------------------------------------------------- Build chart archive
-	out, err := os.Create(archive)
-	if err != nil {
-		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
-	}
-	gw := gzip.NewWriter(out)
-	defer gw.Close()
-	tw := tar.NewWriter(gw)
-	defer tw.Close()
-
-	chartLocationLen := len(chartLocation)
-	err = filepath.WalkDir(chartLocation, func(thePath string, d fs.DirEntry, err error) error {
-		if err != nil {
-			slog.Error("Error while walking git repository on path: %s: %s", thePath, err.Error())
-			return nil
-		}
-		if !d.IsDir() {
-			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			err := addToArchive(tw, thePath, targetFileName)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return archive, nil
-
-}
-
-func addToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file '%s': %w", filePath, err)
-	}
-	defer f.Close()
-
-	// Get FileInfo about our file providing file size, mode, etc.
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat file '%s': %w", filePath, err)
-	}
-	// Create a tar Header from the FileInfo data
-	header, err := tar.FileInfoHeader(info, info.Name())
-	if err != nil {
-		return fmt.Errorf("failed to create header for file '%s': %w", filePath, err)
-	}
-	// https://golang.org/src/archive/tar/common.go?#L626
-	header.Name = inArchiveName
-	// Write file header to the tar archive
-	err = tw.WriteHeader(header)
-	if err != nil {
-		return fmt.Errorf("failed to write tar header for file '%s': %w", filePath, err)
-	}
-	// Copy file content to tar archive
-	_, err = io.Copy(tw, f)
-	if err != nil {
-		return fmt.Errorf("failed to copy file %s to archive: %w", filePath, err)
-	}
-	return nil
-}
-
-// Extract the chart name and version from a chart archive
-func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
-	ba, err := cmn.ExtractDataFromTgz(tgzPath, "Chart.yaml")
-	if err != nil {
-		return "", "", err
-	}
-	var chartMeta chart.Metadata
-	// Unmarshal YAML into the recipient
-	err = yaml.Unmarshal(ba, &chartMeta)
-	if err != nil {
-		return "", "", err
-	}
-	return chartMeta.Name, chartMeta.Version, nil
 }

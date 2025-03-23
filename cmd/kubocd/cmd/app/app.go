@@ -7,20 +7,14 @@ import (
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
-	"sigs.k8s.io/yaml"
+	"path"
+	"path/filepath"
 	"strings"
 )
 
-func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) error {
-	ba, err := cmn.ExtractDataFromTgz(tgzPath, fileName)
-	if err != nil {
-		return err
-	}
-	return yaml.UnmarshalStrict(ba, data)
-}
-
-func Dump(arg string, workDir string, insecure bool, anonymous bool, output string) error {
+func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool, output string) error {
 	apOriginal := &application.Application{}
+	status := &application.Status{}
 	if strings.HasPrefix(arg, "oci://") {
 		imageRepo, imageTag, err := misc.DecodeImageUrl(arg)
 		if err != nil {
@@ -39,30 +33,83 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Fetched OCI image content: %s\n", archive)
+
+		tarManifest := path.Join(workDir, "manifest.tar")
+		if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
+			return err
+		}
+		err = cmn.ExtractAllFromTgz(archive, tarManifest)
+		if err != nil {
+			return err
+		}
+		//fmt.Printf("Fetched OCI image content: %s\n", archive)
 		apGroomedOci := &application.Application{}
-		status := &application.Status{}
-		err = UnmarshalDataFromTgz(archive, "original.yaml", &apOriginal)
-		if err != nil {
+		if err = misc.LoadYaml(path.Join(tarManifest, "original.yaml"), apOriginal); err != nil {
 			return err
 		}
-		err = UnmarshalDataFromTgz(archive, "groomed.yaml", &apGroomedOci)
-		if err != nil {
+		if err = misc.LoadYaml(path.Join(tarManifest, "groomed.yaml"), apGroomedOci); err != nil {
 			return err
 		}
-		err = UnmarshalDataFromTgz(archive, "status.yaml", &status)
-		if err != nil {
+		if err = misc.LoadYaml(path.Join(tarManifest, "status.yaml"), status); err != nil {
 			return err
 		}
-		cmn.Dump(output, "status.yaml", status)
+		if output != "" {
+			output = filepath.Join(output, apOriginal.Metadata.Name)
+			err := misc.SafeEnsureEmpty(output)
+			if err != nil {
+				return err
+			}
+		}
 		cmn.Dump(output, "groomed-oci.yaml", apGroomedOci)
+		if charts {
+			chartsDir := path.Join(output, "charts")
+			for _, chartRef := range status.ChartByModule {
+				fmt.Printf("Expand chart %s\n", chartRef.Name)
+				err := cmn.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				if err != nil {
+					return err
+				}
+			}
+		}
 	} else {
 		// The manifest is a local file
-		err := misc.LoadYaml(arg, apOriginal)
+		appGroomed := &application.Application{}
+		err := misc.LoadYaml(arg, apOriginal, appGroomed)
+		if err != nil {
+			fmt.Printf("Error loading manifest: %s\n", err)
+			return err
+		}
+		err = appGroomed.Groom()
 		if err != nil {
 			return err
 		}
+		if output != "" {
+			output = filepath.Join(output, apOriginal.Metadata.Name)
+			err := misc.SafeEnsureEmpty(output)
+			if err != nil {
+				return err
+			}
+		}
+		if charts {
+			tarManifest := path.Join(workDir, "manifest.tar")
+			if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
+				return err
+			}
+			_, status, err = cmn.FetchArchives("", appGroomed, tarManifest, workDir)
+			if err != nil {
+				return err
+			}
+			chartsDir := path.Join(output, "charts")
+			for _, chartRef := range status.ChartByModule {
+				fmt.Printf("Expand chart %s\n", chartRef.Name)
+				err := cmn.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				if err != nil {
+					return err
+				}
+			}
+		}
 	}
+	cmn.Dump(output, "status.yaml", status)
 	cmn.Dump(output, "original.yaml", apOriginal)
 
 	appContainer := &application.AppContainer{}
@@ -71,6 +118,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, output stri
 	cmn.Dump(output, "groomed.yaml", appContainer.Application)
 	cmn.Dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
 	cmn.Dump(output, "default-context.yaml", appContainer.DefaultContext)
+
 	if err != nil {
 		return err
 	}

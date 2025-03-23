@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kapi "kubocd/api/v1alpha1"
-	"kubocd/cmd/kubocd/cmd/app"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/internal/application"
@@ -33,7 +32,7 @@ var renderParams struct {
 var renderLog logr.Logger
 
 func init() {
-	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "", "Output directory")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render", "Output directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "n", "kubocd", "The namespace where the kubocd controller is installed in")
 }
@@ -66,17 +65,18 @@ var renderCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
 			output := renderParams.output
-			if output != "" {
-				err := misc.SafeEnsureEmpty(output)
-				if err != nil {
-					return err
-				}
-			}
 
 			release := &kapi.Release{}
 			err := misc.LoadYaml(args[0], release)
 			if err != nil {
 				return err
+			}
+			if output != "" {
+				output = path.Join(output, release.Name)
+				err := misc.SafeEnsureEmpty(output)
+				if err != nil {
+					return err
+				}
 			}
 			if release.Namespace == "" {
 				release.Namespace = metav1.NamespaceDefault
@@ -134,12 +134,12 @@ var renderCmd = &cobra.Command{
 					return err
 				}
 				fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
-				err = app.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
+				err = cmn.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
 				if err != nil {
 					return err
 				}
 				status := &application.Status{}
-				err = app.UnmarshalDataFromTgz(archive, "status.yaml", &status)
+				err = cmn.UnmarshalDataFromTgz(archive, "status.yaml", &status)
 				if err != nil {
 					return err
 				}
@@ -153,11 +153,10 @@ var renderCmd = &cobra.Command{
 			if errorOnContainer != nil {
 				return errorOnContainer
 			}
-
 			if appContainer.Status == nil {
 				// Compute status to give the map module->helmChart (Need to fetch helm charts
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
-				_, appContainer.Status, err = fetchArchives("# ", appContainer.Application, assemblyPath, renderParams.workDir)
+				_, appContainer.Status, err = cmn.FetchArchives("# ", appContainer.Application, assemblyPath, renderParams.workDir)
 				if err != nil {
 					return err
 				}
@@ -201,7 +200,10 @@ var renderCmd = &cobra.Command{
 					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
 				},
 			}
-			controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract", configStore)
+			err = controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract", configStore)
+			if err != nil {
+				return err
+			}
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
 			// -------------------------------------------------------------------------Generate Usage

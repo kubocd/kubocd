@@ -2,9 +2,9 @@
 
 # TODO
 
+- 
 - A template function to redirect images
 - Handle context.protected
-- Rework -o on render
 - Add a templateHeader in application
 
 - Implements Roles dependencies
@@ -32,6 +32,9 @@
 - Implement config resources
 - Config in helm chart
 - Context in helm chart
+- A tool to fetch helm charts
+  - 'dump app' optionally expands charts
+- Rework -o on render and dump
 
 
 

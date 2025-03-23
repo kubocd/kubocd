@@ -115,12 +115,14 @@ var dumpAppParams struct {
 	output    string
 	insecure  bool
 	anonymous bool
+	charts    bool
 }
 
 func init() {
 	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
 	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
-	dumpAppCmd.PersistentFlags().StringVarP(&dumpAppParams.output, "output", "o", "", "Output dump directory")
+	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.charts, "charts", "c", false, "unpack charts in output directory")
+	dumpAppCmd.PersistentFlags().StringVarP(&dumpAppParams.output, "output", "o", "./.dump", "Output dump directory")
 }
 
 var dumpAppCmd = &cobra.Command{
@@ -131,13 +133,10 @@ var dumpAppCmd = &cobra.Command{
 	Run: func(command *cobra.Command, args []string) {
 		err := func() error {
 			output := dumpAppParams.output
-			if output != "" {
-				err := misc.SafeEnsureEmpty(output)
-				if err != nil {
-					return err
-				}
+			if dumpAppParams.charts && dumpAppParams.output == "" {
+				return fmt.Errorf("--output is required when --charts is specified")
 			}
-			return app.Dump(args[0], dumpParams.workDir, dumpAppParams.insecure, dumpAppParams.anonymous, output)
+			return app.Dump(args[0], dumpParams.workDir, dumpAppParams.insecure, dumpAppParams.anonymous, dumpAppParams.charts, output)
 		}()
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
