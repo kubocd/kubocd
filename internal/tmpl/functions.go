@@ -24,6 +24,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/sprig/v3"
 	"github.com/pkg/errors"
+	"kubocd/internal/configstore"
+	"kubocd/internal/misc"
 	"net"
 	"os"
 	"sigs.k8s.io/yaml"
@@ -73,6 +75,7 @@ func funcMap() template.FuncMap {
 		"lookup": func(string, string, string, string) (map[string]interface{}, error) {
 			return map[string]interface{}{}, nil
 		},
+		"imageRedirect": imageRedirect,
 	}
 
 	for k, v := range extra {
@@ -215,4 +218,36 @@ func resolveDNS(dnsName string) (string, error) {
 		return fmt.Sprintf("UNKNOWN HOST:%s", dnsName), err
 	}
 	return r[0].String(), nil
+}
+
+func imageRedirect(url string, scope map[string]interface{}) (map[string]interface{}, error) {
+	ir := scope["ImageRedirector"]
+	imageRedirector, ok := ir.(configstore.ConfigStore)
+	if !ok {
+		return nil, fmt.Errorf("imageRedirector is not a ConfigStore")
+	}
+	var imagePullSecrets []string = nil
+	var imagePullPolicy = ""
+	redirect, newUrl := imageRedirector.GetImageRedirect(url)
+	if redirect != nil {
+		imagePullSecrets = redirect.ImagePullSecrets
+		imagePullPolicy = redirect.ImagePullPolicy
+	}
+	repo, tag, err := misc.DecodeImageUrl(newUrl)
+	if err != nil {
+		return nil, fmt.Errorf("imageRedirector.GetImageRedirector().DecodeImageUrl() error %w", err)
+	}
+	sa := strings.Split(repo, "/")
+	registry := sa[0]
+	baseRepository := strings.Join(sa[1:], "/")
+
+	return map[string]interface{}{
+		"url":              newUrl,
+		"imagePullPolicy":  imagePullPolicy,
+		"imagePullSecrets": imagePullSecrets,
+		"repository":       repo,
+		"tag":              tag,
+		"registry":         registry,
+		"baseRepository":   baseRepository,
+	}, nil
 }

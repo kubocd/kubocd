@@ -286,7 +286,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating parameters: %w", err), true, "Parameters"))
 	}
 	// -------------------------------------------------------------------- Render all values
-	model := BuildModel(theContext, parameters, release)
+	model := BuildModel(theContext, parameters, release, r.ConfigStore)
 	rendered, err := op.appContainer.Application.Render(model)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
@@ -482,11 +482,12 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	}
 }
 
-func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release) map[string]interface{} {
+func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release, store configstore.ConfigStore) map[string]interface{} {
 	model := map[string]interface{}{
-		"Context":    context,
-		"Parameters": parameters,
-		"Release":    misc.ObjectToMap(release),
+		"Context":         context,
+		"Parameters":      parameters,
+		"Release":         misc.ObjectToMap(release),
+		"ImageRedirector": store,
 	}
 	return model
 }

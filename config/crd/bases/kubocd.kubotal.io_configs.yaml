@@ -80,8 +80,6 @@ spec:
                         will be impacted.
                       type: string
                   required:
-                  - imagePullPolicy
-                  - imagePullSecrets
                   - newPrefix
                   - oldPrefix
                   type: object

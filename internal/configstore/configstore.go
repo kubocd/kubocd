@@ -10,6 +10,7 @@ import (
 type ConfigStore interface {
 	IsClusterRole(role string) bool
 	GetKuboAppRedirect(oldUrl string) (kuboAppRedirectSpec *v1alpha1.KuboAppRedirectSpec, newUrl string)
+	GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string)
 	AddConfigs(configs *v1alpha1.ConfigList)
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
 }
@@ -51,6 +52,22 @@ func (c *configStore) GetKuboAppRedirect(oldUrl string) (kuboAppRedirectSpec *v1
 	return nil, oldUrl
 }
 
+func (c *configStore) GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	for _, redirect := range c.imageRedirects {
+		if strings.HasPrefix(oldUrl, redirect.OldPrefix) {
+			if redirect.NewPrefix == "" {
+				return redirect, oldUrl
+			} else {
+				// We don't want to change the URL. Just add some addOns
+				return redirect, redirect.NewPrefix + oldUrl[len(redirect.OldPrefix):]
+			}
+		}
+	}
+	return nil, oldUrl
+}
+
 func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -60,11 +77,13 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList) {
 	})
 	c.clusterRoles = make(map[string]bool)
 	c.kuboAppRedirects = make([]*v1alpha1.KuboAppRedirectSpec, 0, 10)
+	c.imageRedirects = make([]*v1alpha1.ImageRedirectSpec, 0, 10)
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
 			c.clusterRoles[role] = true
 		}
 		c.kuboAppRedirects = append(c.kuboAppRedirects, config.Spec.KuboAppRedirects...)
+		c.imageRedirects = append(c.imageRedirects, config.Spec.ImageRedirects...)
 	}
 }
 

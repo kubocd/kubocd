@@ -38,7 +38,7 @@ func FetchArchives(printPrefix string, app *application.Application, assemblyPat
 		ChartByModule: make(map[string]application.ChartRef),
 	}
 	for _, module := range app.Spec.Modules {
-		fmt.Printf("%s--- Building module '%s':\n", printPrefix, module.Name)
+		fmt.Printf("%s--- Handling module '%s':\n", printPrefix, module.Name)
 		var archive string
 		var err error
 		if module.Type == global.HelmChartType {

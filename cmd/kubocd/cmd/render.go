@@ -133,7 +133,7 @@ var renderCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
+				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
 				err = cmn.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
 				if err != nil {
 					return err
@@ -156,11 +156,10 @@ var renderCmd = &cobra.Command{
 			if appContainer.Status == nil {
 				// Compute status to give the map module->helmChart (Need to fetch helm charts
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
-				_, appContainer.Status, err = cmn.FetchArchives("# ", appContainer.Application, assemblyPath, renderParams.workDir)
+				_, appContainer.Status, err = cmn.FetchArchives("", appContainer.Application, assemblyPath, renderParams.workDir)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("\n")
 			}
 			cmn.Dump(output, "status.yaml", appContainer.Status)
 
@@ -183,7 +182,7 @@ var renderCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------------------------------------------------- Render all values
-			model := controller.BuildModel(kcontext, parameters, release)
+			model := controller.BuildModel(kcontext, parameters, release, configStore)
 			rendered, err := appContainer.Application.Render(model)
 			if err != nil {
 				return err

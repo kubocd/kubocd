@@ -43,8 +43,10 @@ type ImageRedirectSpec struct {
 	NewPrefix string `json:"newPrefix"`
 
 	// +kubebuilder:validation:Enum=IfNotPresent;Always;Never
+	// +kubebuilder:validation:Optional
 	ImagePullPolicy string `json:"imagePullPolicy"`
 
+	// +kubebuilder:validation:Optional
 	ImagePullSecrets []string `json:"imagePullSecrets"`
 }
 

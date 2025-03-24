@@ -2,12 +2,14 @@
 
 # TODO
 
-- 
-- A template function to redirect images
 - Handle context.protected
 - Add a templateHeader in application
-
-- Implements Roles dependencies
+- Implements Roles dependencies 
+  - Roles/DependsOn as template ?
+  - Rename one of the dependsOn
+  - Implementation
+- Helm chart setup Config permissions
+- rename SpecAddonByModule to PatchSpecByModule
 
 - Translate all KAD components
 - Sandbox with bootstrap
@@ -35,6 +37,8 @@
 - A tool to fetch helm charts
   - 'dump app' optionally expands charts
 - Rework -o on render and dump
+- A template function to redirect images
+- 
 
 
 
