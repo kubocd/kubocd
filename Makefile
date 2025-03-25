@@ -1,10 +1,10 @@
-APP_VERSION ?= 0.1.1-snapshot
+APP_VERSION ?= v0.1.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
-#IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
-IMG ?= localhost:5001/kubocd:${DOCKER_TAG}
+IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
+#IMG ?= localhost:5001/kubocd:${DOCKER_TAG}
 
-HELM_VERSION ?= 0.1.1-snapshot
+HELM_VERSION ?= v0.1.1-snapshot
 HELM_DOCKER_REPO := quay.io/kubocd/charts
 
 # To authenticate for pushing in quay repo (img) (Use encrypted password):
@@ -125,6 +125,12 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	export ENABLE_WEBHOOKS=false; go run ./cmd/controller/main.go
 
 
+.PHONY: cli-release
+cli-release:		## Upload a release of kubpcd cli client
+	goreleaser release --clean --skip validate
+	#export GORELEASER_CURRENT_TAG=${RELEASE_TAG}; goreleaser release --clean --skip validate
+
+
 .PHONY: docker
 docker: version docker-build docker-push  ## Build controller docker image and push
 
@@ -157,6 +163,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm kubocd-builder
 	rm Dockerfile.cross
+
 
 
 .PHONY: build-installer
