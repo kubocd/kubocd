@@ -29,6 +29,10 @@ config:
   clusterRoles: []
 #    - storage
 
+# for example, to store contexts
+extraNamespaces: []
+# - name: contexts
+
 
 
 controller:

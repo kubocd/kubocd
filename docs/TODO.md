@@ -2,12 +2,6 @@
 
 # TODO
 
-- Helm chart: Set the contexts in a specific namespace
-
-- Handle context.protected
-- Helm chart setup Config permissions
-
-
 - Translate all KAD components
 - Sandbox with bootstrap
 - Doc
@@ -43,6 +37,10 @@
   - Roles/DependsOn as template
   - Rename one of the dependsOn
   - Implementation
+- Helm chart: Set the contexts in a specific namespace
+- Handle context.protected
+- Helm chart setup Config permissions
+
 
 
 

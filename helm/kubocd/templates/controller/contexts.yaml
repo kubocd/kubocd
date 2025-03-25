@@ -3,11 +3,14 @@
 apiVersion: kubocd.kubotal.io/v1alpha1
 kind: Context
 metadata:
-  name: {{ .name }}
-  namespace: {{ .namespace | default $.Release.Namespace }}
+  name: {{ required "name must be defined" .name }}
+  namespace: {{ required "namespace must be defined" .namespace  }}
 spec:
   {{- with .description }}
   description: {{ . }}
+  {{- end }}
+  {{- with .protected }}
+  protected: {{ . }}
   {{- end }}
   {{- with .parents }}
   parents:
