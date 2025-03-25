@@ -11,6 +11,9 @@ spec:
     kind: Config
     listKind: ConfigList
     plural: configs
+    shortNames:
+    - kconfig
+    - kconf
     singular: config
   scope: Namespaced
   versions:

@@ -61,7 +61,7 @@ func DumpHelmRepo(op *Operation) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chartInfo.Metadata.Name, chartInfo.Metadata.Version, misc.Map2Yaml(chartInfo.Metadata), tarList)
+		fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chartInfo.Metadata.Name, chartInfo.Metadata.Version, misc.Any2Yaml(chartInfo.Metadata), tarList)
 
 	}
 	return nil

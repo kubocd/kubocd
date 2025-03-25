@@ -31,6 +31,7 @@ import (
 	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
+	"kubocd/internal/rolestore"
 	"os"
 	"path"
 	"reflect"
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"strings"
+	"time"
 )
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
@@ -54,10 +56,12 @@ type ReleaseReconciler struct {
 	HelmRepoAdvAddr  string
 	ApplicationCache cache.Cache
 	ConfigStore      configstore.ConfigStore
+	RoleStore        rolestore.RoleStore
 }
 
 // Just a container to avoid messy parameters passing
 type releaseOperation struct {
+	request                     ctrl.Request
 	ctx                         context.Context
 	logger                      logr.Logger
 	release                     *kv1alpha1.Release
@@ -66,6 +70,8 @@ type releaseOperation struct {
 	helmRepositoryName          string
 	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values
 	helmReleaseNameByModuleName map[string]string
+	roles                       []string
+	dependencies                []string
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -140,6 +146,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	op := &releaseOperation{
+		request:            req,
 		ctx:                ctx,
 		logger:             logger,
 		release:            release,
@@ -153,6 +160,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Deletion is requested
+		r.RoleStore.UnRegisterRelease(req.NamespacedName)
 		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
 			// No finalizer at all. Nothing to do anymore
 			return ctrl.Result{}, nil
@@ -172,6 +180,18 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 		return ctrl.Result{}, nil
 	}
+	// As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
+	// This means we must set some empty default value, otherwise status write will fail
+	if release.Status.HelmReleaseStates == nil {
+		release.Status.HelmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
+	}
+	if release.Status.Dependencies == nil {
+		release.Status.Dependencies = make([]string, 0)
+	}
+	if release.Status.Roles == nil {
+		release.Status.Roles = make([]string, 0)
+	}
+
 	// Not under deletion. Add a finalizer if not already set
 	if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
 		logger.V(1).Info("Add finalizer")
@@ -292,10 +312,86 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
 	}
 
-	// -------------------------------------------------------- Build a map of module by name for dependencies handling.
+	// --------------------------------------------------------------------- compute roles/dependencies and register our roles
+	op.roles = misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
+	op.dependencies = misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
+	//r.RoleStore.RegisterRelease(req.NamespacedName, op.roles)
+
+	// --------------------------------------- Build a map of module by name for intra-application dependencies handling.
 	op.helmReleaseNameByModuleName = make(map[string]string)
 	for _, module := range op.appContainer.Application.Spec.Modules {
 		op.helmReleaseNameByModuleName[module.Name] = BuildHelmReleaseName(op.release.Name, module.Name)
+	}
+
+	// ------------------------------------------------------------------Prepare status update
+	forceUpdate := false
+	if op.release.Spec.Debug != nil {
+		if op.release.Spec.Debug.DumpContext {
+			// Sore context in status
+			ba, err := json.Marshal(&theContext)
+			if err != nil {
+				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal context"), false, "ContextError")) // Should not occur
+			}
+			op.release.Status.Context = &apiextensionsv1.JSON{
+				Raw: ba,
+			}
+			forceUpdate = true
+		} else {
+			if op.release.Status.Context != nil {
+				op.release.Status.Context = nil
+				forceUpdate = true
+			}
+		}
+		if op.release.Spec.Debug.DumpParameters {
+			// Sore parameters in status
+			ba, err := json.Marshal(&parameters)
+			if err != nil {
+				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal parameters"), false, "ParametersError")) // Should not occur
+			}
+			op.release.Status.Parameters = &apiextensionsv1.JSON{
+				Raw: ba,
+			}
+			forceUpdate = true
+		} else {
+			if op.release.Status.Parameters != nil {
+				op.release.Status.Parameters = nil
+				forceUpdate = true
+			}
+		}
+	}
+	// And store usage
+	if rendered.Usage != op.release.Status.Usage {
+		op.release.Status.Usage = rendered.Usage
+		forceUpdate = true
+	}
+	// Store protected in status
+	protected := op.appContainer.Application.Spec.Protected
+	if op.release.Spec.Protected != nil {
+		protected = *op.release.Spec.Protected
+	}
+	if protected != op.release.Status.Protected {
+		op.release.Status.Protected = protected
+		forceUpdate = true
+	}
+	if !reflect.DeepEqual(op.roles, op.release.Status.Roles) {
+		op.release.Status.Roles = op.roles
+		forceUpdate = true
+	}
+	if !reflect.DeepEqual(op.dependencies, op.release.Status.Dependencies) {
+		op.release.Status.Dependencies = op.dependencies
+		forceUpdate = true
+	}
+	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back
+	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
+	if missing != op.release.Status.MissingDependency {
+		op.release.Status.MissingDependency = missing
+		forceUpdate = true
+	}
+	if missing != "" {
+		r.Event(op.release, "Normal", "MissingDependency", fmt.Sprintf("Waiting for the role '%s' to be ready", missing))
+		return ctrl.Result{
+			RequeueAfter: time.Second * 5,
+		}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, forceUpdate)
 	}
 
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
@@ -310,23 +406,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 	}
 	// -------------------------------------------------------- Adjust status
-	forceUpdate := false
-	if op.release.Spec.Debug != nil && op.release.Spec.Debug.DumpContext {
-		// Sore context in status
-		ba, err := json.Marshal(&theContext)
-		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal context"), false, "ContextError")) // Should not occur
-		}
-		op.release.Status.Context = &apiextensionsv1.JSON{
-			Raw: ba,
-		}
-		forceUpdate = true
-	} else {
-		if op.release.Status.Context != nil {
-			op.release.Status.Context = nil
-			forceUpdate = true
-		}
-	}
 	// And store helmReleases status
 	readyReleases, allReady := computeReadyReleases(op)
 	if readyReleases != op.release.Status.ReadyReleases {
@@ -335,20 +414,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
 		op.release.Status.HelmReleaseStates = op.helmReleaseStates
-		forceUpdate = true
-	}
-	// And store usage
-	if rendered.Usage != op.release.Status.Usage {
-		op.release.Status.Usage = rendered.Usage
-		forceUpdate = true
-	}
-	// Store protected in status
-	protected := op.appContainer.Application.Spec.Protected
-	if op.release.Spec.Protected != nil {
-		protected = *op.release.Spec.Protected
-	}
-	if protected != op.release.Status.Protected {
-		op.release.Status.Protected = protected
 		forceUpdate = true
 	}
 	var phase kv1alpha1.ReleasePhase
@@ -440,6 +505,11 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
 		return nil
 	}
+	if phase == kv1alpha1.ReleasePhaseReady {
+		r.RoleStore.RegisterRelease(op.request.NamespacedName, op.roles)
+	} else {
+		r.RoleStore.UnRegisterRelease(op.request.NamespacedName)
+	}
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
 	op.release.Status.Contexts = ctxs
@@ -467,8 +537,8 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	if release.Spec.Roles == nil {
 		release.Spec.Roles = make([]string, 0)
 	}
-	if release.Spec.DependsOn == nil {
-		release.Spec.DependsOn = make([]string, 0)
+	if release.Spec.Dependencies == nil {
+		release.Spec.Dependencies = make([]string, 0)
 	}
 	if release.Spec.Debug == nil {
 		release.Spec.Debug = &kv1alpha1.ReleaseDebug{}

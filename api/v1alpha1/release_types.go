@@ -38,6 +38,11 @@ type ReleaseDebug struct {
 	// in the Status. This for user debugging?
 	// +kubebuilder:validation:Optional
 	DumpContext bool `json:"dumpContext,omitempty"`
+
+	// DumpParameters instruct to save a representation of the parameters
+	// in the Status. This for user debugging?
+	// +kubebuilder:validation:Optional
+	DumpParameters bool `json:"dumpParameters,omitempty"`
 }
 
 // ReleaseSpec defines the desired state of Release.
@@ -75,7 +80,7 @@ type ReleaseSpec struct {
 
 	// Allow to patch the HelmRelease.spec for each module
 	// +kubebuilder:validation:Optional
-	SpecAddonByModule map[string]*apiextensionsv1.JSON `json:"specAddonByModule,omitempty"`
+	SpecPatchByModule map[string]*apiextensionsv1.JSON `json:"specPatchByModule,omitempty"`
 
 	// If true, add  { install: { createNamespace: true } } to config map.
 	// Must be set, as used in module.Render()
@@ -98,7 +103,7 @@ type ReleaseSpec struct {
 	// The roles we depend on. (appended to the one of the underlying Application)
 	// +kubebuilder:validation:Optional
 	// Default: []
-	DependsOn []string `json:"dependsOn,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
 
 	// Group a set of parameters useful for debugging Release and Application
 	// +kubebuilder:validation:Optional
@@ -111,7 +116,8 @@ const ReleasePhaseReady = ReleasePhase("READY")
 const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
-const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HR")
+const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
+const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
@@ -121,30 +127,45 @@ type HelmReleaseState struct {
 }
 
 // ReleaseStatus defines the observed state of Release.
+// As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
+// (Except for 'context', as controlled by a debug flag)
 type ReleaseStatus struct {
 	Phase ReleasePhase `json:"phase"`
 
 	// Contexts is a string to list our context. Not technically used, but intended to be displayed
 	// as printcolumn
-	Contexts string `json:"contexts,omitempty"`
+	Contexts string `json:"contexts"`
 
 	// Context is the resulting context, if requested in debug options
 	// +kubebuilder:validation:Optional
 	Context *apiextensionsv1.JSON `json:"context,omitempty"`
 
+	// Parameters is the resulting parameters set, if requested in debug options
+	// +kubebuilder:validation:Optional
+	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
+
 	// Usage is the rendering of the Application.spec.usage. Aimed to provide user informations
 	// +kubebuilder:validation:Optional
-	Usage string `json:"usage,omitempty"`
+	Usage string `json:"usage"`
 
 	// Protected result of Release.spec.protected defaulted to Application.spec.protected
 	Protected bool `json:"protected"`
 
 	// HelmReleaseState describe the observed state of child HelmReleases by name
-	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates,omitempty"`
+	// +kubebuilder:validation:Optional
+	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates"`
 
 	// ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
 	// as printcolumn
-	ReadyReleases string `json:"readyReleases,omitempty"`
+	ReadyReleases string `json:"readyReleases"`
+
+	// The result of the application template and release value
+	Dependencies []string `json:"dependencies"`
+
+	// The result of the application template and release value
+	Roles []string `json:"roles"`
+
+	MissingDependency string `json:"missingDependency"`
 }
 
 // +kubebuilder:object:root=true

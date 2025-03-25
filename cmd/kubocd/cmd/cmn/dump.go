@@ -8,7 +8,7 @@ import (
 )
 
 func Dump(output string, fileName string, ap interface{}) {
-	out := fmt.Sprintf("# ====================================  %s:\n---\n%s\n", fileName, misc.Map2Yaml(ap))
+	out := fmt.Sprintf("# ====================================  %s:\n---\n%s\n", fileName, misc.Any2Yaml(ap))
 	if output != "" {
 		target := path.Join(output, fileName)
 		err := os.WriteFile(target, []byte(out), 0644)

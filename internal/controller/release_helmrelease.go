@@ -130,9 +130,9 @@ func PopulateHelmRelease(
 		"dependsOn":       dependsOn,
 	}
 	spec = misc.MergeMaps(spec, moduleRendered.SpecAddon)
-	addon, ok := release.Spec.SpecAddonByModule[module.Name]
+	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
-		spec = Merge(spec, addon)
+		spec = Merge(spec, patch)
 	}
 	specTxt, err := yaml.Marshal(spec)
 	if err != nil {

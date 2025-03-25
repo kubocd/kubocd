@@ -255,8 +255,13 @@ spec:
                       DumpContext instruct to save a representation of the context
                       in the Status. This for user debugging?
                     type: boolean
+                  dumpParameters:
+                    description: |-
+                      DumpParameters instruct to save a representation of the parameters
+                      in the Status. This for user debugging?
+                    type: boolean
                 type: object
-              dependsOn:
+              dependencies:
                 description: |-
                   The roles we depend on. (appended to the one of the underlying Application)
                   Default: []
@@ -281,7 +286,7 @@ spec:
                 items:
                   type: string
                 type: array
-              specAddonByModule:
+              specPatchByModule:
                 additionalProperties:
                   x-kubernetes-preserve-unknown-fields: true
                 description: Allow to patch the HelmRelease.spec for each module
@@ -303,7 +308,10 @@ spec:
             - application
             type: object
           status:
-            description: ReleaseStatus defines the observed state of Release.
+            description: |-
+              ReleaseStatus defines the observed state of Release.
+              As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
+              (Except for 'context', as controlled by a debug flag)
             properties:
               context:
                 description: Context is the resulting context, if requested in debug
@@ -314,6 +322,11 @@ spec:
                   Contexts is a string to list our context. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              dependencies:
+                description: The result of the application template and release value
+                items:
+                  type: string
+                type: array
               helmReleaseStates:
                 additionalProperties:
                   description: HelmReleaseState describe the observed state of a child
@@ -329,6 +342,12 @@ spec:
                 description: HelmReleaseState describe the observed state of child
                   HelmReleases by name
                 type: object
+              missingDependency:
+                type: string
+              parameters:
+                description: Parameters is the resulting parameters set, if requested
+                  in debug options
+                x-kubernetes-preserve-unknown-fields: true
               phase:
                 type: string
               protected:
@@ -340,13 +359,23 @@ spec:
                   ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              roles:
+                description: The result of the application template and release value
+                items:
+                  type: string
+                type: array
               usage:
                 description: Usage is the rendering of the Application.spec.usage.
                   Aimed to provide user informations
                 type: string
             required:
+            - contexts
+            - dependencies
+            - missingDependency
             - phase
             - protected
+            - readyReleases
+            - roles
             type: object
         type: object
     served: true

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"sigs.k8s.io/yaml"
+	"slices"
 	"strings"
 )
 
@@ -52,9 +53,9 @@ func ValidateK8sName(name string) bool {
 	return k8sNameRegex.MatchString(name)
 }
 
-// Replace yaml.Marshall. Just to be able to set indentation
+// In case we are sure than any is marshal-able
 
-func Map2Yaml(data interface{}) []byte {
+func Any2Yaml(data interface{}) []byte {
 	result, err := yaml.Marshal(data)
 	if err != nil {
 		panic(err)
@@ -81,13 +82,18 @@ func Map2Json(data interface{}) []byte {
 }
 
 func ObjectToMap(obj interface{}) map[string]interface{} {
-	ba := Map2Yaml(obj)
+	ba := Any2Yaml(obj)
 	result := make(map[string]interface{})
 	err := yaml.Unmarshal(ba, &result)
 	if err != nil {
 		panic(err)
 	}
 	return result
+}
+
+func RemoveDuplicates(elements []string) []string {
+	slices.Sort(elements)
+	return slices.Compact(elements)
 }
 
 //

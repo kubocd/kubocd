@@ -18,7 +18,9 @@ type KcdTemplateBool string
 // KcdTemplateString A template where expected result is a string
 type KcdTemplateString string
 
-type KcdRole string
+// KcdTemplateStringList A template where expected result is a []string
+// May be a string or a []string
+type KcdTemplateStringList interface{}
 
 // ------------------------------------------------
 
@@ -49,10 +51,16 @@ type Application struct {
 		ParametersSchema kuboschema.KuboSchema `json:"parametersSchema,omitempty"`
 		// Allow context validation. And provide default values
 		ContextSchema kuboschema.KuboSchema `json:"contextSchema,omitempty"`
+		// List of modules (HelmChart) included in the application
 		// required: true
-		Modules   []*Module `json:"modules"`
-		Roles     []KcdRole `json:"roles,omitempty"`
-		DependsOn []KcdRole `json:"dependsOn,omitempty"`
+		Modules []*Module `json:"modules"`
+		// List if role we provide
+		Roles KcdTemplateStringList `json:"roles,omitempty"`
+		// List of role we depend on
+		Dependencies KcdTemplateStringList `json:"dependencies,omitempty"`
+		// A template snippet which will be added at the beginning of all templates
+		// Intended to be used to compute some global values
+		TemplateHeader string `json:"templateHeader,omitempty"`
 	} `yaml:"spec" json:"spec"`
 	// ------------------- Private part
 	templates *applicationTemplates
@@ -66,10 +74,10 @@ type ChartRef struct {
 func (app *Application) Groom() error {
 	// ------------------------ Normalize
 	if app.Spec.Roles == nil {
-		app.Spec.Roles = []KcdRole{}
+		app.Spec.Roles = []string{}
 	}
-	if app.Spec.DependsOn == nil {
-		app.Spec.DependsOn = []KcdRole{}
+	if app.Spec.Dependencies == nil {
+		app.Spec.Dependencies = []string{}
 	}
 	// Validation
 	if app.ApiVersion != global.ApplicationApiVersion {
@@ -105,7 +113,7 @@ func (app *Application) Groom() error {
 	moduleByName := make(map[string]*Module)
 	for idx := range app.Spec.Modules {
 		module := app.Spec.Modules[idx]
-		err := app.Spec.Modules[idx].groom(idx)
+		err := app.Spec.Modules[idx].groom(app, idx)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
 		}
@@ -125,23 +133,35 @@ func (app *Application) Groom() error {
 		}
 	}
 	app.templates = &applicationTemplates{}
-	app.templates.usage, err = tmpl.New("", string(app.Spec.Usage))
+	app.templates.usage, err = tmpl.New("", string(app.Spec.Usage), app.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'usage' template: %w", err)
+	}
+	app.templates.roles, err = tmpl.NewFromAny("", app.Spec.Roles, app.Spec.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'roles' template: %w", err)
+	}
+	app.templates.dependencies, err = tmpl.NewFromAny("", app.Spec.Dependencies, app.Spec.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
 	return nil
 }
 
 type applicationTemplates struct {
-	usage tmpl.Tmpl
+	usage        tmpl.Tmpl
+	roles        tmpl.Tmpl
+	dependencies tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release e of an application.
 // Aim is to concentrate all error detection in its constructor
-// Standard way should be to hev Getters on module object.
+// Standard way should be to have Getters on application and module object.
 // But each getter may generate an error, thus complicate the code.
 type Rendered struct {
 	Usage                string
+	Roles                []string
+	Dependencies         []string
 	ModuleRenderedByName map[string]*ModuleRendered
 }
 
@@ -154,6 +174,16 @@ func (app *Application) Render(model map[string]interface{}) (*Rendered, error) 
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'usage' template: %w", err)
 	}
+	var txt string
+	r.Roles, txt, err = app.templates.roles.RenderToStringList(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'roles' template: %w (%s)", err, txt)
+	}
+	r.Dependencies, txt, err = app.templates.dependencies.RenderToStringList(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'dependencies' template: %w (%s)", err, txt)
+	}
+
 	for _, module := range app.Spec.Modules {
 		//fmt.Printf("*********************** module.name %s\n", module.Name)
 		r.ModuleRenderedByName[module.Name], err = module.Render(model)

@@ -187,6 +187,11 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			// --------------------------------------------------------------------- Handle roles/dependencies
+			roles := misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
+			dependencies := misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
+			cmn.Dump(output, "roles.yaml", roles)
+			cmn.Dump(output, "dependencies.yaml", dependencies)
 
 			// -------------------------------------------------------------------------Generate OCI repository
 			ociRepository := &sourcev1b2.OCIRepository{

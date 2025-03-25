@@ -118,22 +118,22 @@ var packageCmd = &cobra.Command{
 			// ------------------------------------- Produce meta files
 			//fmt.Printf("index.yaml:\n%s\n", misc.Map2YamlStr(index))
 			// Generate the index file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "index.yaml"), misc.Map2Yaml(index), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "index.yaml"), misc.Any2Yaml(index), os.ModePerm)
 			if err != nil {
 				return err
 			}
 			// Generate the original.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Map2Yaml(appOriginal), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(appOriginal), os.ModePerm)
 			if err != nil {
 				return err
 			}
 			// Generate the groomed.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Map2Yaml(appGroomed), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(appGroomed), os.ModePerm)
 			if err != nil {
 				return err
 			}
 			// Generate the groomed.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Map2Yaml(status), os.ModePerm)
+			err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Any2Yaml(status), os.ModePerm)
 			if err != nil {
 				return err
 			}

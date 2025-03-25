@@ -12,8 +12,10 @@ import (
 
 type Tmpl interface {
 	RenderToText(model map[string]interface{}) (string, error)
+	RenderToSingleLine(model map[string]interface{}) (string, error)
 	RenderToMap(model map[string]interface{}) (map[string]interface{}, string, error)
 	RenderToBool(model map[string]interface{}) (bool, string, error)
+	RenderToStringList(model map[string]interface{}) ([]string, string, error)
 	SetDelimiters(d1, d2 string)
 }
 
@@ -23,10 +25,11 @@ type tmpl struct {
 	template *template.Template
 }
 
-func New(templateName string, tempText string) (Tmpl, error) {
+func New(templateName string, tempText string, header string) (Tmpl, error) {
 	var err error
 	tt := &tmpl{}
 	tt.template = template.New(templateName).Option("missingkey=zero").Funcs(funcMap())
+	tempText = fmt.Sprintf("%s%s", header, tempText)
 	tt.template, err = tt.template.Parse(tempText)
 	if err != nil {
 		return nil, err
@@ -34,17 +37,25 @@ func New(templateName string, tempText string) (Tmpl, error) {
 	return tt, nil
 }
 
-func NewFromAny(templateName string, src interface{}) (Tmpl, error) {
+func NewFromAny(templateName string, src interface{}, header string) (Tmpl, error) {
 	if src == nil {
-		return New(templateName, "")
+		return New(templateName, "", "")
 	}
 	str, ok := src.(string)
 	if ok {
-		return New(templateName, str)
+		return New(templateName, str, header)
 	}
 	m, ok := src.(map[string]interface{})
 	if ok {
-		return New(templateName, string(misc.Map2Yaml(m)))
+		return New(templateName, string(misc.Any2Yaml(m)), header)
+	}
+	ia, ok := src.([]interface{})
+	if ok {
+		return New(templateName, string(misc.Any2Yaml(ia)), header)
+	}
+	sa, ok := src.([]string)
+	if ok {
+		return New(templateName, string(misc.Any2Yaml(sa)), header)
 	}
 	return nil, fmt.Errorf("invalid template object type %T", src)
 }
@@ -65,6 +76,14 @@ func (tt *tmpl) RenderToText(model map[string]interface{}) (string, error) {
 	return strings.ReplaceAll(buf.String(), "<no value>", ""), nil
 }
 
+func (tt *tmpl) RenderToSingleLine(model map[string]interface{}) (string, error) {
+	txt, err := tt.RenderToText(model)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(txt), nil
+}
+
 // Helper functions
 // NB: the intermediate text template is returned, to be displayed in case of error on yaml
 
@@ -81,11 +100,25 @@ func (tt *tmpl) RenderToMap(model map[string]interface{}) (map[string]interface{
 	return m, txt, nil
 }
 
+func (tt *tmpl) RenderToStringList(model map[string]interface{}) ([]string, string, error) {
+	txt, err := tt.RenderToText(model)
+	if err != nil {
+		return nil, txt, err
+	}
+	a := make([]string, 0)
+	err = yaml.Unmarshal([]byte(txt), &a)
+	if err != nil {
+		return nil, txt, err
+	}
+	return a, txt, nil
+}
+
 func (tt *tmpl) RenderToBool(model map[string]interface{}) (bool, string, error) {
 	txt, err := tt.RenderToText(model)
 	if err != nil {
 		return false, txt, err
 	}
+	txt = strings.TrimSpace(txt)
 	b, err := strconv.ParseBool(txt)
 	if err != nil {
 		return false, txt, err

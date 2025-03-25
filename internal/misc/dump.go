@@ -14,5 +14,5 @@ func DumpBytes(basePath string, name string, text []byte) {
 }
 
 func DumpYaml(basePath string, name string, data interface{}) {
-	DumpBytes(basePath, name, Map2Yaml(data))
+	DumpBytes(basePath, name, Any2Yaml(data))
 }

@@ -57,7 +57,7 @@ type Module struct {
 	templates *moduleTemplates
 }
 
-func (m *Module) groom(idx int) error {
+func (m *Module) groom(application *Application, idx int) error {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
@@ -113,23 +113,23 @@ func (m *Module) groom(idx int) error {
 	// ---------------- Now, handle templates
 	m.templates = &moduleTemplates{}
 	var err error
-	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters)
+	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, application.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'parameters' template: %w", err)
 	}
-	m.templates.values, err = tmpl.NewFromAny("", m.Values)
+	m.templates.values, err = tmpl.NewFromAny("", m.Values, application.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.specAddon, err = tmpl.NewFromAny("", m.SpecAddon)
+	m.templates.specAddon, err = tmpl.NewFromAny("", m.SpecAddon, application.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'specAddon' template: %w", err)
 	}
-	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace))
+	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), application.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
 	}
-	m.templates.enabled, err = tmpl.New("", string(m.Enabled))
+	m.templates.enabled, err = tmpl.New("", string(m.Enabled), application.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
 	}
@@ -177,7 +177,7 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'specAddon' template: %w (%s)", err, txt)
 	}
-	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToText(model)
+	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'targetNamespace' template: %w", err)
 	}

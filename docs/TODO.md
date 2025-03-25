@@ -2,18 +2,16 @@
 
 # TODO
 
+- Helm chart: Set the contexts in a specific namespace
+
 - Handle context.protected
-- Add a templateHeader in application
-- Implements Roles dependencies 
-  - Roles/DependsOn as template ?
-  - Rename one of the dependsOn
-  - Implementation
 - Helm chart setup Config permissions
-- rename SpecAddonByModule to PatchSpecByModule
+
 
 - Translate all KAD components
 - Sandbox with bootstrap
 - Doc
+- A system to restrain targetNamespace to the one of the release. Or forbid createNamespace (/!\ appOfApp)
 
 - Set Application in the model ?
 
@@ -38,7 +36,13 @@
   - 'dump app' optionally expands charts
 - Rework -o on render and dump
 - A template function to redirect images
-- 
+- Add a templateHeader in application.module
+- Store parameters in status
+- rename SpecAddonByModule to SpecPatchByModule
+- Implements Roles dependencies
+  - Roles/DependsOn as template
+  - Rename one of the dependsOn
+  - Implementation
 
 
 

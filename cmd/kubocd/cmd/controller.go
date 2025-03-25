@@ -20,6 +20,7 @@ import (
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
+	"kubocd/internal/rolestore"
 	"net/http"
 	"os"
 	"path"
@@ -200,6 +201,7 @@ var controllerCmd = &cobra.Command{
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
 		configStore := configstore.New()
+		roleStore := rolestore.New(configStore, controllerRootLog.WithName("roleStore"))
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
 		// Create an index to retrieve a Release from a context in an efficient way
@@ -255,6 +257,7 @@ var controllerCmd = &cobra.Command{
 			HelmRepoAdvAddr:  controllerParams.helmRepoAdvAddr,
 			ApplicationCache: cache.NewCache(time.Second*60, controllerRootLog.WithName("ApplicationCache")),
 			ConfigStore:      configStore,
+			RoleStore:        roleStore,
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).

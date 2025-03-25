@@ -468,8 +468,8 @@ func (in *ReleaseSpec) DeepCopyInto(out *ReleaseSpec) {
 		*out = new(apiextensionsv1.JSON)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.SpecAddonByModule != nil {
-		in, out := &in.SpecAddonByModule, &out.SpecAddonByModule
+	if in.SpecPatchByModule != nil {
+		in, out := &in.SpecPatchByModule, &out.SpecPatchByModule
 		*out = make(map[string]*apiextensionsv1.JSON, len(*in))
 		for key, val := range *in {
 			var outVal *apiextensionsv1.JSON
@@ -489,8 +489,8 @@ func (in *ReleaseSpec) DeepCopyInto(out *ReleaseSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.DependsOn != nil {
-		in, out := &in.DependsOn, &out.DependsOn
+	if in.Dependencies != nil {
+		in, out := &in.Dependencies, &out.Dependencies
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -519,12 +519,27 @@ func (in *ReleaseStatus) DeepCopyInto(out *ReleaseStatus) {
 		*out = new(apiextensionsv1.JSON)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Parameters != nil {
+		in, out := &in.Parameters, &out.Parameters
+		*out = new(apiextensionsv1.JSON)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.HelmReleaseStates != nil {
 		in, out := &in.HelmReleaseStates, &out.HelmReleaseStates
 		*out = make(map[string]HelmReleaseState, len(*in))
 		for key, val := range *in {
 			(*out)[key] = val
 		}
+	}
+	if in.Dependencies != nil {
+		in, out := &in.Dependencies, &out.Dependencies
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Roles != nil {
+		in, out := &in.Roles, &out.Roles
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 }
 
