@@ -31,7 +31,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ap
 			if err != nil {
 				return nil, NewReconcileError(err, false, "HelmReleaseCreate")
 			}
-			r.Event(op.release, "Normal", "HelmReleaseCreated", fmt.Sprintf("Created HelmRelease %q", op.release.Name))
+			r.Event(op.release, "Normal", "HelmReleaseCreated", fmt.Sprintf("Created HelmRelease %q", name))
 			op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", name)
 			op.helmReleaseStates[module.Name] = kv1alpha1.HelmReleaseState{
 				Ready:  metav1.ConditionUnknown,

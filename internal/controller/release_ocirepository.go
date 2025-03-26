@@ -28,7 +28,7 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 		if err != nil {
 			return nil, NewReconcileError(err, false, "OCIRepositoryCreateFailed")
 		}
-		r.Event(op.release, "Normal", "OCIRepositoryCreated", fmt.Sprintf("Created OCIRepository %q", op.release.Name))
+		r.Event(op.release, "Normal", "OCIRepositoryCreated", fmt.Sprintf("Created OCIRepository %q", op.ociRepositoryName))
 		// Caller will Requeue, waiting for OCI
 		return nil, nil
 	} else {

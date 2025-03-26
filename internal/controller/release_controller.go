@@ -312,10 +312,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
 	}
 
-	// --------------------------------------------------------------------- compute roles/dependencies and register our roles
+	// --------------------------------------------------------------------- compute roles/dependencies
+	// Roles will be registered at the end, only if status is READY
 	op.roles = misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
 	op.dependencies = misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
-	//r.RoleStore.RegisterRelease(req.NamespacedName, op.roles)
 
 	// --------------------------------------- Build a map of module by name for intra-application dependencies handling.
 	op.helmReleaseNameByModuleName = make(map[string]string)
@@ -531,6 +531,9 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 
 // GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
 func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
+	if release.Spec.TargetNamespace == "" {
+		release.Spec.TargetNamespace = release.Namespace
+	}
 	if release.Spec.Contexts == nil {
 		release.Spec.Contexts = make([]kv1alpha1.NamespacedName, 0)
 	}

@@ -26,7 +26,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl s
 		if err != nil {
 			return nil, NewReconcileError(err, false, "HelmRepositoryCreateFailed")
 		}
-		r.Event(op.release, "Normal", "HelmRepositoryCreated", fmt.Sprintf("Created HelmRepository %q", op.release.Name))
+		r.Event(op.release, "Normal", "HelmRepositoryCreated", fmt.Sprintf("Created HelmRepository %q", op.helmRepositoryName))
 		// Caller will Requeue, waiting for Helm
 		return nil, nil
 	} else {
