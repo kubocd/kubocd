@@ -30,7 +30,7 @@ type ArchiveInfo struct {
 // FetchArchives load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
 // - return a status with a map of chartInfo by module
-func FetchArchives(printPrefix string, app *application.Application, assemblyPath string, workDir string) ([]ArchiveInfo, *application.Status, error) {
+func FetchArchives(printPrefix string, app *application.Application, assemblyPath string, workDir string, applicationFolder string) ([]ArchiveInfo, *application.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]ArchiveInfo, 0, len(app.Spec.Modules))
 	status := &application.Status{
@@ -71,6 +71,15 @@ func FetchArchives(printPrefix string, app *application.Application, assemblyPat
 				}
 			} else if module.Source.Git != nil {
 				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir)
+				if err != nil {
+					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
+				}
+			} else if module.Source.Local != nil {
+				chartPath := module.Source.Local.Path
+				if !path.IsAbs(chartPath) {
+					chartPath = path.Join(applicationFolder, module.Source.Local.Path)
+				}
+				archive, err = getHelmCharArchiveFromLocal(printPrefix+"    ", chartPath, module.Name, workDir)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -167,6 +176,47 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 	}
 	return archive, nil
 
+}
+
+func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, moduleName string, workDir string) (string, error) {
+	// ----------------------------------------------------------- Build chart archive
+	fmt.Printf("%sFetching chart from '%s'\n", printPrefix, chartLocation)
+
+	loc := path.Join(workDir, "local-workdir")
+	err := misc.SafeEnsureEmpty(loc)
+	if err != nil {
+		return "", err
+	}
+	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
+	out, err := os.Create(archive)
+	if err != nil {
+		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
+	}
+	gw := gzip.NewWriter(out)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	chartLocation = path.Clean(chartLocation)
+	chartLocationLen := len(chartLocation)
+	err = filepath.WalkDir(chartLocation, func(thePath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			slog.Error("Error while walking git repository on path: %s: %s", thePath, err.Error())
+			return nil
+		}
+		if !d.IsDir() {
+			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
+			err := AddToArchive(tw, thePath, targetFileName)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return archive, nil
 }
 
 // Extract the chart name and version from a chart archive

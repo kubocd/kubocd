@@ -79,6 +79,12 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			fmt.Printf("Error loading manifest: %s\n", err)
 			return err
 		}
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			return err
+		}
+		applicationFolder := filepath.Dir(abs)
+
 		err = appGroomed.Groom()
 		if err != nil {
 			return err
@@ -95,7 +101,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
 				return err
 			}
-			_, status, err = cmn.FetchArchives("", appGroomed, tarManifest, workDir)
+			_, status, err = cmn.FetchArchives("", appGroomed, tarManifest, workDir, applicationFolder)
 			if err != nil {
 				return err
 			}

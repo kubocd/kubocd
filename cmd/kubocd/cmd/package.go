@@ -20,6 +20,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -76,6 +77,11 @@ var packageCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			abs, err := filepath.Abs(args[0])
+			if err != nil {
+				return err
+			}
+			applicationFolder := filepath.Dir(abs)
 
 			// --------------------- Handle entry parameters
 			repository := packageParams.ociRepoPrefix
@@ -101,7 +107,7 @@ var packageCmd = &cobra.Command{
 				return err
 			}
 			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir)
+			chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir, applicationFolder)
 			if err != nil {
 				return err
 			}

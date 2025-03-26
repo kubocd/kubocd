@@ -20,6 +20,7 @@ import (
 	"kubocd/internal/misc"
 	"os"
 	"path"
+	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -27,6 +28,7 @@ var renderParams struct {
 	output          string
 	workDir         string
 	kubocdNamespace string
+	namespace       string
 }
 
 var renderLog logr.Logger
@@ -34,7 +36,8 @@ var renderLog logr.Logger
 func init() {
 	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render", "Output directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
-	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "n", "kubocd", "The namespace where the kubocd controller is installed in")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.namespace, "namespace", "n", "default", "Value to set if release.metadata.namespace is empty")
 }
 
 var renderCmd = &cobra.Command{
@@ -79,10 +82,9 @@ var renderCmd = &cobra.Command{
 				}
 			}
 			if release.Namespace == "" {
-				release.Namespace = metav1.NamespaceDefault
+				release.Namespace = renderParams.namespace
 			}
 			controller.GroomRelease(release, renderLog)
-
 			cmn.Dump(output, "release.yaml", release)
 
 			k8sClient, err := k8sapi.GetKubeClient(scheme)
@@ -101,6 +103,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
 			// ----------------------------------------------------------------------- Retrieve application
+			applicationFolder := ""
 			appOriginal := &application.Application{}
 			appContainer := &application.AppContainer{}
 			var errorOnContainer error
@@ -109,6 +112,12 @@ var renderCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
+				abs, err := filepath.Abs(args[1])
+				if err != nil {
+					return err
+				}
+				applicationFolder = filepath.Dir(abs)
+
 				errorOnContainer = appContainer.SetApplication(appOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
 			} else {
 				var repo, tag string
@@ -156,7 +165,7 @@ var renderCmd = &cobra.Command{
 			if appContainer.Status == nil {
 				// Compute status to give the map module->helmChart (Need to fetch helm charts
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
-				_, appContainer.Status, err = cmn.FetchArchives("", appContainer.Application, assemblyPath, renderParams.workDir)
+				_, appContainer.Status, err = cmn.FetchArchives("", appContainer.Application, assemblyPath, renderParams.workDir, applicationFolder)
 				if err != nil {
 					return err
 				}

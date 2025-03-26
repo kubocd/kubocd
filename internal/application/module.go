@@ -39,6 +39,9 @@ type Module struct {
 			// required:true
 			Path string `json:"path"`
 		} `json:"git,omitempty"`
+		Local *struct {
+			Path string `json:"path"`
+		} `json:"local,omitempty"`
 	} `yaml:"source" json:"source"`
 	// For Type == Application
 	Parameters KcdTemplateMap `json:"parameters,omitempty"`
@@ -66,7 +69,7 @@ func (m *Module) groom(application *Application, idx int) error {
 		//return fmt.Errorf("module type is required")
 	}
 	if misc.IsZero(m.TargetNamespace) {
-		m.TargetNamespace = "{{.Release.spec.targetNamespace|default .Release.metadata.namespace}}"
+		m.TargetNamespace = "{{.Release.spec.targetNamespace}}"
 	}
 	if m.Enabled == "" {
 		m.Enabled = "true"
@@ -75,9 +78,9 @@ func (m *Module) groom(application *Application, idx int) error {
 	if m.DependsOn == nil {
 		m.DependsOn = []string{}
 	}
-	x := misc.CountNonZero(m.Source.HelmRepository, m.Source.Oci, m.Source.Git)
+	x := misc.CountNonZero(m.Source.HelmRepository, m.Source.Oci, m.Source.Git, m.Source.Local)
 	if x != 1 {
-		return fmt.Errorf("one and only one of 'helmRepository' and 'oci' should be set")
+		return fmt.Errorf("one and only one of 'helmRepository', 'git', 'loacl' and 'oci' should be set")
 	}
 	if m.Source.HelmRepository != nil {
 		x := misc.CountNonZero(m.Source.HelmRepository.Url, m.Source.HelmRepository.Chart, m.Source.HelmRepository.Version)
