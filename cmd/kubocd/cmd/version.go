@@ -11,7 +11,7 @@ var versionParams struct {
 }
 
 func init() {
-	versionCmd.PersistentFlags().BoolVar(&versionParams.extended, "extended", false, "Add build number")
+	versionCmd.PersistentFlags().BoolVarP(&versionParams.extended, "extended", "e", false, "Add build number")
 }
 
 var versionCmd = &cobra.Command{

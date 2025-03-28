@@ -54,6 +54,20 @@ spec:
                 items:
                   type: string
                 type: array
+              defaultContexts:
+                description: |-
+                  Define context which will be added to all release, except the one with 'skipDefaultContext' flag
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart

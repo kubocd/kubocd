@@ -2,6 +2,11 @@
 
 # TODO
 
+
+- Check path target a folder with Chart.yaml on module.source.git and module.source.local
+- Dump chart content on kuboctl dump hr/oci ?
+- make kubocd pack *.yaml working (Loop on args)
+
 - Translate all KAD components
 - Sandbox with bootstrap
 - Doc
@@ -40,6 +45,8 @@
 - Helm chart: Set the contexts in a specific namespace
 - Handle context.protected
 - Helm chart setup Config permissions
+- Default context in global config
+- A 'Waiting' column in release for dependencies
 
 
 

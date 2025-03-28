@@ -2,10 +2,12 @@ APP_VERSION ?= v0.1.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
 #IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
-IMG ?= localhost:5001/kubocd:${DOCKER_TAG}
+#IMG ?= localhost:5001/kubocd:${DOCKER_TAG}
+IMG ?= ghcr.io/sergealexandre/kubocd:${DOCKER_TAG}
 
 HELM_VERSION ?= v0.1.1-snapshot
-HELM_DOCKER_REPO := quay.io/kubocd/charts
+#HELM_DOCKER_REPO := quay.io/kubocd/charts
+HELM_DOCKER_REPO := ghcr.io/sergealexandre/kubocd/charts
 
 # To authenticate for pushing in quay repo (img) (Use encrypted password):
 # docker login quay.io
@@ -155,7 +157,7 @@ docker-push: ## Push docker image with the manager.
 #PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
+docker-buildx: version ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name kubocd-builder

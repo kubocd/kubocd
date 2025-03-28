@@ -11,7 +11,8 @@ type ConfigStore interface {
 	IsClusterRole(role string) bool
 	GetKuboAppRedirect(oldUrl string) (kuboAppRedirectSpec *v1alpha1.KuboAppRedirectSpec, newUrl string)
 	GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string)
-	AddConfigs(configs *v1alpha1.ConfigList)
+	GetDefaultContexts() []v1alpha1.NamespacedName
+	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string)
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
 }
 
@@ -20,6 +21,7 @@ type configStore struct {
 	clusterRoles     map[string]bool
 	kuboAppRedirects []*v1alpha1.KuboAppRedirectSpec
 	imageRedirects   []*v1alpha1.ImageRedirectSpec
+	defaultContexts  []v1alpha1.NamespacedName
 }
 
 var _ ConfigStore = &configStore{}
@@ -68,7 +70,13 @@ func (c *configStore) GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alph
 	return nil, oldUrl
 }
 
-func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList) {
+func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.defaultContexts
+}
+
+func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespace string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	configs := configList.DeepCopy()
@@ -78,12 +86,19 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList) {
 	c.clusterRoles = make(map[string]bool)
 	c.kuboAppRedirects = make([]*v1alpha1.KuboAppRedirectSpec, 0, 10)
 	c.imageRedirects = make([]*v1alpha1.ImageRedirectSpec, 0, 10)
+	c.defaultContexts = make([]v1alpha1.NamespacedName, 0, 10)
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
 			c.clusterRoles[role] = true
 		}
 		c.kuboAppRedirects = append(c.kuboAppRedirects, config.Spec.KuboAppRedirects...)
 		c.imageRedirects = append(c.imageRedirects, config.Spec.ImageRedirects...)
+		c.defaultContexts = append(c.defaultContexts, config.Spec.DefaultContexts...)
+	}
+	for idx := range c.defaultContexts {
+		if c.defaultContexts[idx].Namespace == "" {
+			c.defaultContexts[idx].Namespace = defaultNamespace
+		}
 	}
 }
 

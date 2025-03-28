@@ -11,3 +11,5 @@ spec:
 {{- toYaml .Values.config.imageRedirects | nindent 4 }}
   clusterRoles:
 {{- toYaml .Values.config.clusterRoles | nindent 4 }}
+  defaultContexts:
+{{- toYaml .Values.config.defaultContexts | nindent 4 }}

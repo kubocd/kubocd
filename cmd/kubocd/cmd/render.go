@@ -99,7 +99,7 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("could not list configs: %w", err)
 			}
-			configStore.AddConfigs(configs)
+			configStore.AddConfigs(configs, renderParams.kubocdNamespace)
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
 			// ----------------------------------------------------------------------- Retrieve application
@@ -173,7 +173,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "status.yaml", appContainer.Status)
 
 			// ------------------------------------------------------------------------ handle context
-			kcontext, err := controller.ComputeContext(context.Background(), k8sClient, release, appContainer)
+			kcontext, err := controller.ComputeContext(context.Background(), k8sClient, release, appContainer, configStore)
 			if err != nil {
 				return fmt.Errorf("could not compute context: %w", err)
 			}

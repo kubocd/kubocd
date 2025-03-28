@@ -77,6 +77,11 @@ type ConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	// Default: []
 	ClusterRoles []string `json:"clusterRoles,omitempty"`
+
+	// Define context which will be added to all release, except the one with 'skipDefaultContext' flag
+	// +kubebuilder:validation:Optional
+	// Default: []
+	DefaultContexts []NamespacedName `json:"defaultContexts,omitempty"`
 }
 
 // ConfigStatus defines the observed state of Config.

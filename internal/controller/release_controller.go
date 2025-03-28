@@ -290,7 +290,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// ---------------------------------------------------------- Compute context
-	theContext, reconcileError := ComputeContext(op.ctx, r, op.release, op.appContainer)
+	theContext, reconcileError := ComputeContext(op.ctx, r, op.release, op.appContainer, r.ConfigStore)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError)
 	}
@@ -444,10 +444,14 @@ func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
 }
 
 // ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
-func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, appContainer *application.AppContainer) (map[string]interface{}, ReconcileError) {
+func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, appContainer *application.AppContainer, store configstore.ConfigStore) (map[string]interface{}, ReconcileError) {
 	// ------ And now, build the current context
 	theContext := appContainer.DefaultContext
-	for _, contextNs := range release.Spec.Contexts {
+	contexts := release.Spec.Contexts
+	if !release.Spec.SkipDefaultContext {
+		contexts = append(store.GetDefaultContexts(), contexts...)
+	}
+	for _, contextNs := range contexts {
 		kContext := &kv1alpha1.Context{}
 		err := k8sClient.Get(ctx, contextNs.ToObjectKey(), kContext)
 		if err != nil {
@@ -488,19 +492,23 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	}
 }
 
-func buildContextsList(release *kv1alpha1.Release) string {
-	if len(release.Spec.Contexts) == 0 {
+func (r *ReleaseReconciler) buildContextsList(release *kv1alpha1.Release) string {
+	contexts := release.Spec.Contexts
+	if !release.Spec.SkipDefaultContext {
+		contexts = append(r.ConfigStore.GetDefaultContexts(), contexts...)
+	}
+	if len(contexts) == 0 {
 		return ""
 	}
-	contexts := make([]string, len(release.Spec.Contexts))
-	for idx := range release.Spec.Contexts {
-		contexts[idx] = release.Spec.Contexts[idx].String()
+	ctxs := make([]string, len(contexts))
+	for idx := range contexts {
+		ctxs[idx] = contexts[idx].String()
 	}
-	return strings.Join(contexts, ",")
+	return strings.Join(ctxs, ",")
 }
 
 func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
-	ctxs := buildContextsList(op.release)
+	ctxs := r.buildContextsList(op.release)
 	if op.release.Status.Phase == phase && op.release.Status.Contexts == ctxs && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
 		return nil

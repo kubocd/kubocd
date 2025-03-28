@@ -39,12 +39,12 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *ConfigReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
-	// We don't care about who trigger this. We fetch all configs which are in our namesapce and store them in configStore
+	// We don't care about who trigger this. We fetch all configs which are in our namespace and store them in configStore
 	configs := &kv1alpha1.ConfigList{}
 	err := r.List(ctx, configs, client.InNamespace(r.MyPodNamespace))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	r.ConfigStore.AddConfigs(configs)
+	r.ConfigStore.AddConfigs(configs, r.MyPodNamespace)
 	return ctrl.Result{}, nil
 }

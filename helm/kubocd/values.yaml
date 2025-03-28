@@ -28,6 +28,9 @@ config:
 #     # Other OciRepositorySpec elements
   clusterRoles: []
 #    - storage
+  defaultContext: []
+#    - name: cluster
+#      namespace: contexts
 
 # for example, to store contexts
 extraNamespaces: []

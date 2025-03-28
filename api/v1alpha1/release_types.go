@@ -105,6 +105,11 @@ type ReleaseSpec struct {
 	// Default: []
 	Dependencies []string `json:"dependencies,omitempty"`
 
+	// If yes, the default context(s) of the configs are not taken in account
+	// +kubebuilder:validation:Optional
+	//,Default: false
+	SkipDefaultContext bool `json:"skipDefaultContext,omitempty"`
+
 	// Group a set of parameters useful for debugging Release and Application
 	// +kubebuilder:validation:Optional
 	Debug *ReleaseDebug `json:"debug,omitempty"`
@@ -175,6 +180,7 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.contexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
+// +kubebuilder:printcolumn:name="Waiting",type=string,JSONPath=`.status.missingDependency`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 

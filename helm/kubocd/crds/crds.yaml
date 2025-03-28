@@ -53,6 +53,20 @@ spec:
                 items:
                   type: string
                 type: array
+              defaultContexts:
+                description: |-
+                  Define context which will be added to all release, except the one with 'skipDefaultContext' flag
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart
@@ -418,6 +432,9 @@ spec:
     - jsonPath: .status.readyReleases
       name: Ready
       type: string
+    - jsonPath: .status.missingDependency
+      name: Waiting
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -674,6 +691,11 @@ spec:
                 items:
                   type: string
                 type: array
+              skipDefaultContext:
+                description: |-
+                  If yes, the default context(s) of the configs are not taken in account
+                  ,Default: false
+                type: boolean
               specPatchByModule:
                 additionalProperties:
                   x-kubernetes-preserve-unknown-fields: true
