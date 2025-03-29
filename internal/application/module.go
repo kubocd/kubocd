@@ -49,13 +49,13 @@ type Module struct {
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
 	SpecAddon KcdTemplateMap `json:"specAddon,omitempty"`
-	// Default: {{ .Release.spec.targetNamespace | default .Release.metadata.namespace }}
+	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
 	// Default: "true"
 	Enabled KcdTemplateBool `json:"enabled,omitempty"`
 	// Intra-application dependency. List of module names
-	DependsOn []string `json:"dependsOn,omitempty"`
+	DependsOn KcdTemplateStringList `json:"dependsOn,omitempty"`
 	// ------------------- Private part
 	templates *moduleTemplates
 }
@@ -136,6 +136,10 @@ func (m *Module) groom(application *Application, idx int) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
 	}
+	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, application.Spec.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'dependsOn' template: %w", err)
+	}
 	return nil
 }
 
@@ -145,6 +149,7 @@ type moduleTemplates struct {
 	specAddon       tmpl.Tmpl
 	targetNamespace tmpl.Tmpl
 	enabled         tmpl.Tmpl
+	dependsOn       tmpl.Tmpl
 }
 
 // ModuleRendered object is a proxy for module. Aim is to concentrate all error detection in its constructor
@@ -156,6 +161,7 @@ type ModuleRendered struct {
 	SpecAddon       map[string]interface{}
 	TargetNamespace string
 	Enabled         bool
+	DependsOn       []string
 }
 
 var createNamespacePatch = map[string]interface{}{
@@ -187,6 +193,10 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	mr.Enabled, txt, err = m.templates.enabled.RenderToBool(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'enabled' template: %w (%s)", err, txt)
+	}
+	mr.DependsOn, txt, err = m.templates.dependsOn.RenderToStringList(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'dependsOn' template: %w (%s)", err, txt)
 	}
 	if model["Release"].(map[string]interface{})["spec"].(map[string]interface{})["createNamespace"].(bool) {
 		mr.SpecAddon = misc.MergeMaps(mr.SpecAddon, createNamespacePatch)

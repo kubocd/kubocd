@@ -100,10 +100,10 @@ func PopulateHelmRelease(
 	moduleRendered := rendered.ModuleRenderedByName[module.Name]
 
 	dependsOn := make([]map[string]string, 0)
-	for _, dep := range module.DependsOn {
+	for _, dep := range moduleRendered.DependsOn {
 		rn, ok := helmReleaseNameByModuleName[dep]
 		if !ok {
-			// Should no occurs, as this should be trapped when building the OCI.
+			// Should no occurs, as this should be trapped on module rendering
 			panic(fmt.Sprintf("dependency '%s' not found for module name '%s'", dep, module.Name))
 		}
 		dependsOn = append(dependsOn, map[string]string{

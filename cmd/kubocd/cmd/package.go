@@ -44,7 +44,7 @@ var packageParams struct {
 
 func init() {
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/applications'). Can also be specified with OCI_REPO_PREFIX environment variable")
-	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS")
+	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 
 }
@@ -52,7 +52,7 @@ func init() {
 var packageCmd = &cobra.Command{
 	Use:     "package <Application manifest>",
 	Short:   "Assemble a KuboCd Application from a manifest to an OCI image",
-	Args:    cobra.ExactArgs(1),
+	Args:    cobra.MinimumNArgs(1),
 	Aliases: []string{"pack", "build"},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ------------------------------------------- Setup working folder
@@ -66,108 +66,122 @@ var packageCmd = &cobra.Command{
 		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		err := func() error {
-			appOriginal := &application.Application{}
-			appGroomed := &application.Application{}
-			err := misc.LoadYaml(args[0], appOriginal, appGroomed)
-			if err != nil {
-				return err
-			}
-			err = appGroomed.Groom()
-			if err != nil {
-				return err
-			}
-			abs, err := filepath.Abs(args[0])
-			if err != nil {
-				return err
-			}
-			applicationFolder := filepath.Dir(abs)
-
-			// --------------------- Handle entry parameters
-			repository := packageParams.ociRepoPrefix
-			if repository == "" {
-				repository = os.Getenv("OCI_REPO_PREFIX")
-				if repository == "" {
-					return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
-				}
-			}
-			repository = path.Join(repository, appGroomed.Metadata.Name)
-
-			tag := appGroomed.Metadata.Version
-
-			// ---------- Prepare the target layout
-			fsPath := path.Join(packageParams.workDir, "fs")
-			err = misc.SafeEnsureEmpty(fsPath)
-			if err != nil {
-				return err
-			}
-			assemblyPath := path.Join(packageParams.workDir, "assembly")
-			err = misc.SafeEnsureEmpty(assemblyPath)
-			if err != nil {
-				return err
-			}
-			// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-			chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir, applicationFolder)
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("--- Packaging\n")
-
-			// ------------------------------------- Build index.yaml file to be a helm repository
-			fmt.Printf("    Generating index file\n")
-			index, err := repo.IndexDirectory(assemblyPath, "")
-			if err != nil {
-				return err
-			}
-
-			// ------------------------------------- Produce meta files
-			//fmt.Printf("index.yaml:\n%s\n", misc.Map2YamlStr(index))
-			// Generate the index file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "index.yaml"), misc.Any2Yaml(index), os.ModePerm)
-			if err != nil {
-				return err
-			}
-			// Generate the original.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(appOriginal), os.ModePerm)
-			if err != nil {
-				return err
-			}
-			// Generate the groomed.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(appGroomed), os.ModePerm)
-			if err != nil {
-				return err
-			}
-			// Generate the groomed.yaml file to be included in archive
-			err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Any2Yaml(status), os.ModePerm)
-			if err != nil {
-				return err
-			}
-			// Generate the manifest.json file to be set as config in the image
-			err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(appOriginal), os.ModePerm)
-			if err != nil {
-				return err
-			}
-
-			// ------------------------------------- Package
-			fmt.Printf("    Wrap all in assembly.tgz\n")
-			err = buildAssembly(assemblyPath, chartSet)
-			if err != nil {
-				return err
-			}
-
-			// Build and push image
-			err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP)
-			if err != nil {
-				return err
-			}
-			return nil
-		}()
+		err := pack(args[0])
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 			os.Exit(1)
 		}
+		// We can't loop as the https://github.com/mittwald/go-helm-client library we used does not support to be
+		// called twice with the same repo name (see helmrepo.SetupHelmRepo)
+		// Need to fix this (patch the lib ?) to allow this loop.
+		//for _, app := range args {
+		//	err := pack(app)
+		//	if err != nil {
+		//		_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+		//		os.Exit(1)
+		//	}
+		//}
 	},
+}
+
+func pack(app string) error {
+	fmt.Printf("\n====================================== Packaging application '%s'\n", app)
+	appOriginal := &application.Application{}
+	appGroomed := &application.Application{}
+	err := misc.LoadYaml(app, appOriginal, appGroomed)
+	if err != nil {
+		return err
+	}
+	err = appGroomed.Groom()
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(app)
+	if err != nil {
+		return err
+	}
+	applicationFolder := filepath.Dir(abs)
+
+	// --------------------- Handle entry parameters
+	repository := packageParams.ociRepoPrefix
+	if repository == "" {
+		repository = os.Getenv("OCI_REPO_PREFIX")
+		if repository == "" {
+			return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
+		}
+	}
+	repository = path.Join(repository, appGroomed.Metadata.Name)
+
+	tag := appGroomed.Metadata.Version
+
+	// ---------- Prepare the target layout
+	fsPath := path.Join(packageParams.workDir, "fs")
+	err = misc.SafeEnsureEmpty(fsPath)
+	if err != nil {
+		return err
+	}
+	assemblyPath := path.Join(packageParams.workDir, "assembly")
+	err = misc.SafeEnsureEmpty(assemblyPath)
+	if err != nil {
+		return err
+	}
+	// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
+	chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir, applicationFolder)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("--- Packaging\n")
+
+	// ------------------------------------- Build index.yaml file to be a helm repository
+	fmt.Printf("    Generating index file\n")
+	index, err := repo.IndexDirectory(assemblyPath, "")
+	if err != nil {
+		return err
+	}
+
+	// ------------------------------------- Produce meta files
+	//fmt.Printf("index.yaml:\n%s\n", misc.Map2YamlStr(index))
+	// Generate the index file to be included in archive
+	err = os.WriteFile(path.Join(assemblyPath, "index.yaml"), misc.Any2Yaml(index), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	// Generate the original.yaml file to be included in archive
+	err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(appOriginal), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	// Generate the groomed.yaml file to be included in archive
+	err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(appGroomed), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	// Generate the groomed.yaml file to be included in archive
+	err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Any2Yaml(status), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	// Generate the manifest.json file to be set as config in the image
+	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(appOriginal), os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	// ------------------------------------- Package
+	fmt.Printf("    Wrap all in assembly.tgz\n")
+	err = buildAssembly(assemblyPath, chartSet)
+	if err != nil {
+		return err
+	}
+
+	// Build and push image
+	err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP)
+	if err != nil {
+		return err
+	}
+	return nil
+
 }
 
 func buildAssembly(assemblyPath string, archives []cmn.ArchiveInfo) error {

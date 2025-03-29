@@ -53,6 +53,7 @@ func init() {
 	webhookCmd.PersistentFlags().StringVar(&webhookParams.webhookCertPath, "webhookCertPath", "", "The directory that contains the webhook certificate.")
 	webhookCmd.PersistentFlags().StringVar(&webhookParams.webhookCertName, "webhookCertName", "tls.crt", "The name of the webhook certificate file.")
 	webhookCmd.PersistentFlags().StringVar(&webhookParams.webhookCertKey, "webhookCertKey", "tls.key", "The name of the webhook key file.")
+	webhookCmd.Hidden = true
 }
 
 var webhookCmd = &cobra.Command{

@@ -123,15 +123,6 @@ func (app *Application) Groom() error {
 		}
 		moduleByName[module.Name] = app.Spec.Modules[idx]
 	}
-	// And another loop to check internal dependencies
-	for _, module := range app.Spec.Modules {
-		for _, dependency := range module.DependsOn {
-			_, ok := moduleByName[dependency]
-			if !ok {
-				return fmt.Errorf("module '%s' depends on unknown module '%s'", module.Name, dependency)
-			}
-		}
-	}
 	app.templates = &applicationTemplates{}
 	app.templates.usage, err = tmpl.New("", string(app.Spec.Usage), app.Spec.TemplateHeader)
 	if err != nil {
@@ -145,6 +136,7 @@ func (app *Application) Groom() error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
+	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
 
@@ -183,12 +175,24 @@ func (app *Application) Render(model map[string]interface{}) (*Rendered, error) 
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'dependencies' template: %w (%s)", err, txt)
 	}
-
 	for _, module := range app.Spec.Modules {
 		//fmt.Printf("*********************** module.name %s\n", module.Name)
 		r.ModuleRenderedByName[module.Name], err = module.Render(model)
 		if err != nil {
 			return nil, fmt.Errorf("module '%s': %w", module.Name, err)
+		}
+	}
+	// Check intra module dependencies
+	for _, module := range app.Spec.Modules {
+		rendered, ok := r.ModuleRenderedByName[module.Name]
+		if !ok {
+			panic(fmt.Sprintf("missng module of name %s", module.Name)) // Should not occurs
+		}
+		for _, dep := range rendered.DependsOn {
+			_, ok = r.ModuleRenderedByName[dep]
+			if !ok {
+				return nil, fmt.Errorf("module '%s': dependsOn '%s': module does not exists", module.Name, dep)
+			}
 		}
 	}
 	return r, nil

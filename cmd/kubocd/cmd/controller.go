@@ -75,7 +75,7 @@ func init() {
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
-
+	controllerCmd.Hidden = true
 }
 
 var controllerCmd = &cobra.Command{

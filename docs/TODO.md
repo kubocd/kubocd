@@ -2,23 +2,24 @@
 
 # TODO
 
-
-- Check path target a folder with Chart.yaml on module.source.git and module.source.local
-- Dump chart content on kuboctl dump hr/oci ?
-- make kubocd pack *.yaml working (Loop on args)
-
 - Translate all KAD components
 - Sandbox with bootstrap
 - Doc
-- A system to restrain targetNamespace to the one of the release. Or forbid createNamespace (/!\ appOfApp)
-
-- Set Application in the model ?
+- Handle right management. See what fluxcd does (Impersonation)
+- Improve usage on kubocd CLI (Add sample)
 
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
-- Manage application in application
 
 - A webhook to patch all image in pod manifests (https://slack.engineering/simple-kubernetes-webhook/)
 - Embed application image to the package
+
+- make kubocd pack *.yaml working (Loop on args). (May need to patch https://github.com/mittwald/go-helm-client. See note in cmd.package.go)
+
+# Rejected
+ 
+- Manage application in application
+- Set Application in the model ?
+- Dump chart content on kuboctl dump hr/oci ?
 
 # DONE
 
@@ -47,6 +48,9 @@
 - Helm chart setup Config permissions
 - Default context in global config
 - A 'Waiting' column in release for dependencies
+- Check path target a folder with Chart.yaml on module.source.git and module.source.local
+- Make module.dependsOn a template
+
 
 
 

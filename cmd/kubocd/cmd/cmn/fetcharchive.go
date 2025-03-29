@@ -147,6 +147,11 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 	}
 
 	// ----------------------------------------------------------- Build chart archive
+	chartFile := path.Join(chartLocation, "Chart.yaml")
+	_, err = os.Stat(chartFile)
+	if err != nil {
+		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
+	}
 	out, err := os.Create(archive)
 	if err != nil {
 		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
@@ -182,8 +187,13 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 	// ----------------------------------------------------------- Build chart archive
 	fmt.Printf("%sFetching chart from '%s'\n", printPrefix, chartLocation)
 
+	chartFile := path.Join(chartLocation, "Chart.yaml")
+	_, err := os.Stat(chartFile)
+	if err != nil {
+		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
+	}
 	loc := path.Join(workDir, "local-workdir")
-	err := misc.SafeEnsureEmpty(loc)
+	err = misc.SafeEnsureEmpty(loc)
 	if err != nil {
 		return "", err
 	}
