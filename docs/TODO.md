@@ -2,13 +2,12 @@
 
 # TODO
 
+- Release description should default to the (templated) application description.  
 
 - Translate all KAD components
-- Sandbox with bootstrap
 - Doc
 - Handle right management. See what fluxcd does (Impersonation)
 - Improve usage on kubocd CLI (Add sample)
-
 
 - Manage application in application.
   NB: This may seems redundant with the appsOfApps/stack pattern. 
@@ -58,6 +57,7 @@
 - Check path target a folder with Chart.yaml on module.source.git and module.source.local
 - Make module.dependsOn a template
 - Rename module.specAddon to module.specPatch
+- Sandbox with bootstrap
 
 
 

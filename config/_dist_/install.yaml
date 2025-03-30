@@ -19,6 +19,9 @@ spec:
     kind: Config
     listKind: ConfigList
     plural: configs
+    shortNames:
+    - kconfig
+    - kconf
     singular: config
   scope: Namespaced
   versions:
@@ -54,16 +57,66 @@ spec:
               clusterRoles:
                 description: |-
                   Allow to define Roles already provided by the k8s cluster, independently of any KuboCD deployment.
+                  When merging, values are appended
                   Default: []
                 items:
                   type: string
                 type: array
-              ociRedirects:
+              defaultContexts:
                 description: |-
+                  Define context which will be added to all release, except the one with 'skipDefaultContext' flag
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              imageRedirects:
+                description: |-
+                  This may apply to image referenced in Helm Chart
+                  It is intended to be used by some templating functions, inserted in the `values` template of the application
+                  Each entry allow substitution of oci data source.
+                  Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
+                  This will also allow to add authentication information.
+                  When merging Configs, values are simply appended. (Configs are sorted by name)
+                  Default: []
+                items:
+                  properties:
+                    imagePullPolicy:
+                      enum:
+                      - IfNotPresent
+                      - Always
+                      - Never
+                      type: string
+                    imagePullSecrets:
+                      items:
+                        type: string
+                      type: array
+                    newPrefix:
+                      description: The prefix part will be replaced by this value.
+                      type: string
+                    oldPrefix:
+                      description: All image repo where the Url begin by this value
+                        will be impacted.
+                      type: string
+                  required:
+                  - newPrefix
+                  - oldPrefix
+                  type: object
+                type: array
+              kuboAppRedirects:
+                description: |-
+                  This will apply to KuboCD application oci image.
                   Each entry allow substitution of oci data source.
                   Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
                   This will also allow to add authentication and proxy information.
-                  When merging Configs, values are simply appended.
+                  When merging Configs, values are simply appended. (Configs are sorted by name)
+                  Default: []
                 items:
                   properties:
                     certSecretRef:
@@ -108,12 +161,12 @@ spec:
                         efficient use of resources.
                       pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                       type: string
-                    newRepositoryPrefix:
+                    newPrefix:
                       description: The prefix part will be replaced by this value.
                       type: string
-                    oldRepositoryPrefix:
-                      description: All OIC repo where the Url begin by this value
-                        will be impacted.
+                    oldPrefix:
+                      description: All KuboCD application repository where the Url
+                        begin by this value will be impacted.
                       type: string
                     provider:
                       description: |-
@@ -161,9 +214,6 @@ spec:
                       description: This flag tells the controller to suspend the reconciliation
                         of this source.
                       type: boolean
-                    tag:
-                      description: Part of OCI url oci://<repository>:<tag>
-                      type: string
                     timeout:
                       default: 60s
                       description: The timeout for remote OCI Repository operations
@@ -228,9 +278,8 @@ spec:
                       type: object
                   required:
                   - interval
-                  - newRepositoryPrefix
-                  - oldRepositoryPrefix
-                  - tag
+                  - newPrefix
+                  - oldPrefix
                   type: object
                 type: array
             type: object
@@ -255,12 +304,19 @@ spec:
     kind: Context
     listKind: ContextList
     plural: contexts
+    shortNames:
+    - ctx
+    - kcontext
+    - kctx
     singular: context
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.description
       name: Description
+      type: string
+    - jsonPath: .status.parents
+      name: Parents
       type: string
     - jsonPath: .status.phase
       name: Status
@@ -338,6 +394,11 @@ spec:
                   Context is the resulting context, after potential parent merging
                   if there is no parent, it is empty, so use the one from Spec.
                 x-kubernetes-preserve-unknown-fields: true
+              parents:
+                description: |-
+                  Parents is a string to list our parents. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               phase:
                 type: string
             required:
@@ -371,15 +432,24 @@ spec:
     - jsonPath: .spec.application.tag
       name: Tag
       type: string
+    - jsonPath: .status.contexts
+      name: Contexts
+      type: string
     - jsonPath: .status.phase
       name: Status
       type: string
-    - jsonPath: .spec.description
-      name: Description
+    - jsonPath: .status.readyReleases
+      name: Ready
+      type: string
+    - jsonPath: .status.missingDependency
+      name: Waiting
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .spec.description
+      name: Description
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -587,9 +657,25 @@ spec:
               createNamespace:
                 description: |-
                   If true, add  { install: { createNamespace: true } } to config map.
+                  Must be set, as used in module.Render()
                   Default: false
                 type: boolean
-              dependsOn:
+              debug:
+                description: Group a set of parameters useful for debugging Release
+                  and Application
+                properties:
+                  dumpContext:
+                    description: |-
+                      DumpContext instruct to save a representation of the context
+                      in the Status. This for user debugging?
+                    type: boolean
+                  dumpParameters:
+                    description: |-
+                      DumpParameters instruct to save a representation of the parameters
+                      in the Status. This for user debugging?
+                    type: boolean
+                type: object
+              dependencies:
                 description: |-
                   The roles we depend on. (appended to the one of the underlying Application)
                   Default: []
@@ -598,18 +684,6 @@ spec:
                 type: array
               description:
                 description: Short description of this release. Single line only
-                type: string
-              enabled:
-                description: |-
-                  If false, this release is not deployed (And deleted if existing and unprotected)
-                  Default: true
-                type: boolean
-              namespace:
-                description: |-
-                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
-                  Not required, as it can be setup another way, depending on the application
-                  (i.e the application has a fixed namespace, or several ones).
-                  Default: ""
                 type: string
               parameters:
                 description: The Release configuration variables
@@ -626,22 +700,101 @@ spec:
                 items:
                   type: string
                 type: array
+              skipDefaultContext:
+                description: |-
+                  If yes, the default context(s) of the configs are not taken in account
+                  ,Default: false
+                type: boolean
+              specPatchByModule:
+                additionalProperties:
+                  x-kubernetes-preserve-unknown-fields: true
+                description: Allow to patch the HelmRelease.spec for each module
+                type: object
               suspended:
                 description: |-
                   If true, HelmRelease update is suspended at KuboCD level
                   (This is NOT the helmRelease.spec.suspend flag, which may be set by Config part)
                   Default: false
                 type: boolean
+              targetNamespace:
+                description: |-
+                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
+                  Not required, as it can be setup another way, depending on the application
+                  (i.e the application has a fixed namespace, or several ones).
+                  Default: Release.metadata.namespace
+                type: string
             required:
             - application
             type: object
           status:
-            description: ReleaseStatus defines the observed state of Release.
+            description: |-
+              ReleaseStatus defines the observed state of Release.
+              As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
+              (Except for 'context', as controlled by a debug flag)
             properties:
+              context:
+                description: Context is the resulting context, if requested in debug
+                  options
+                x-kubernetes-preserve-unknown-fields: true
+              contexts:
+                description: |-
+                  Contexts is a string to list our context. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
+              dependencies:
+                description: The result of the application template and release value
+                items:
+                  type: string
+                type: array
+              helmReleaseStates:
+                additionalProperties:
+                  description: HelmReleaseState describe the observed state of a child
+                    HelmRelease
+                  properties:
+                    ready:
+                      type: string
+                    status:
+                      type: string
+                  required:
+                  - ready
+                  type: object
+                description: HelmReleaseState describe the observed state of child
+                  HelmReleases by name
+                type: object
+              missingDependency:
+                type: string
+              parameters:
+                description: Parameters is the resulting parameters set, if requested
+                  in debug options
+                x-kubernetes-preserve-unknown-fields: true
               phase:
                 type: string
+              protected:
+                description: Protected result of Release.spec.protected defaulted
+                  to Application.spec.protected
+                type: boolean
+              readyReleases:
+                description: |-
+                  ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
+              roles:
+                description: The result of the application template and release value
+                items:
+                  type: string
+                type: array
+              usage:
+                description: Usage is the rendering of the Application.spec.usage.
+                  Aimed to provide user informations
+                type: string
             required:
+            - contexts
+            - dependencies
+            - missingDependency
             - phase
+            - protected
+            - readyReleases
+            - roles
             type: object
         type: object
     served: true
@@ -849,6 +1002,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs
   - contexts
   - releases
   verbs:
@@ -862,6 +1016,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs/finalizers
   - contexts/finalizers
   - releases/finalizers
   verbs:
@@ -869,6 +1024,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - configs/status
   - contexts/status
   - releases/status
   verbs:
@@ -1018,7 +1174,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: quay.io/kubocd/kubocd:0.1.1-snapshot
+        image: quay.io/kubocd/kubocd:v0.1.1
         livenessProbe:
           httpGet:
             path: /healthz
@@ -1164,6 +1320,26 @@ webhooks:
     service:
       name: kubocd-webhook-service
       namespace: kubocd-system
+      path: /mutate-kubocd-kubotal-io-v1alpha1-context
+  failurePolicy: Fail
+  name: mcontext-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - contexts
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: kubocd-webhook-service
+      namespace: kubocd-system
       path: /mutate-kubocd-kubotal-io-v1alpha1-release
   failurePolicy: Fail
   name: mrelease-v1alpha1.kb.io
@@ -1186,6 +1362,27 @@ metadata:
     cert-manager.io/inject-ca-from: kubocd-system/kubocd-serving-cert
   name: kubocd-validating-webhook-configuration
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: kubocd-webhook-service
+      namespace: kubocd-system
+      path: /validate-kubocd-kubotal-io-v1alpha1-context
+  failurePolicy: Fail
+  name: vcontext-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - kubocd.kubotal.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - contexts
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:
