@@ -48,7 +48,7 @@ type Module struct {
 	// For Type == HelmChart
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
-	SpecAddon KcdTemplateMap `json:"specAddon,omitempty"`
+	SpecPatch KcdTemplateMap `json:"specPatch,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
@@ -124,9 +124,9 @@ func (m *Module) groom(application *Application, idx int) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.specAddon, err = tmpl.NewFromAny("", m.SpecAddon, application.Spec.TemplateHeader)
+	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, application.Spec.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'specAddon' template: %w", err)
+		return fmt.Errorf("could not parse 'specPatch' template: %w", err)
 	}
 	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), application.Spec.TemplateHeader)
 	if err != nil {
@@ -146,7 +146,7 @@ func (m *Module) groom(application *Application, idx int) error {
 type moduleTemplates struct {
 	parameters      tmpl.Tmpl
 	values          tmpl.Tmpl
-	specAddon       tmpl.Tmpl
+	specPatch       tmpl.Tmpl
 	targetNamespace tmpl.Tmpl
 	enabled         tmpl.Tmpl
 	dependsOn       tmpl.Tmpl
@@ -158,7 +158,7 @@ type moduleTemplates struct {
 type ModuleRendered struct {
 	Parameters      map[string]interface{}
 	Values          map[string]interface{}
-	SpecAddon       map[string]interface{}
+	SpecPatch       map[string]interface{}
 	TargetNamespace string
 	Enabled         bool
 	DependsOn       []string
@@ -182,9 +182,9 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'values' template: %w (%s)", err, txt)
 	}
-	mr.SpecAddon, txt, err = m.templates.specAddon.RenderToMap(model)
+	mr.SpecPatch, txt, err = m.templates.specPatch.RenderToMap(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'specAddon' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'specPatch' template: %w (%s)", err, txt)
 	}
 	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToSingleLine(model)
 	if err != nil {
@@ -199,7 +199,7 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 		return nil, fmt.Errorf("could not render 'dependsOn' template: %w (%s)", err, txt)
 	}
 	if model["Release"].(map[string]interface{})["spec"].(map[string]interface{})["createNamespace"].(bool) {
-		mr.SpecAddon = misc.MergeMaps(mr.SpecAddon, createNamespacePatch)
+		mr.SpecPatch = misc.MergeMaps(mr.SpecPatch, createNamespacePatch)
 	}
 	//fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
 	//fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))

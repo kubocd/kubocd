@@ -129,7 +129,7 @@ func PopulateHelmRelease(
 		"releaseName":     helmRelease.Name, // We remove namespace from the releaseName
 		"dependsOn":       dependsOn,
 	}
-	spec = misc.MergeMaps(spec, moduleRendered.SpecAddon)
+	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch)
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
 		spec = Merge(spec, patch)

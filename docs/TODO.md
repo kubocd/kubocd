@@ -2,11 +2,19 @@
 
 # TODO
 
+
 - Translate all KAD components
 - Sandbox with bootstrap
 - Doc
 - Handle right management. See what fluxcd does (Impersonation)
 - Improve usage on kubocd CLI (Add sample)
+
+
+- Manage application in application.
+  NB: This may seems redundant with the appsOfApps/stack pattern. 
+  But handling this in an integrated way will allow better control of generated helm release. and an efficient 'render'
+  cli command
+
 
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
 
@@ -17,7 +25,6 @@
 
 # Rejected
  
-- Manage application in application
 - Set Application in the model ?
 - Dump chart content on kuboctl dump hr/oci ?
 
@@ -50,6 +57,7 @@
 - A 'Waiting' column in release for dependencies
 - Check path target a folder with Chart.yaml on module.source.git and module.source.local
 - Make module.dependsOn a template
+- Rename module.specAddon to module.specPatch
 
 
 
