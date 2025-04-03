@@ -4,7 +4,6 @@ import (
 	"fmt"
 	fluxmeta "github.com/fluxcd/pkg/apis/meta"
 	fluxapiv1 "github.com/fluxcd/source-controller/api/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -77,22 +76,6 @@ type OciAddOn struct {
 	// to use while communicating with the container registry.
 	// +optional
 	ProxySecretRef *fluxmeta.LocalObjectReference `json:"proxySecretRef,omitempty"`
-
-	// Interval at which the OCIRepository URL is checked for updates.
-	// This interval is approximate and may be subject to jitter to ensure
-	// efficient use of resources.
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
-	// +kubebuilder:default="5m"
-	// +required
-	Interval metav1.Duration `json:"interval"`
-
-	// The timeout for remote OCI Repository operations like pulling, defaults to 60s.
-	// +kubebuilder:default="60s"
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
-	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
 	// Ignore overrides the set of excluded patterns in the .sourceignore format
 	// (which is the same as .gitignore). If not provided, a default will be used,

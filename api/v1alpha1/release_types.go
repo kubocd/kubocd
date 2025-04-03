@@ -30,6 +30,22 @@ type ApplicationSource struct {
 	Tag string `json:"tag"`
 
 	OciAddOn `json:",inline"`
+
+	// Interval at which the OCIRepository URL is checked for updates.
+	// This interval is approximate and may be subject to jitter to ensure
+	// efficient use of resources.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
+	// +kubebuilder:default="5m"
+	// +required
+	Interval metav1.Duration `json:"interval"`
+
+	// The timeout for remote OCI Repository operations like pulling, defaults to 60s.
+	// +kubebuilder:default="60s"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
 type ReleaseDebug struct {

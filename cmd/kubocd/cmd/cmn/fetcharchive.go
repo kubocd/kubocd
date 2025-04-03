@@ -17,6 +17,7 @@ import (
 	"kubocd/internal/misc"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sigs.k8s.io/yaml"
@@ -192,12 +193,35 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 	if err != nil {
 		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
 	}
-	loc := path.Join(workDir, "local-workdir")
-	err = misc.SafeEnsureEmpty(loc)
+	// Copy the chart is a safe place to add dependencies, if any
+	loc1 := path.Join(workDir, "local1-workdir")
+	err = misc.SafeEnsureEmpty(loc1)
 	if err != nil {
 		return "", err
 	}
-	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
+	chartLocation2 := path.Join(loc1, "chart")
+	err = misc.CopyDir(chartLocation, chartLocation2)
+	if err != nil {
+		return "", err
+	}
+	//----------------------
+	cmd := exec.Command("helm", "dependency", "update", chartLocation2)
+
+	// Run the command and capture output
+	_, err = cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to update chart dependencies: %w", err)
+	}
+
+	//----------------------
+
+	chartLocation = chartLocation2
+	loc2 := path.Join(workDir, "local2-workdir")
+	err = misc.SafeEnsureEmpty(loc2)
+	if err != nil {
+		return "", err
+	}
+	archive := path.Join(loc2, fmt.Sprintf("%s.tgz", moduleName))
 	out, err := os.Create(archive)
 	if err != nil {
 		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
@@ -216,6 +240,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		}
 		if !d.IsDir() {
 			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
+			fmt.Printf("%sadding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
 			err := AddToArchive(tw, thePath, targetFileName)
 			if err != nil {
 				return err

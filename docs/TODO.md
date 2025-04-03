@@ -3,6 +3,10 @@
 # TODO
 
 - Release description should default to the (templated) application description.  
+- Usage can also be a map, to have several context dependent version (ie: text, html,...)
+- CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
+- On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
+- dump context command
 
 - Translate all KAD components
 - Doc
@@ -13,6 +17,8 @@
   NB: This may seems redundant with the appsOfApps/stack pattern. 
   But handling this in an integrated way will allow better control of generated helm release. and an efficient 'render'
   cli command
+
+- Multi tenancy (cf fluxcd)
 
 
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
@@ -58,6 +64,7 @@
 - Make module.dependsOn a template
 - Rename module.specAddon to module.specPatch
 - Sandbox with bootstrap
+- On chart pack, perform an helm dependency to fetch inner charts
 
 
 

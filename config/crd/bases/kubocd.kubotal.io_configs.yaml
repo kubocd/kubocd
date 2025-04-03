@@ -146,7 +146,6 @@ spec:
                         registry.
                       type: boolean
                     interval:
-                      default: 5m
                       description: |-
                         Interval at which the OCIRepository URL is checked for updates.
                         This interval is approximate and may be subject to jitter to ensure
@@ -207,9 +206,8 @@ spec:
                         of this source.
                       type: boolean
                     timeout:
-                      default: 60s
                       description: The timeout for remote OCI Repository operations
-                        like pulling, defaults to 60s.
+                        like pulling
                       pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
                       type: string
                     verify:
@@ -269,7 +267,6 @@ spec:
                       - provider
                       type: object
                   required:
-                  - interval
                   - newPrefix
                   - oldPrefix
                   type: object

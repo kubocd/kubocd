@@ -28,9 +28,10 @@ config:
 #     # Other OciRepositorySpec elements
   clusterRoles: []
 #    - storage
-  defaultContext: []
+  defaultContexts: []
 #    - name: cluster
 #      namespace: contexts
+  imageRedirects: []
 
 # for example, to store contexts
 extraNamespaces: []
