@@ -10,6 +10,7 @@ import (
 	"helm.sh/helm/v3/pkg/repo"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -196,24 +197,24 @@ func buildAssembly(assemblyPath string, archives []cmn.ArchiveInfo) error {
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
+	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'original.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
+	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'groomed.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
+	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
-	err = cmn.AddToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
+	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
 	if err != nil {
 		return fmt.Errorf("could not add 'status.yaml' to archive '%s': %w", assemblyArchiveName, err)
 	}
 	for _, archiveInfo := range archives {
-		err = cmn.AddToArchive(tw, archiveInfo.Path, archiveInfo.Name)
+		err = tgz.AddToArchive(tw, archiveInfo.Path, archiveInfo.Name)
 		if err != nil {
 			return fmt.Errorf("could not add '%s' to archive '%s': %w", archiveInfo.Name, assemblyArchiveName, err)
 		}

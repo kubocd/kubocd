@@ -6,6 +6,7 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/misc"
 	"log/slog"
 	"os"
@@ -18,6 +19,8 @@ type Operation struct {
 	RepoUrl      string
 	ChartName    string
 	ChartVersion string
+	Output       string
+	Chart        bool
 }
 
 func DumpHelmRepo(op *Operation) error {
@@ -62,7 +65,18 @@ func DumpHelmRepo(op *Operation) error {
 			return err
 		}
 		fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chartInfo.Metadata.Name, chartInfo.Metadata.Version, misc.Any2Yaml(chartInfo.Metadata), tarList)
-
+		if op.Chart && op.Output != "" {
+			output := path.Join(op.Output, fmt.Sprintf("%s-%s", op.ChartName, op.ChartVersion))
+			err := misc.SafeEnsureEmpty(output)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n", op.ChartName, op.ChartVersion, output)
+			err = tgz.ExtractAllFromTgz(archive, output)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 
@@ -70,7 +84,7 @@ func DumpHelmRepo(op *Operation) error {
 
 // SetupHelmRepo
 // WARNING: We can't reuse the same repo name several times in the same execution
-// (May be some global stuff inside the "github.com/mittwald/go-helm-client" library)
+// (Maybe some global stuff inside the "github.com/mittwald/go-helm-client" library)
 func SetupHelmRepo(op *Operation, repoName string) (loc string, helmClient helmclient.Client, err error) {
 	//misc.WaitUserInput("setupHelmRepo entry")
 	// Prepare landing zone

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"log/slog"
@@ -28,6 +29,8 @@ type Operation struct {
 	ImageTag  string
 	Insecure  bool
 	Anonymous bool
+	Chart     bool
+	Output    string
 }
 
 func DumpOci(op *Operation) error {
@@ -43,7 +46,7 @@ func DumpOci(op *Operation) error {
 	fmt.Printf("---------------------- index.json:\n%s\n", misc.Any2Yaml(index))
 
 	for idx, descriptor := range index.Manifests {
-		if err := dumpEntry(fmt.Sprintf("index.descriptor#%d", idx), descriptor.MediaType, descriptor.Digest, op.WorkDir); err != nil {
+		if err := dumpEntry(fmt.Sprintf("index.descriptor#%d", idx), descriptor.MediaType, descriptor.Digest, op); err != nil {
 			return err
 		}
 		if descriptor.MediaType == "application/vnd.oci.image.manifest.v1+json" || descriptor.MediaType == "application/vnd.docker.distribution.manifest.v2+json" {
@@ -52,13 +55,13 @@ func DumpOci(op *Operation) error {
 				fmt.Printf("fail to decode manifest '%s': %v", descriptor.Digest, err)
 			}
 			// Dump config
-			err := dumpEntry(fmt.Sprintf("index.descriptor#%d.config", idx), manifest.Config.MediaType, manifest.Config.Digest, op.WorkDir)
+			err := dumpEntry(fmt.Sprintf("index.descriptor#%d.config", idx), manifest.Config.MediaType, manifest.Config.Digest, op)
 			if err != nil {
 				return err
 			}
 			// And dump loyers
 			for idx2, layer := range manifest.Layers {
-				err := dumpEntry(fmt.Sprintf("index.descriptor#%d.layer[%d]", idx, idx2), layer.MediaType, layer.Digest, op.WorkDir)
+				err := dumpEntry(fmt.Sprintf("index.descriptor#%d.layer[%d]", idx, idx2), layer.MediaType, layer.Digest, op)
 				if err != nil {
 					return err
 				}
@@ -127,20 +130,32 @@ func FetchOciImage(printPrefix string, op *Operation) (string, error) {
 	return loc, nil
 }
 
-func dumpEntry(prefix string, mediaType string, digest digest.Digest, workDir string) error {
+func dumpEntry(prefix string, mediaType string, digest digest.Digest, op *Operation) error {
 	if strings.HasSuffix(mediaType, "+json") {
 		content := make(map[string]interface{})
-		err := misc.LoadJson(digestToFile(digest, workDir), &content)
+		err := misc.LoadJson(digestToFile(digest, op.WorkDir), &content)
 		if err != nil {
 			fmt.Printf("fail to decode manifest '%s' (%s) in json: %v", digest, mediaType, err)
 		}
 		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, misc.Any2Yaml(content))
 	} else if strings.HasSuffix(mediaType, "tar+gzip") || strings.HasSuffix(mediaType, "tar.gzip") {
-		contents, err := misc.ListTarGzContents(digestToFile(digest, workDir))
+		contents, err := misc.ListTarGzContents(digestToFile(digest, op.WorkDir))
 		if err != nil {
 			return err
 		}
 		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, contents)
+		if op.Chart && op.Output != "" && mediaType == global.HelmChartMediaType {
+			output := path.Join(op.Output, fmt.Sprintf("%s-%s", path.Base(op.ImageRepo), op.ImageTag))
+			err := misc.SafeEnsureEmpty(output)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n", path.Base(op.ImageRepo), op.ImageTag, output)
+			err = tgz.ExtractAllFromTgz(digestToFile(digest, op.WorkDir), output)
+			if err != nil {
+				return err
+			}
+		}
 	} else {
 		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, "CONTENT TYPE NOT YET HANDLED")
 	}

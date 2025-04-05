@@ -12,6 +12,7 @@ import (
 	kapi "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
@@ -143,12 +144,12 @@ var renderCmd = &cobra.Command{
 					return err
 				}
 				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
-				err = cmn.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
+				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
 				if err != nil {
 					return err
 				}
 				status := &application.Status{}
-				err = cmn.UnmarshalDataFromTgz(archive, "status.yaml", &status)
+				err = tgz.UnmarshalDataFromTgz(archive, "status.yaml", &status)
 				if err != nil {
 					return err
 				}

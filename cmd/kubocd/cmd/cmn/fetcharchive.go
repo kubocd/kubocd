@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -170,7 +171,7 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 		}
 		if !d.IsDir() {
 			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			err := AddToArchive(tw, thePath, targetFileName)
+			err := tgz.AddToArchive(tw, thePath, targetFileName)
 			if err != nil {
 				return err
 			}
@@ -241,7 +242,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		if !d.IsDir() {
 			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
 			fmt.Printf("%sadding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
-			err := AddToArchive(tw, thePath, targetFileName)
+			err := tgz.AddToArchive(tw, thePath, targetFileName)
 			if err != nil {
 				return err
 			}
@@ -256,7 +257,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 
 // Extract the chart name and version from a chart archive
 func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
-	ba, err := ExtractDataFromTgz(tgzPath, "Chart.yaml")
+	ba, err := tgz.ExtractDataFromTgz(tgzPath, "Chart.yaml")
 	if err != nil {
 		return "", "", err
 	}

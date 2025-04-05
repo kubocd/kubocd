@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/application"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
@@ -38,7 +39,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 		if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
 			return err
 		}
-		err = cmn.ExtractAllFromTgz(archive, tarManifest)
+		err = tgz.ExtractAllFromTgz(archive, tarManifest)
 		if err != nil {
 			return err
 		}
@@ -65,7 +66,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			chartsDir := path.Join(output, "charts")
 			for _, chartRef := range status.ChartByModule {
 				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := cmn.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
 				if err != nil {
 					return err
 				}
@@ -108,7 +109,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			chartsDir := path.Join(output, "charts")
 			for _, chartRef := range status.ChartByModule {
 				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := cmn.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
 				if err != nil {
 					return err
 				}

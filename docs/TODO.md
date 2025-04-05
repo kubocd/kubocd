@@ -65,6 +65,8 @@
 - Rename module.specAddon to module.specPatch
 - Sandbox with bootstrap
 - On chart pack, perform an helm dependency to fetch inner charts
+- A --chart option on kubocd dump helmRepository to dump the chart
+- A --chart option on kubocd dump oci to dump the chart if one is present
 
 
 

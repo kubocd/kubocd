@@ -47,11 +47,15 @@ var dumpCmd = &cobra.Command{
 var ociParams struct {
 	insecure  bool
 	anonymous bool
+	chart     bool
+	output    string
 }
 
 func init() {
 	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
 	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
+	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.chart, "chart", "c", false, "unpack charts in output directory")
+	dumpOciCmd.PersistentFlags().StringVarP(&ociParams.output, "output", "o", "./.charts", "Output chart directory")
 
 }
 
@@ -72,6 +76,8 @@ var dumpOciCmd = &cobra.Command{
 				ImageTag:  imageTag,
 				Insecure:  ociParams.insecure,
 				Anonymous: ociParams.anonymous,
+				Chart:     ociParams.chart,
+				Output:    ociParams.output,
 			}
 			return oci.DumpOci(op)
 		}()
@@ -83,6 +89,17 @@ var dumpOciCmd = &cobra.Command{
 }
 
 // --------------------------------------------------------------------------- dump helmRepo
+
+var dumpHrParams struct {
+	output string
+	chart  bool
+}
+
+func init() {
+	dumpHrCmd.PersistentFlags().BoolVarP(&dumpHrParams.chart, "chart", "c", false, "unpack charts in output directory")
+	dumpHrCmd.PersistentFlags().StringVarP(&dumpHrParams.output, "output", "o", "./.charts", "Output chart directory")
+}
+
 var dumpHrCmd = &cobra.Command{
 	Use:     "helmRepository repoUrl [chartName [version]]",
 	Short:   "Dump helm chart",
@@ -90,9 +107,14 @@ var dumpHrCmd = &cobra.Command{
 	Aliases: []string{"hr", "HelmRepository", "helmrepository", "helmRepo", "HelmRepo", "helmrepo"},
 	Run: func(command *cobra.Command, args []string) {
 		err := func() error {
+			if dumpHrParams.chart && dumpHrParams.output == "" {
+				return fmt.Errorf("--output is required when --charts is specified")
+			}
 			op := &helmrepo.Operation{
 				WorkDir: dumpParams.workDir,
 				RepoUrl: args[0],
+				Output:  dumpHrParams.output,
+				Chart:   dumpHrParams.chart,
 			}
 			if len(args) > 1 {
 				op.ChartName = args[1]
