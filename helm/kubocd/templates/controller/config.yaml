@@ -1,4 +1,3 @@
-{{ if .Values.controller.enabled }}
 ---
 apiVersion: kubocd.kubotal.io/v1alpha1
 kind: Config
@@ -15,4 +14,3 @@ spec:
   defaultContexts:
 {{- toYaml .Values.config.defaultContexts | nindent 4 }}
 
-{{ end }}

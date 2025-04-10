@@ -32,12 +32,14 @@ import (
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
+	"kubocd/internal/tmpl"
 	"os"
 	"path"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -299,11 +301,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), false, "Context"))
 	}
 	// ----------------------------------------------------------------------- Handle parameters
-	parameters := op.appContainer.DefaultParameters
-	parameters = Merge(parameters, release.Spec.Parameters)
-	err = op.appContainer.ValidateParameters(parameters)
+	parameters, err := HandleParameters(release, theContext, r.ConfigStore, op.appContainer)
 	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating parameters: %w", err), true, "Parameters"))
+		return r.reportError(op, NewReconcileError(err, true, "Parameters"))
 	}
 	// -------------------------------------------------------------------- Render all values
 	model := BuildModel(theContext, parameters, release, r.ConfigStore)
@@ -429,6 +429,36 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	return ctrl.Result{}, r.updateStatus(op, phase, forceUpdate)
 }
 
+func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, appContainer *application.AppContainer) (map[string]interface{}, error) {
+
+	parametersStr := string(release.Spec.Parameters.Raw)
+	var err error
+	if strings.Contains(parametersStr, "\\n") {
+		parametersStr, err = strconv.Unquote(parametersStr)
+		if err != nil {
+			return nil, fmt.Errorf("could not unquote parameter value: %w", err)
+		}
+	}
+
+	parametersTmpl, err := tmpl.NewFromAny("", parametersStr, "")
+	if err != nil {
+		return nil, fmt.Errorf("could not create template from parameters: %w", err)
+	}
+	pModel := BuildModel(kcontext, nil, release, configStore)
+
+	parameters, txt, err := parametersTmpl.RenderToMap(pModel)
+	if err != nil {
+		return nil, fmt.Errorf("could not render parameters template: %w (%s)", err, txt)
+	}
+
+	parameters = misc.MergeMaps(appContainer.DefaultParameters, parameters)
+	err = appContainer.ValidateParameters(parameters)
+	if err != nil {
+		return nil, fmt.Errorf("could not validate parameters: %w", err)
+	}
+	return parameters, nil
+}
+
 func BuildHelmReleaseName(releaseName, moduleName string) string {
 	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
 }
@@ -469,7 +499,10 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		if ctx == nil {
 			ctx = kContext.Spec.Context
 		}
-		theContext = Merge(theContext, ctx)
+		theContext, err = Merge(theContext, ctx)
+		if err != nil {
+			return nil, NewReconcileError(fmt.Errorf("unable to merge context: %w", err), true, "ContextMerge")
+		}
 	}
 	return theContext, nil
 }

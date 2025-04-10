@@ -1,32 +1,27 @@
 
-
 # TODO
 
+- Rename Application to Package
+- Application layout should be more different of k8s resources
+- schema.parameters and schema.context
+- if a Context named 'context' exits in a namespace, it will be used in all Release, after a global default one. (Except SkipDefaultContext)
 - Release description should default to the (templated) application description.  
 - Usage can also be a map, to have several context dependent version (ie: text, html,...)
 - CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
 - dump context command
-
-- Translate all KAD components
-- Doc
-- Handle right management. See what fluxcd does (Impersonation)
 - Improve usage on kubocd CLI (Add sample)
 
-- Manage application in application.
-  NB: This may seems redundant with the appsOfApps/stack pattern. 
-  But handling this in an integrated way will allow better control of generated helm release. and an efficient 'render'
-  cli command
+- Application: host/hostname parameters. Make this coherent
+- minio application: Add dependencies
 
-- Multi tenancy (cf fluxcd)
+- Translate all KAD components
 
+## Later
 
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
-
-- A webhook to patch all image in pod manifests (https://slack.engineering/simple-kubernetes-webhook/)
-- Embed application image to the package
-
 - make kubocd pack *.yaml working (Loop on args). (May need to patch https://github.com/mittwald/go-helm-client. See note in cmd.package.go)
+
 
 # Rejected
  
@@ -67,8 +62,25 @@
 - On chart pack, perform an helm dependency to fetch inner charts
 - A --chart option on kubocd dump helmRepository to dump the chart
 - A --chart option on kubocd dump oci to dump the chart if one is present
+- Make Release.parameters a template
 
 
+
+
+# Mid term roadmap 
+
+- Doc
+
+- Handle right management. See what fluxcd does (Impersonation)
+
+- Manage application in application.
+  NB: This may seems redundant with the appsOfApps/stack pattern.
+  But handling this in an integrated way will allow better control of generated helm release. and an efficient 'render'
+  cli command
+
+- Embed application image to the package
+
+- A webhook to patch all image in pod manifests (https://slack.engineering/simple-kubernetes-webhook/)
 
 
 

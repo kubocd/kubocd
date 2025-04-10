@@ -132,7 +132,11 @@ func PopulateHelmRelease(
 	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch)
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
-		spec = Merge(spec, patch)
+		var err error
+		spec, err = Merge(spec, patch)
+		if err != nil {
+			panic(err)
+		}
 	}
 	specTxt, err := yaml.Marshal(spec)
 	if err != nil {

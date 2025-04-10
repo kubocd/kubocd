@@ -241,7 +241,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		}
 		if !d.IsDir() {
 			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			fmt.Printf("%sadding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
+			//fmt.Printf("%sadding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
 			err := tgz.AddToArchive(tw, thePath, targetFileName)
 			if err != nil {
 				return err

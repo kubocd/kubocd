@@ -107,10 +107,16 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			if ctx == nil {
 				ctx = parentContext.Spec.Context
 			}
-			base = Merge(base, ctx)
+			base, err = Merge(base, ctx)
+			if err != nil {
+				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to merge context from '%s': %w", parent.String(), err), true, "ContextError")) // Should not occurs
+			}
 		}
 		// And merge out own content
-		base = Merge(base, kcontext.Spec.Context)
+		base, err = Merge(base, kcontext.Spec.Context)
+		if err != nil {
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to merge our own context values: %w", err), true, "ContextError")) // Should not occurs
+		}
 		// And store in status
 		ba, err := json.Marshal(&base)
 		if err != nil {

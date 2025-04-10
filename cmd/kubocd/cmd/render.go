@@ -73,13 +73,13 @@ var renderCmd = &cobra.Command{
 			release := &kapi.Release{}
 			err := misc.LoadYaml(args[0], release)
 			if err != nil {
-				return err
+				return fmt.Errorf("error loading release: %w", err)
 			}
 			if output != "" {
 				output = path.Join(output, release.Name)
 				err := misc.SafeEnsureEmpty(output)
 				if err != nil {
-					return err
+					return fmt.Errorf("error ensuring output file exists: %w", err)
 				}
 			}
 			if release.Namespace == "" {
@@ -90,7 +90,7 @@ var renderCmd = &cobra.Command{
 
 			k8sClient, err := k8sapi.GetKubeClient(scheme)
 			if err != nil {
-				return err
+				return fmt.Errorf("error getting kubernetes client: %w", err)
 			}
 
 			// ------------------------------------------------------------------------ handle config
@@ -111,11 +111,11 @@ var renderCmd = &cobra.Command{
 			if len(args) == 2 {
 				err = misc.LoadYaml(args[1], appOriginal)
 				if err != nil {
-					return err
+					return fmt.Errorf("error loading application: %w", err)
 				}
 				abs, err := filepath.Abs(args[1])
 				if err != nil {
-					return err
+					return fmt.Errorf("error getting absolute path of application: %w", err)
 				}
 				applicationFolder = filepath.Dir(abs)
 
@@ -141,17 +141,17 @@ var renderCmd = &cobra.Command{
 				}
 				archive, err := oci.GetContentFromOci("# ", op, global.ApplicationContentMediaType)
 				if err != nil {
-					return err
+					return fmt.Errorf("error getting OCI content: %w", err)
 				}
 				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
 				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
 				if err != nil {
-					return err
+					return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
 				}
 				status := &application.Status{}
 				err = tgz.UnmarshalDataFromTgz(archive, "status.yaml", &status)
 				if err != nil {
-					return err
+					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
 				}
 				errorOnContainer = appContainer.SetApplication(appOriginal, status, "0.0.0@sha256:0000000000000000000000000")
 			}
@@ -161,14 +161,14 @@ var renderCmd = &cobra.Command{
 
 			// We better to stop AFTER dump, to ease error solving
 			if errorOnContainer != nil {
-				return errorOnContainer
+				return fmt.Errorf("error while storing application in cache: %w", errorOnContainer)
 			}
 			if appContainer.Status == nil {
-				// Compute status to give the map module->helmChart (Need to fetch helm charts
+				// Compute status to give the map module->helmChart (Need to fetch helm charts)
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
 				_, appContainer.Status, err = cmn.FetchArchives("", appContainer.Application, assemblyPath, renderParams.workDir, applicationFolder)
 				if err != nil {
-					return err
+					return fmt.Errorf("could not fetch application archive: %w", err)
 				}
 			}
 			cmn.Dump(output, "status.yaml", appContainer.Status)
@@ -184,18 +184,17 @@ var renderCmd = &cobra.Command{
 				return fmt.Errorf("could not validate context: %w", err)
 			}
 			// ----------------------------------------------------------------------- Handle parameters
-			parameters := appContainer.DefaultParameters
-			parameters = controller.Merge(parameters, release.Spec.Parameters)
-			cmn.Dump(output, "parameters.yaml", parameters)
-			err = appContainer.ValidateParameters(parameters)
+			parameters, err := controller.HandleParameters(release, kcontext, configStore, appContainer)
 			if err != nil {
 				return err
 			}
+			cmn.Dump(output, "parameters.yaml", parameters)
 			// -------------------------------------------------------------------- Render all values
 			model := controller.BuildModel(kcontext, parameters, release, configStore)
+			cmn.Dump(output, "model.yaml", model)
 			rendered, err := appContainer.Application.Render(model)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not render application: %w", err)
 			}
 			// --------------------------------------------------------------------- Handle roles/dependencies
 			roles := misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
@@ -216,7 +215,7 @@ var renderCmd = &cobra.Command{
 			}
 			err = controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract", configStore)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not populate OCI repository: %w", err)
 			}
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
