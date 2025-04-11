@@ -21,7 +21,7 @@ spec:
     - jsonPath: .spec.application.tag
       name: Tag
       type: string
-    - jsonPath: .status.contexts
+    - jsonPath: .status.printContexts
       name: Contexts
       type: string
     - jsonPath: .status.phase
@@ -231,7 +231,11 @@ spec:
               contexts:
                 description: |-
                   To provide contextual variables
-                  Refer to Context resource description for more explanation
+                  Refer to Context resource description for some explanation
+                  Contexts are merged in the following order:
+                  - The global default one (defined in Config)
+                  - The namespace context (A context with a specific name, defined in config, present in the release namespace)
+                  - This ordered list
                   Default: []
                 items:
                   properties:
@@ -325,11 +329,6 @@ spec:
                 description: Context is the resulting context, if requested in debug
                   options
                 x-kubernetes-preserve-unknown-fields: true
-              contexts:
-                description: |-
-                  Contexts is a string to list our context. Not technically used, but intended to be displayed
-                  as printcolumn
-                type: string
               dependencies:
                 description: The result of the application template and release value
                 items:
@@ -358,6 +357,11 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               phase:
                 type: string
+              printContexts:
+                description: |-
+                  PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               protected:
                 description: Protected result of Release.spec.protected defaulted
                   to Application.spec.protected
@@ -377,10 +381,10 @@ spec:
                   Aimed to provide user informations
                 type: string
             required:
-            - contexts
             - dependencies
             - missingDependency
             - phase
+            - printContexts
             - protected
             - readyReleases
             - roles

@@ -31,6 +31,7 @@ config:
   defaultContexts: []
 #    - name: cluster
 #      namespace: contexts
+  defaultNamespaceContext:
   imageRedirects: []
 
 # for example, to store contexts

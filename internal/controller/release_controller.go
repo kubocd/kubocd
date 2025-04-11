@@ -292,7 +292,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// ---------------------------------------------------------- Compute context
-	theContext, reconcileError := ComputeContext(op.ctx, r, op.release, op.appContainer, r.ConfigStore)
+	theContext, contextList, reconcileError := ComputeContext(op.ctx, r, op.release, r.ConfigStore, op.appContainer.DefaultContext)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError)
 	}
@@ -381,6 +381,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.Dependencies = op.dependencies
 		forceUpdate = true
 	}
+	ctxList := misc.FlattenNamespacedNames(contextList)
+	if ctxList != op.release.Status.PrintContexts {
+		op.release.Status.PrintContexts = ctxList
+		forceUpdate = true
+	}
+
 	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back
 	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
 	if missing != op.release.Status.MissingDependency {
@@ -474,37 +480,53 @@ func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
 }
 
 // ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
-func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, appContainer *application.AppContainer, store configstore.ConfigStore) (map[string]interface{}, ReconcileError) {
-	// ------ And now, build the current context
-	theContext := appContainer.DefaultContext
-	contexts := release.Spec.Contexts
-	if !release.Spec.SkipDefaultContext {
-		contexts = append(store.GetDefaultContexts(), contexts...)
+func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, store configstore.ConfigStore, defaultContext map[string]interface{}) (map[string]interface{}, []kv1alpha1.NamespacedName, ReconcileError) {
+	namespaceContext := kv1alpha1.NamespacedName{}
+	if store.GetDefaultNamespaceContext() != "" {
+		namespaceContext = kv1alpha1.NamespacedName{
+			Namespace: release.GetNamespace(),
+			Name:      store.GetDefaultNamespaceContext(),
+		}
 	}
-	for _, contextNs := range contexts {
-		kContext := &kv1alpha1.Context{}
-		err := k8sClient.Get(ctx, contextNs.ToObjectKey(), kContext)
+	contextList := make([]kv1alpha1.NamespacedName, 0, 3)
+	if !release.Spec.SkipDefaultContext {
+		contextList = append(contextList, store.GetDefaultContexts()...)
+		if !namespaceContext.IsNil() {
+			contextList = append(contextList, namespaceContext)
+		}
+	}
+	contextList = append(contextList, release.Spec.Contexts...)
+	effectiveContextList := make([]kv1alpha1.NamespacedName, 0, len(contextList))
+	resultContext := defaultContext
+	for _, contextRef := range contextList {
+		contextObj := &kv1alpha1.Context{}
+		err := k8sClient.Get(ctx, contextRef.ToObjectKey(), contextObj)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				return nil, NewReconcileError(fmt.Errorf("context '%s' not found", contextNs.String()), true, "ContextNotFound")
+				if reflect.DeepEqual(contextRef, namespaceContext) {
+					continue // This specific context may not exist. This is not an error
+				} else {
+					return nil, nil, NewReconcileError(fmt.Errorf("context '%s' not found", contextRef.String()), true, "ContextNotFound")
+				}
 			} else {
-				return nil, NewReconcileError(err, false, "ContextRetrieval")
+				return nil, nil, NewReconcileError(err, false, "ContextRetrieval")
 			}
 		}
-		if kContext.Status.Phase != kv1alpha1.ContextPhaseReady {
-			return nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextNs.String())), true, "ContextRetrieval")
+		if contextObj.Status.Phase != kv1alpha1.ContextPhaseReady {
+			return nil, nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextRef.String())), true, "ContextRetrieval")
 		}
-		// OK. Merge our info on top of our parent
-		ctx := kContext.Status.Context
+		// OK. Merge our info on top
+		ctx := contextObj.Status.Context
 		if ctx == nil {
-			ctx = kContext.Spec.Context
+			ctx = contextObj.Spec.Context
 		}
-		theContext, err = Merge(theContext, ctx)
+		resultContext, err = Merge(resultContext, ctx)
 		if err != nil {
-			return nil, NewReconcileError(fmt.Errorf("unable to merge context: %w", err), true, "ContextMerge")
+			return nil, nil, NewReconcileError(fmt.Errorf("unable to merge context: %w", err), true, "ContextMerge")
 		}
+		effectiveContextList = append(effectiveContextList, contextRef)
 	}
-	return theContext, nil
+	return resultContext, effectiveContextList, nil
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
@@ -525,24 +547,24 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	}
 }
 
-func (r *ReleaseReconciler) buildContextsList(release *kv1alpha1.Release) string {
-	contexts := release.Spec.Contexts
-	if !release.Spec.SkipDefaultContext {
-		contexts = append(r.ConfigStore.GetDefaultContexts(), contexts...)
-	}
-	if len(contexts) == 0 {
-		return ""
-	}
-	ctxs := make([]string, len(contexts))
-	for idx := range contexts {
-		ctxs[idx] = contexts[idx].String()
-	}
-	return strings.Join(ctxs, ",")
-}
+//
+//func (r *ReleaseReconciler) buildStatusContextsList(release *kv1alpha1.Release) string {
+//	contexts := release.Spec.Contexts
+//	if !release.Spec.SkipDefaultContext {
+//		contexts = append(r.ConfigStore.GetDefaultContexts(), contexts...)
+//	}
+//	if len(contexts) == 0 {
+//		return ""
+//	}
+//	ctxs := make([]string, len(contexts))
+//	for idx := range contexts {
+//		ctxs[idx] = contexts[idx].String()
+//	}
+//	return strings.Join(ctxs, ",")
+//}
 
 func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
-	ctxs := r.buildContextsList(op.release)
-	if op.release.Status.Phase == phase && op.release.Status.Contexts == ctxs && !force {
+	if op.release.Status.Phase == phase && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
 		return nil
 	}
@@ -553,7 +575,6 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	}
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
-	op.release.Status.Contexts = ctxs
 	err := r.Status().Update(op.ctx, op.release)
 	return err
 }

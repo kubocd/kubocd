@@ -19,6 +19,7 @@ import (
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
+	"kubocd/internal/k8sapi"
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
 	"net/http"
@@ -200,8 +201,38 @@ var controllerCmd = &cobra.Command{
 
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
-		configStore := configstore.New()
-		roleStore := rolestore.New(configStore, controllerRootLog.WithName("roleStore"))
+		// We need to set up our own kubeClient, as mgr.GetClient() will not be usable until manager is started
+		kubeClient, err := k8sapi.GetKubeClientFromConfig(ctrl.GetConfigOrDie(), scheme)
+		if err != nil {
+			setupLog.Error(err, "unable to create kube client")
+			os.Exit(1)
+		}
+
+		theConfigStore := configstore.New()
+		err = theConfigStore.Init(context.Background(), kubeClient, myPodNamespace)
+		if err != nil {
+			setupLog.Error(err, "unable to initialize configstore")
+			os.Exit(1)
+		}
+		roleStore := rolestore.New(theConfigStore, controllerRootLog.WithName("roleStore"))
+
+		// -------------------------------------------------------------------------------------- Config controller setup
+		configReconciler := &controller.ConfigReconciler{
+			Client:         mgr.GetClient(),
+			EventRecorder:  mgr.GetEventRecorderFor("config"),
+			Logger:         controllerRootLog.WithName("ConfigReconciler"),
+			ConfigStore:    theConfigStore,
+			MyPodNamespace: myPodNamespace,
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Config{}).
+			Named("kubocd-config").
+			Complete(configReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Config")
+			os.Exit(1)
+		}
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
 		// Create an index to retrieve a Release from a context in an efficient way
@@ -209,14 +240,27 @@ var controllerCmd = &cobra.Command{
 		const contextIndexOnRelease = "contextIndexOnRelease"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, contextIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
-			contexts := make([]string, len(release.Spec.Contexts))
-			for i, context := range release.Spec.Contexts {
+			contexts := make([]string, 0, len(release.Spec.Contexts))
+			for _, context := range release.Spec.Contexts {
 				ns := context.Namespace
 				if ns == "" {
 					ns = release.Namespace
 				}
-				contexts[i] = fmt.Sprintf("%s:%s", ns, context.Name)
+				contexts = append(contexts, fmt.Sprintf("%s:%s", ns, context.Name))
 			}
+			// Add the default one(s), if any
+			if theConfigStore.GetDefaultContexts() != nil {
+				for _, ctx := range theConfigStore.GetDefaultContexts() {
+					//fmt.Printf("================================================== ")
+					contexts = append(contexts, fmt.Sprintf("%s:%s", ctx.Namespace, ctx.Name))
+				}
+			}
+			// Add the one of the namespace
+			if theConfigStore.GetDefaultNamespaceContext() != "" {
+				contexts = append(contexts, fmt.Sprintf("%s:%s", release.Namespace, theConfigStore.GetDefaultNamespaceContext()))
+			}
+
+			//fmt.Printf("**********************GetFieldIndexer(release:%s) -> %v\n", release.Name, contexts)
 			return contexts
 		})
 		if err != nil {
@@ -248,6 +292,28 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
+		// If config change, will reconcile all release
+		findReleaseFromConfig := func(ctx context.Context, kcontext client.Object) []reconcile.Request {
+			releases := kubocdv1alpha1.ReleaseList{}
+			err := mgr.GetClient().List(context.Background(), &releases)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					controllerRootLog.Error(err, "findReleaseFromConfig(): Unable to find releases")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range releases.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
 		releaseReconciler := &controller.ReleaseReconciler{
 			Client:           mgr.GetClient(),
 			EventRecorder:    mgr.GetEventRecorderFor("release"),
@@ -256,7 +322,7 @@ var controllerCmd = &cobra.Command{
 			ServerRoot:       serverRoot,
 			HelmRepoAdvAddr:  controllerParams.helmRepoAdvAddr,
 			ApplicationCache: cache.NewCache(time.Second*60, controllerRootLog.WithName("ApplicationCache")),
-			ConfigStore:      configStore,
+			ConfigStore:      theConfigStore,
 			RoleStore:        roleStore,
 		}
 
@@ -267,6 +333,7 @@ var controllerCmd = &cobra.Command{
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
+			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
@@ -332,25 +399,6 @@ var controllerCmd = &cobra.Command{
 			setupLog.Error(err, "unable to create controller", "controller", "Context")
 			os.Exit(1)
 		}
-
-		// -------------------------------------------------------------------------------------- Config controller setup
-		configReconciler := &controller.ConfigReconciler{
-			Client:         mgr.GetClient(),
-			EventRecorder:  mgr.GetEventRecorderFor("config"),
-			Logger:         controllerRootLog.WithName("ConfigReconciler"),
-			ConfigStore:    configStore,
-			MyPodNamespace: myPodNamespace,
-		}
-
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Config{}).
-			Named("kubocd-config").
-			Complete(configReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Config")
-			os.Exit(1)
-		}
-
 		// ----------------------------------------------------------------------------------------------------
 		if metricsCertWatcher != nil {
 			setupLog.Info("Adding metrics certificate watcher to manager")

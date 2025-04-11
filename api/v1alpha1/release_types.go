@@ -73,7 +73,11 @@ type ReleaseSpec struct {
 	Application ApplicationSource `json:"application"`
 
 	// To provide contextual variables
-	// Refer to Context resource description for more explanation
+	// Refer to Context resource description for some explanation
+	// Contexts are merged in the following order:
+	// - The global default one (defined in Config)
+	// - The namespace context (A context with a specific name, defined in config, present in the release namespace)
+	// - This ordered list
 	// +kubebuilder:validation:Optional
 	// Default: []
 	Contexts []NamespacedName `json:"contexts,omitempty"`
@@ -153,9 +157,9 @@ type HelmReleaseState struct {
 type ReleaseStatus struct {
 	Phase ReleasePhase `json:"phase"`
 
-	// Contexts is a string to list our context. Not technically used, but intended to be displayed
+	// PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
 	// as printcolumn
-	Contexts string `json:"contexts"`
+	PrintContexts string `json:"printContexts"`
 
 	// Context is the resulting context, if requested in debug options
 	// +kubebuilder:validation:Optional
@@ -193,7 +197,7 @@ type ReleaseStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.application.repository`
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.application.tag`
-// +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.contexts`
+// +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
 // +kubebuilder:printcolumn:name="Waiting",type=string,JSONPath=`.status.missingDependency`

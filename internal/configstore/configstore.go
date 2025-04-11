@@ -1,27 +1,32 @@
 package configstore
 
 import (
+	"context"
 	"kubocd/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sort"
 	"strings"
 	"sync"
 )
 
 type ConfigStore interface {
+	Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error
 	IsClusterRole(role string) bool
 	GetKuboAppRedirect(oldUrl string) (kuboAppRedirectSpec *v1alpha1.KuboAppRedirectSpec, newUrl string)
 	GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string)
 	GetDefaultContexts() []v1alpha1.NamespacedName
 	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string)
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
+	GetDefaultNamespaceContext() string
 }
 
 type configStore struct {
-	mutex            sync.Mutex
-	clusterRoles     map[string]bool
-	kuboAppRedirects []*v1alpha1.KuboAppRedirectSpec
-	imageRedirects   []*v1alpha1.ImageRedirectSpec
-	defaultContexts  []v1alpha1.NamespacedName
+	mutex                   sync.Mutex
+	clusterRoles            map[string]bool
+	kuboAppRedirects        []*v1alpha1.KuboAppRedirectSpec
+	imageRedirects          []*v1alpha1.ImageRedirectSpec
+	defaultContexts         []v1alpha1.NamespacedName
+	defaultNamespaceContext string
 }
 
 var _ ConfigStore = &configStore{}
@@ -76,6 +81,12 @@ func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {
 	return c.defaultContexts
 }
 
+func (c *configStore) GetDefaultNamespaceContext() string {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.defaultNamespaceContext
+}
+
 func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespace string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -94,6 +105,7 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		c.kuboAppRedirects = append(c.kuboAppRedirects, config.Spec.KuboAppRedirects...)
 		c.imageRedirects = append(c.imageRedirects, config.Spec.ImageRedirects...)
 		c.defaultContexts = append(c.defaultContexts, config.Spec.DefaultContexts...)
+		c.defaultNamespaceContext = config.Spec.DefaultNamespaceContext
 	}
 	for idx := range c.defaultContexts {
 		if c.defaultContexts[idx].Namespace == "" {
@@ -109,4 +121,14 @@ func (c *configStore) ObjectMap() map[string]interface{} {
 		"clusterRoles":     c.clusterRoles,
 		"kuboAppRedirects": c.kuboAppRedirects,
 	}
+}
+
+func (c *configStore) Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error {
+	configs := &v1alpha1.ConfigList{}
+	err := kubeClient.List(ctx, configs, client.InNamespace(myPodNamespace))
+	if err != nil {
+		return err
+	}
+	c.AddConfigs(configs, myPodNamespace)
+	return nil
 }

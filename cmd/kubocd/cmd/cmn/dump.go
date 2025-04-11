@@ -8,7 +8,12 @@ import (
 )
 
 func Dump(output string, fileName string, ap interface{}) {
-	out := fmt.Sprintf("# ====================================  %s:\n---\n%s\n", fileName, misc.Any2Yaml(ap))
+	var out string
+	if fileName != "" {
+		out = fmt.Sprintf("# ====================================  %s:\n---\n%s\n", fileName, misc.Any2Yaml(ap))
+	} else {
+		out = fmt.Sprintf("---\n%s\n", misc.Any2Yaml(ap))
+	}
 	if output != "" {
 		target := path.Join(output, fileName)
 		err := os.WriteFile(target, []byte(out), 0644)
@@ -22,7 +27,12 @@ func Dump(output string, fileName string, ap interface{}) {
 	}
 }
 func DumpTxt(output string, fileName string, txt string) {
-	out := fmt.Sprintf("# ====================================  %s:\n%s\n", fileName, txt)
+	var out string
+	if fileName != "" {
+		out = fmt.Sprintf("# ====================================  %s:\n%s\n", fileName, txt)
+	} else {
+		out = fmt.Sprintf("---\n%s\n", txt)
+	}
 	if output != "" {
 		target := path.Join(output, fileName)
 		err := os.WriteFile(target, []byte(out), 0644)

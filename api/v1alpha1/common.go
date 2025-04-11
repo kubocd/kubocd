@@ -25,6 +25,10 @@ func (in *NamespacedName) String() string {
 	return fmt.Sprintf("%s:%s", in.Namespace, in.Name)
 }
 
+func (in *NamespacedName) IsNil() bool {
+	return in.Namespace == "" && in.Name == ""
+}
+
 type OciAddOn struct {
 
 	// The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator

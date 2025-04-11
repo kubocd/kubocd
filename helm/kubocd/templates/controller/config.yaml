@@ -13,4 +13,4 @@ spec:
 {{- toYaml .Values.config.clusterRoles | nindent 4 }}
   defaultContexts:
 {{- toYaml .Values.config.defaultContexts | nindent 4 }}
-
+  defaultNamespaceContext: {{ .Values.config.defaultNamespaceContext }}

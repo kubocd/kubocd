@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"os"
 	"reflect"
 	"regexp"
@@ -138,4 +139,14 @@ func WaitUserInput(prompt string) string {
 	fmt.Print(prompt)
 	text, _ := reader.ReadString('\n')
 	return strings.TrimSpace(text)
+}
+
+// -----------------------------------------------
+
+func FlattenNamespacedNames(nsa []kv1alpha1.NamespacedName) string {
+	ctxs := make([]string, len(nsa))
+	for idx := range nsa {
+		ctxs[idx] = nsa[idx].String()
+	}
+	return strings.Join(ctxs, ",")
 }

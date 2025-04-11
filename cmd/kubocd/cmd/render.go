@@ -22,7 +22,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var renderParams struct {
@@ -95,12 +94,10 @@ var renderCmd = &cobra.Command{
 
 			// ------------------------------------------------------------------------ handle config
 			configStore := configstore.New()
-			configs := &kapi.ConfigList{}
-			err = k8sClient.List(context.Background(), configs, client.InNamespace(renderParams.kubocdNamespace))
+			err = configStore.Init(context.Background(), k8sClient, renderParams.kubocdNamespace)
 			if err != nil {
-				return fmt.Errorf("could not list configs: %w", err)
+				return fmt.Errorf("could not fetch config(s): %w", err)
 			}
-			configStore.AddConfigs(configs, renderParams.kubocdNamespace)
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
 			// ----------------------------------------------------------------------- Retrieve application
@@ -174,7 +171,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "status.yaml", appContainer.Status)
 
 			// ------------------------------------------------------------------------ handle context
-			kcontext, err := controller.ComputeContext(context.Background(), k8sClient, release, appContainer, configStore)
+			kcontext, contextList, err := controller.ComputeContext(context.Background(), k8sClient, release, configStore, appContainer.DefaultContext)
 			if err != nil {
 				return fmt.Errorf("could not compute context: %w", err)
 			}
@@ -262,6 +259,7 @@ var renderCmd = &cobra.Command{
 					cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 				}
 			}
+			fmt.Printf("Contexts: %s\n", misc.FlattenNamespacedNames(contextList))
 			return nil
 		}()
 		if err != nil {

@@ -1,19 +1,27 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"github.com/spf13/cobra"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/app"
+	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/internal/configstore"
+	"kubocd/internal/controller"
+	"kubocd/internal/k8sapi"
 	"kubocd/internal/misc"
 	"os"
+	"strings"
 )
 
 func init() {
 	dumpCmd.AddCommand(dumpOciCmd)
 	dumpCmd.AddCommand(dumpHrCmd)
 	dumpCmd.AddCommand(dumpAppCmd)
+	dumpCmd.AddCommand(dumpContextCmd)
 }
 
 var dumpParams struct {
@@ -165,5 +173,74 @@ var dumpAppCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+	},
+}
+
+// --------------------------------------------------------------------------------- dump context
+
+var dumpContextParams struct {
+	contexts           []string
+	skipDefaultContext bool
+	namespace          string
+	kubocdNamespace    string
+}
+
+func init() {
+	dumpContextCmd.PersistentFlags().BoolVarP(&dumpContextParams.skipDefaultContext, "skipDefaultContext", "", false, "Don't use default context")
+	dumpContextCmd.PersistentFlags().StringVarP(&dumpContextParams.namespace, "namespace", "n", "default", "namespace")
+	dumpContextCmd.PersistentFlags().StringArrayVarP(&dumpContextParams.contexts, "context", "c", []string{}, "context as 'namespace:name'")
+	dumpContextCmd.PersistentFlags().StringVarP(&dumpContextParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
+}
+
+var dumpContextCmd = &cobra.Command{
+	Use:     "context",
+	Short:   "Dump KuboCD context",
+	Args:    cobra.NoArgs,
+	Aliases: []string{"ctx", "Context", "Ctx"},
+	Run: func(command *cobra.Command, args []string) {
+		err := func() error {
+			k8sClient, err := k8sapi.GetKubeClient(scheme)
+			if err != nil {
+				return fmt.Errorf("error getting kubernetes client: %w", err)
+			}
+			ctx := context.Background()
+			// ------------------------------------------------------------------------ handle config
+			configStore := configstore.New()
+			err = configStore.Init(ctx, k8sClient, dumpContextParams.kubocdNamespace)
+			if err != nil {
+				return fmt.Errorf("could not fetch config(s): %w", err)
+			}
+			// ------------------------------------------------------------- Setup context list
+			contexts := make([]kv1alpha1.NamespacedName, len(dumpContextParams.contexts))
+			for i, context := range dumpContextParams.contexts {
+				x := strings.Split(context, ":")
+				if len(x) != 2 {
+					return fmt.Errorf("invalid context: %s", context)
+				}
+				contexts[i] = kv1alpha1.NamespacedName{
+					Namespace: x[0],
+					Name:      x[1],
+				}
+			}
+			// ------------------------------------------------------------Setup a fake release to comply t
+			release := &kv1alpha1.Release{
+				Spec: kv1alpha1.ReleaseSpec{
+					Contexts:           contexts,
+					SkipDefaultContext: dumpContextParams.skipDefaultContext,
+				},
+			}
+			release.SetNamespace(dumpContextParams.namespace)
+			// --------------------------------------------------------------- compute context
+			context, _, err := controller.ComputeContext(ctx, k8sClient, release, configStore, nil)
+			if err != nil {
+				return fmt.Errorf("could not compute context: %w", err)
+			}
+			cmn.Dump("", "", context)
+			return nil
+		}()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+			os.Exit(1)
+		}
 	},
 }

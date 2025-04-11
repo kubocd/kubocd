@@ -4,12 +4,15 @@
 - Rename Application to Package
 - Application layout should be more different of k8s resources
 - schema.parameters and schema.context
-- if a Context named 'context' exits in a namespace, it will be used in all Release, after a global default one. (Except SkipDefaultContext)
-- Release description should default to the (templated) application description.  
+
+
+- Remove on reconcile error:the object has been modified....
+- Make info message more relevant
 - Usage can also be a map, to have several context dependent version (ie: text, html,...)
+- Set the groomed application descriptor on manifest config
+- Release description should default to the (templated) application description.  
 - CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
-- dump context command
 - Improve usage on kubocd CLI (Add sample)
 
 - Application: host/hostname parameters. Make this coherent
@@ -22,11 +25,6 @@
 - Implement protected fallback in case there is no webhook (break helmRelease ownership ?)
 - make kubocd pack *.yaml working (Loop on args). (May need to patch https://github.com/mittwald/go-helm-client. See note in cmd.package.go)
 
-
-# Rejected
- 
-- Set Application in the model ?
-- Dump chart content on kuboctl dump hr/oci ?
 
 # DONE
 
@@ -63,6 +61,9 @@
 - A --chart option on kubocd dump helmRepository to dump the chart
 - A --chart option on kubocd dump oci to dump the chart if one is present
 - Make Release.parameters a template
+- if a Context named 'context' exits in a namespace, it will be used in all Release, after a global default one. (Except SkipDefaultContext)
+- dump context command
+
 
 
 

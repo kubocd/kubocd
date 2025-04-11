@@ -96,6 +96,9 @@ type ConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	// Default: []
 	DefaultContexts []NamespacedName `json:"defaultContexts,omitempty"`
+
+	// Define a context name which will be added to all releases located in a namespace, except the one with 'skipDefaultContext' flag
+	DefaultNamespaceContext string `json:"defaultNamespaceContext,omitempty"`
 }
 
 // ConfigStatus defines the observed state of Config.
