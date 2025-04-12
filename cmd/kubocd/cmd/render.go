@@ -13,11 +13,11 @@ import (
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
-	"kubocd/internal/application"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/global"
 	"kubocd/internal/k8sapi"
+	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"os"
 	"path"
@@ -41,7 +41,7 @@ func init() {
 }
 
 var renderCmd = &cobra.Command{
-	Use:   "render <Release manifest> [<Application manifest>]",
+	Use:   "render <Release manifest> [<package manifest>]",
 	Short: "Render a KuboCD release",
 	Args:  cobra.RangeArgs(1, 2),
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -100,88 +100,88 @@ var renderCmd = &cobra.Command{
 			}
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
-			// ----------------------------------------------------------------------- Retrieve application
-			applicationFolder := ""
-			appOriginal := &application.Application{}
-			appContainer := &application.AppContainer{}
+			// ----------------------------------------------------------------------- Retrieve package
+			packageFolder := ""
+			pkgOriginal := &kubopackage.Package{}
+			pkgContainer := &kubopackage.PckContainer{}
 			var errorOnContainer error
 			if len(args) == 2 {
-				err = misc.LoadYaml(args[1], appOriginal)
+				err = misc.LoadYaml(args[1], pkgOriginal)
 				if err != nil {
-					return fmt.Errorf("error loading application: %w", err)
+					return fmt.Errorf("error loading package: %w", err)
 				}
 				abs, err := filepath.Abs(args[1])
 				if err != nil {
-					return fmt.Errorf("error getting absolute path of application: %w", err)
+					return fmt.Errorf("error getting absolute path of package: %w", err)
 				}
-				applicationFolder = filepath.Dir(abs)
+				packageFolder = filepath.Dir(abs)
 
-				errorOnContainer = appContainer.SetApplication(appOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
+				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
 			} else {
 				var repo, tag string
-				kuboAppRedirectSpec, newUrl := configStore.GetKuboAppRedirect(fmt.Sprintf("%s:%s", release.Spec.Application.Repository, release.Spec.Application.Tag))
-				if kuboAppRedirectSpec != nil {
+				packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
+				if packageRedirectSpec != nil {
 					repo, tag, err = misc.DecodeImageUrl(newUrl)
 					if err != nil {
 						return fmt.Errorf("invalid OCI repository URL: %w", err)
 					}
 				} else {
-					repo = release.Spec.Application.Repository
-					tag = release.Spec.Application.Tag
+					repo = release.Spec.Package.Repository
+					tag = release.Spec.Package.Tag
 				}
 				op := &oci.Operation{
 					WorkDir:   renderParams.workDir,
 					ImageRepo: repo,
 					ImageTag:  tag,
-					Insecure:  release.Spec.Application.Insecure,
+					Insecure:  release.Spec.Package.Insecure,
 					Anonymous: false,
 				}
-				archive, err := oci.GetContentFromOci("# ", op, global.ApplicationContentMediaType)
+				archive, err := oci.GetContentFromOci("# ", op, global.PackageContentMediaType)
 				if err != nil {
 					return fmt.Errorf("error getting OCI content: %w", err)
 				}
 				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
-				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &appOriginal)
+				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &pkgOriginal)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
 				}
-				status := &application.Status{}
+				status := &kubopackage.Status{}
 				err = tgz.UnmarshalDataFromTgz(archive, "status.yaml", &status)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
 				}
-				errorOnContainer = appContainer.SetApplication(appOriginal, status, "0.0.0@sha256:0000000000000000000000000")
+				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000")
 			}
-			cmn.Dump(output, "application.yaml", appContainer.Application)
-			cmn.Dump(output, "default-parameters.yaml", appContainer.DefaultParameters)
-			cmn.Dump(output, "default-context.yaml", appContainer.DefaultContext)
+			cmn.Dump(output, "package.yaml", pkgContainer.Package)
+			cmn.Dump(output, "default-parameters.yaml", pkgContainer.DefaultParameters)
+			cmn.Dump(output, "default-context.yaml", pkgContainer.DefaultContext)
 
 			// We better to stop AFTER dump, to ease error solving
 			if errorOnContainer != nil {
-				return fmt.Errorf("error while storing application in cache: %w", errorOnContainer)
+				return fmt.Errorf("error while storing package in cache: %w", errorOnContainer)
 			}
-			if appContainer.Status == nil {
+			if pkgContainer.Status == nil {
 				// Compute status to give the map module->helmChart (Need to fetch helm charts)
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
-				_, appContainer.Status, err = cmn.FetchArchives("", appContainer.Application, assemblyPath, renderParams.workDir, applicationFolder)
+				_, pkgContainer.Status, err = cmn.FetchArchives("", pkgContainer.Package, assemblyPath, renderParams.workDir, packageFolder)
 				if err != nil {
-					return fmt.Errorf("could not fetch application archive: %w", err)
+					return fmt.Errorf("could not fetch package archive: %w", err)
 				}
 			}
-			cmn.Dump(output, "status.yaml", appContainer.Status)
+			cmn.Dump(output, "status.yaml", pkgContainer.Status)
 
 			// ------------------------------------------------------------------------ handle context
-			kcontext, contextList, err := controller.ComputeContext(context.Background(), k8sClient, release, configStore, appContainer.DefaultContext)
+			kcontext, contextList, err := controller.ComputeContext(context.Background(), k8sClient, release, configStore, pkgContainer.DefaultContext)
 			if err != nil {
 				return fmt.Errorf("could not compute context: %w", err)
 			}
 			cmn.Dump(output, "context.yaml", kcontext)
-			err = appContainer.ValidateContext(kcontext)
+			err = pkgContainer.ValidateContext(kcontext)
 			if err != nil {
 				return fmt.Errorf("could not validate context: %w", err)
 			}
 			// ----------------------------------------------------------------------- Handle parameters
-			parameters, err := controller.HandleParameters(release, kcontext, configStore, appContainer)
+			parameters, err := controller.HandleParameters(release, kcontext, configStore, pkgContainer)
 			if err != nil {
 				return err
 			}
@@ -189,9 +189,9 @@ var renderCmd = &cobra.Command{
 			// -------------------------------------------------------------------- Render all values
 			model := controller.BuildModel(kcontext, parameters, release, configStore)
 			cmn.Dump(output, "model.yaml", model)
-			rendered, err := appContainer.Application.Render(model)
+			rendered, err := pkgContainer.Package.Render(model)
 			if err != nil {
-				return fmt.Errorf("could not render application: %w", err)
+				return fmt.Errorf("could not render package: %w", err)
 			}
 			// --------------------------------------------------------------------- Handle roles/dependencies
 			roles := misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
@@ -210,7 +210,7 @@ var renderCmd = &cobra.Command{
 					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
 				},
 			}
-			err = controller.PopulateOciRepository(ociRepository, release, global.ApplicationContentMediaType, "extract", configStore)
+			err = controller.PopulateOciRepository(ociRepository, release, global.PackageContentMediaType, "extract", configStore)
 			if err != nil {
 				return fmt.Errorf("could not populate OCI repository: %w", err)
 			}
@@ -239,10 +239,10 @@ var renderCmd = &cobra.Command{
 
 			// ---------------------------------------------------------------------- Generate helm releases
 			helmReleaseNameByModuleName := make(map[string]string)
-			for _, module := range appContainer.Application.Spec.Modules {
+			for _, module := range pkgContainer.Package.Spec.Modules {
 				helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
 			}
-			for _, module := range appContainer.Application.Spec.Modules {
+			for _, module := range pkgContainer.Package.Spec.Modules {
 				enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 				if enabled {
 					helmRelease := &fluxv2.HelmRelease{
@@ -255,7 +255,7 @@ var renderCmd = &cobra.Command{
 							Namespace: release.Namespace,
 						},
 					}
-					controller.PopulateHelmRelease(helmRelease, release, appContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName)
+					controller.PopulateHelmRelease(helmRelease, release, pkgContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName)
 					cmn.Dump(output, fmt.Sprintf("helmRelease-%s-%s.yaml", helmRelease.Namespace, helmRelease.Name), helmRelease)
 				}
 			}

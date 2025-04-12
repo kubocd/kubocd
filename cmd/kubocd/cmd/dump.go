@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	kv1alpha1 "kubocd/api/v1alpha1"
-	"kubocd/cmd/kubocd/cmd/app"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
+	"kubocd/cmd/kubocd/cmd/pck"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/k8sapi"
@@ -20,7 +20,7 @@ import (
 func init() {
 	dumpCmd.AddCommand(dumpOciCmd)
 	dumpCmd.AddCommand(dumpHrCmd)
-	dumpCmd.AddCommand(dumpAppCmd)
+	dumpCmd.AddCommand(dumpPackageCmd)
 	dumpCmd.AddCommand(dumpContextCmd)
 }
 
@@ -139,9 +139,9 @@ var dumpHrCmd = &cobra.Command{
 	},
 }
 
-// --------------------------------------------------------------------------------- dump application
+// --------------------------------------------------------------------------------- dump package
 
-var dumpAppParams struct {
+var dumpPackageParams struct {
 	output    string
 	insecure  bool
 	anonymous bool
@@ -149,24 +149,24 @@ var dumpAppParams struct {
 }
 
 func init() {
-	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
-	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
-	dumpAppCmd.PersistentFlags().BoolVarP(&dumpAppParams.charts, "charts", "c", false, "unpack charts in output directory")
-	dumpAppCmd.PersistentFlags().StringVarP(&dumpAppParams.output, "output", "o", "./.dump", "Output dump directory")
+	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
+	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
+	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.charts, "charts", "c", false, "unpack charts in output directory")
+	dumpPackageCmd.PersistentFlags().StringVarP(&dumpPackageParams.output, "output", "o", "./.dump", "Output dump directory")
 }
 
-var dumpAppCmd = &cobra.Command{
-	Use:     "application <application.yaml|oci://repo:version>",
-	Short:   "Dump KuboCD Application",
+var dumpPackageCmd = &cobra.Command{
+	Use:     "package <package.yaml|oci://repo:version>",
+	Short:   "Dump KuboCD Package",
 	Args:    cobra.ExactArgs(1),
-	Aliases: []string{"app", "Application", "App"},
+	Aliases: []string{"pck", "Package", "Pck", "pack", "Pack"},
 	Run: func(command *cobra.Command, args []string) {
 		err := func() error {
-			output := dumpAppParams.output
-			if dumpAppParams.charts && dumpAppParams.output == "" {
+			output := dumpPackageParams.output
+			if dumpPackageParams.charts && dumpPackageParams.output == "" {
 				return fmt.Errorf("--output is required when --charts is specified")
 			}
-			return app.Dump(args[0], dumpParams.workDir, dumpAppParams.insecure, dumpAppParams.anonymous, dumpAppParams.charts, output)
+			return pck.Dump(args[0], dumpParams.workDir, dumpPackageParams.insecure, dumpPackageParams.anonymous, dumpPackageParams.charts, output)
 		}()
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)

@@ -76,10 +76,15 @@ spec:
                   - name
                   type: object
                 type: array
+              defaultNamespaceContext:
+                description: Define a context name which will be added to all releases
+                  located in a namespace, except the one with 'skipDefaultContext'
+                  flag
+                type: string
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart
-                  It is intended to be used by some templating functions, inserted in the `values` template of the application
+                  It is intended to be used by some templating functions, inserted in the `values` template of the package
                   Each entry allow substitution of oci data source.
                   Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
                   This will also allow to add authentication information.
@@ -109,9 +114,9 @@ spec:
                   - oldPrefix
                   type: object
                 type: array
-              kuboAppRedirects:
+              packageRedirects:
                 description: |-
-                  This will apply to KuboCD application oci image.
+                  This will apply to KuboCD package oci image.
                   Each entry allow substitution of oci data source.
                   Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
                   This will also allow to add authentication and proxy information.
@@ -154,7 +159,6 @@ spec:
                         registry.
                       type: boolean
                     interval:
-                      default: 5m
                       description: |-
                         Interval at which the OCIRepository URL is checked for updates.
                         This interval is approximate and may be subject to jitter to ensure
@@ -165,8 +169,8 @@ spec:
                       description: The prefix part will be replaced by this value.
                       type: string
                     oldPrefix:
-                      description: All KuboCD application repository where the Url
-                        begin by this value will be impacted.
+                      description: All KuboCD package repository where the Url begin
+                        by this value will be impacted.
                       type: string
                     provider:
                       description: |-
@@ -215,9 +219,8 @@ spec:
                         of this source.
                       type: boolean
                     timeout:
-                      default: 60s
                       description: The timeout for remote OCI Repository operations
-                        like pulling, defaults to 60s.
+                        like pulling
                       pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m))+$
                       type: string
                     verify:
@@ -277,7 +280,6 @@ spec:
                       - provider
                       type: object
                   required:
-                  - interval
                   - newPrefix
                   - oldPrefix
                   type: object
@@ -357,7 +359,7 @@ spec:
                 type: boolean
               context:
                 description: |-
-                  Context is a map of variables witches will be injected in the data model when rendering Application template.
+                  Context is a map of variables witches will be injected in the data model when rendering package template.
                   When merging setting, context merge is performed by patching 'oldest' one with the 'newest' one.
                   The 'oldest' are the deeper in the parents chain.
                   Then merging is performed with the parent array order.
@@ -426,13 +428,13 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.application.repository
+    - jsonPath: .spec.package.repository
       name: Repository
       type: string
-    - jsonPath: .spec.application.tag
+    - jsonPath: .spec.package.tag
       name: Tag
       type: string
-    - jsonPath: .status.contexts
+    - jsonPath: .status.printContexts
       name: Contexts
       type: string
     - jsonPath: .status.phase
@@ -475,8 +477,58 @@ spec:
           spec:
             description: ReleaseSpec defines the desired state of Release.
             properties:
-              application:
-                description: The application to deploy
+              contexts:
+                description: |-
+                  To provide contextual variables
+                  Refer to Context resource description for some explanation
+                  Contexts are merged in the following order:
+                  - The global default one (defined in Config)
+                  - The namespace context (A context with a specific name, defined in config, present in the release namespace)
+                  - This ordered list
+                  Default: []
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              createNamespace:
+                description: |-
+                  If true, add  { install: { createNamespace: true } } to config map.
+                  Must be set, as used in module.Render()
+                  Default: false
+                type: boolean
+              debug:
+                description: Group a set of parameters useful for debugging Release
+                  and Package
+                properties:
+                  dumpContext:
+                    description: |-
+                      DumpContext instruct to save a representation of the context
+                      in the Status. This for user debugging?
+                    type: boolean
+                  dumpParameters:
+                    description: |-
+                      DumpParameters instruct to save a representation of the parameters
+                      in the Status. This for user debugging?
+                    type: boolean
+                type: object
+              dependencies:
+                description: |-
+                  The roles we depend on. (appended to the one of the underlying package)
+                  Default: []
+                items:
+                  type: string
+                type: array
+              description:
+                description: Short description of this release. Single line only
+                type: string
+              package:
+                description: The package to deploy
                 properties:
                   certSecretRef:
                     description: |-
@@ -639,52 +691,6 @@ spec:
                 - repository
                 - tag
                 type: object
-              contexts:
-                description: |-
-                  To provide contextual variables
-                  Refer to Context resource description for more explanation
-                  Default: []
-                items:
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                  - name
-                  type: object
-                type: array
-              createNamespace:
-                description: |-
-                  If true, add  { install: { createNamespace: true } } to config map.
-                  Must be set, as used in module.Render()
-                  Default: false
-                type: boolean
-              debug:
-                description: Group a set of parameters useful for debugging Release
-                  and Application
-                properties:
-                  dumpContext:
-                    description: |-
-                      DumpContext instruct to save a representation of the context
-                      in the Status. This for user debugging?
-                    type: boolean
-                  dumpParameters:
-                    description: |-
-                      DumpParameters instruct to save a representation of the parameters
-                      in the Status. This for user debugging?
-                    type: boolean
-                type: object
-              dependencies:
-                description: |-
-                  The roles we depend on. (appended to the one of the underlying Application)
-                  Default: []
-                items:
-                  type: string
-                type: array
-              description:
-                description: Short description of this release. Single line only
-                type: string
               parameters:
                 description: The Release configuration variables
                 x-kubernetes-preserve-unknown-fields: true
@@ -695,7 +701,7 @@ spec:
                 type: boolean
               roles:
                 description: |-
-                  List of roles fulfilled by this release. (appended to the one of the underlying application)
+                  List of roles fulfilled by this release. (appended to the one of the underlying package)
                   Default: []
                 items:
                   type: string
@@ -718,13 +724,13 @@ spec:
                 type: boolean
               targetNamespace:
                 description: |-
-                  The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
-                  Not required, as it can be setup another way, depending on the application
-                  (i.e the application has a fixed namespace, or several ones).
+                  The namespace to deploy in. (May also be a partial name for a multi-namespaces package)
+                  Not required, as it can be setup another way, depending on the package
+                  (i.e. the package has a fixed namespace, or several ones).
                   Default: Release.metadata.namespace
                 type: string
             required:
-            - application
+            - package
             type: object
           status:
             description: |-
@@ -736,13 +742,8 @@ spec:
                 description: Context is the resulting context, if requested in debug
                   options
                 x-kubernetes-preserve-unknown-fields: true
-              contexts:
-                description: |-
-                  Contexts is a string to list our context. Not technically used, but intended to be displayed
-                  as printcolumn
-                type: string
               dependencies:
-                description: The result of the application template and release value
+                description: The result of the package template and release value
                 items:
                   type: string
                 type: array
@@ -769,9 +770,14 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               phase:
                 type: string
+              printContexts:
+                description: |-
+                  PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               protected:
                 description: Protected result of Release.spec.protected defaulted
-                  to Application.spec.protected
+                  to package.spec.protected
                 type: boolean
               readyReleases:
                 description: |-
@@ -779,19 +785,19 @@ spec:
                   as printcolumn
                 type: string
               roles:
-                description: The result of the application template and release value
+                description: The result of the package template and release value
                 items:
                   type: string
                 type: array
               usage:
-                description: Usage is the rendering of the Application.spec.usage.
-                  Aimed to provide user informations
+                description: Usage is the rendering of the Package.spec.usage. Aimed
+                  to provide user information
                 type: string
             required:
-            - contexts
             - dependencies
             - missingDependency
             - phase
+            - printContexts
             - protected
             - readyReleases
             - roles
@@ -1174,7 +1180,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: quay.io/kubocd/kubocd:v0.1.1
+        image: localhost:5001/kubocd/kubocd:v0.2.0-snapshot
         livenessProbe:
           httpGet:
             path: /healthz

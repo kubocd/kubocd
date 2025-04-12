@@ -7,14 +7,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kv1alpha1 "kubocd/api/v1alpha1"
-	"kubocd/internal/application"
+	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
-func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *application.Rendered, name string, module *application.Module) (*fluxv2.HelmRelease, ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, name string, module *kubopackage.Module) (*fluxv2.HelmRelease, ReconcileError) {
 	enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 
 	helmRelease := &fluxv2.HelmRelease{}
@@ -86,14 +86,14 @@ func computeHelmReleaseState(helmRelease *fluxv2.HelmRelease) kv1alpha1.HelmRele
 func PopulateHelmRelease(
 	helmRelease *fluxv2.HelmRelease,
 	release *kv1alpha1.Release,
-	appContainer *application.AppContainer,
-	rendered *application.Rendered,
+	pckContainer *kubopackage.PckContainer,
+	rendered *kubopackage.Rendered,
 	helmRepositoryName string,
-	module *application.Module,
+	module *kubopackage.Module,
 	helmReleaseNameByModuleName map[string]string,
 ) {
-	helmRelease.Spec.Interval = release.Spec.Application.Interval
-	chartRef, ok := appContainer.Status.ChartByModule[module.Name]
+	helmRelease.Spec.Interval = release.Spec.Package.Interval
+	chartRef, ok := pckContainer.Status.ChartByModule[module.Name]
 	if !ok {
 		panic("Internal error chart not found by module name")
 	}
@@ -108,7 +108,7 @@ func PopulateHelmRelease(
 		}
 		dependsOn = append(dependsOn, map[string]string{
 			"name":      rn,
-			"namespace": helmRelease.Namespace, // All helmRelease of an application are in the same namespace
+			"namespace": helmRelease.Namespace, // All helmRelease of a release are in the same namespace
 		})
 	}
 	spec := map[string]interface{}{
@@ -121,7 +121,7 @@ func PopulateHelmRelease(
 					"name":      helmRepositoryName,
 					"namespace": release.Namespace,
 				},
-				"interval": release.Spec.Application.Interval,
+				"interval": release.Spec.Package.Interval,
 			},
 		},
 		"values":          moduleRendered.Values,
@@ -149,11 +149,11 @@ func PopulateHelmRelease(
 	}
 }
 
-func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *application.Rendered, name string, module *application.Module) error {
+func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, name string, module *kubopackage.Module) error {
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
-	PopulateHelmRelease(helmRelease, op.release, op.appContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
 	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
@@ -164,10 +164,10 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *ap
 	return nil
 }
 
-func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, rendered *application.Rendered, module *application.Module) (bool, error) {
+func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, rendered *kubopackage.Rendered, module *kubopackage.Module) (bool, error) {
 	originalGeneration := helmRelease.Generation
 	patch := client.MergeFrom(helmRelease.DeepCopy())
-	PopulateHelmRelease(helmRelease, op.release, op.appContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
 	err := r.Patch(op.ctx, helmRelease, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching HelmRelease '%s': %w", helmRelease.Name, err)

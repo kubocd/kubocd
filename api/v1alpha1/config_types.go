@@ -19,9 +19,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type KuboAppRedirectSpec struct {
+type PackageRedirectSpec struct {
 
-	// All KuboCD application repository where the Url begin by this value will be impacted.
+	// All KuboCD package repository where the Url begin by this value will be impacted.
 	// +kubebuilder:validation:Required
 	OldPrefix string `json:"oldPrefix"`
 
@@ -67,17 +67,17 @@ type ImageRedirectSpec struct {
 // ConfigSpec defines the desired state of Config.
 type ConfigSpec struct {
 
-	// This will apply to KuboCD application oci image.
+	// This will apply to KuboCD package oci image.
 	// Each entry allow substitution of oci data source.
 	// Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
 	// This will also allow to add authentication and proxy information.
 	// When merging Configs, values are simply appended. (Configs are sorted by name)
 	// +kubebuilder:validation:Optional
 	// Default: []
-	KuboAppRedirects []*KuboAppRedirectSpec `json:"kuboAppRedirects,omitempty"`
+	PackageRedirects []*PackageRedirectSpec `json:"packageRedirects,omitempty"`
 
 	// This may apply to image referenced in Helm Chart
-	// It is intended to be used by some templating functions, inserted in the `values` template of the application
+	// It is intended to be used by some templating functions, inserted in the `values` template of the package
 	// Each entry allow substitution of oci data source.
 	// Aim is to ease handling of Air Gap deployment, to replace public repo be an internal ones.
 	// This will also allow to add authentication information.

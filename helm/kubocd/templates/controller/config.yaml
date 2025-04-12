@@ -1,3 +1,4 @@
+{{ if .Values.config.enabled }}
 ---
 apiVersion: kubocd.kubotal.io/v1alpha1
 kind: Config
@@ -5,8 +6,8 @@ metadata:
   name: conf01
   namespace: {{ .Release.Namespace }}
 spec:
-  kuboAppRedirects:
-{{- toYaml .Values.config.kuboAppRedirects | nindent 4 }}
+  packageRedirects:
+{{- toYaml .Values.config.packageRedirects | nindent 4 }}
   imageRedirects:
 {{- toYaml .Values.config.imageRedirects | nindent 4 }}
   clusterRoles:
@@ -14,3 +15,5 @@ spec:
   defaultContexts:
 {{- toYaml .Values.config.defaultContexts | nindent 4 }}
   defaultNamespaceContext: {{ .Values.config.defaultNamespaceContext }}
+
+  {{ end }}

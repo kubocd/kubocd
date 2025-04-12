@@ -36,7 +36,7 @@ func init() {
 
 var rootCmd = &cobra.Command{
 	Use:   "kubocd",
-	Short: "KuboCD Application deployment system",
+	Short: "KuboCD Package deployment system",
 }
 
 var debug = true

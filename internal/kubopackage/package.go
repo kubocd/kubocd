@@ -1,4 +1,4 @@
-package application
+package kubopackage
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 )
 
 // KcdTemplateMap A template where expected result is a map[string]interface{}.
-// May be a string or a map[string]interface{}
+// Maybe a string or a map[string]interface{}
 type KcdTemplateMap interface{}
 
 // KcdTemplateBool A template where expected result is a boolean
@@ -24,20 +24,20 @@ type KcdTemplateStringList interface{}
 
 // ------------------------------------------------
 
-type Application struct {
+type Package struct {
 	// required:true
 	ApiVersion string `json:"apiVersion"` // v1alpha1
 	Metadata   struct {
 		// This is NOT a k8s object. To overemphasis this, we use Type instead of Kind. and define it as metadata
 		// required:true
-		Type string `json:"type"` // Always 'Application'
+		Type string `json:"type"` // Always 'Package'
 		// required:true
 		Name string `json:"name"`
 		// required:true
 		Version string `json:"version"`
 	} `json:"metadata"`
 	Spec struct {
-		// Application description. Can be completed by ParametersSchema descriptions
+		// Package description. Can be completed by ParametersSchema descriptions
 		Description string `json:"description,omitempty"`
 		// A template aimed to be rendered on deployment.
 		// Intended to provide user with usage information // (Access link, configuration, ....)
@@ -51,7 +51,7 @@ type Application struct {
 		ParametersSchema kuboschema.KuboSchema `json:"parametersSchema,omitempty"`
 		// Allow context validation. And provide default values
 		ContextSchema kuboschema.KuboSchema `json:"contextSchema,omitempty"`
-		// List of modules (HelmChart) included in the application
+		// List of modules (HelmChart) included in the package
 		// required: true
 		Modules []*Module `json:"modules"`
 		// List if role we provide
@@ -63,7 +63,7 @@ type Application struct {
 		TemplateHeader string `json:"templateHeader,omitempty"`
 	} `yaml:"spec" json:"spec"`
 	// ------------------- Private part
-	templates *applicationTemplates
+	templates *packageTemplates
 }
 
 type ChartRef struct {
@@ -71,68 +71,68 @@ type ChartRef struct {
 	Version string `json:"version"`
 }
 
-func (app *Application) Groom() error {
+func (pck *Package) Groom() error {
 	// ------------------------ Normalize
-	if app.Spec.Roles == nil {
-		app.Spec.Roles = []string{}
+	if pck.Spec.Roles == nil {
+		pck.Spec.Roles = []string{}
 	}
-	if app.Spec.Dependencies == nil {
-		app.Spec.Dependencies = []string{}
+	if pck.Spec.Dependencies == nil {
+		pck.Spec.Dependencies = []string{}
 	}
 	// Validation
-	if app.ApiVersion != global.ApplicationApiVersion {
-		return fmt.Errorf("'apiVersion' must be %s (is '%s')", global.ApplicationApiVersion, app.ApiVersion)
+	if pck.ApiVersion != global.PackageApiVersion {
+		return fmt.Errorf("'apiVersion' must be %s (is '%s')", global.PackageApiVersion, pck.ApiVersion)
 	}
-	if app.Metadata.Type != global.ApplicationType {
-		return fmt.Errorf("'type' must be %s", global.ApplicationType)
+	if pck.Metadata.Type != global.PackageType {
+		return fmt.Errorf("'type' must be %s", global.PackageType)
 	}
-	x := misc.CountNonZero(app.Metadata.Name, app.Metadata.Version)
+	x := misc.CountNonZero(pck.Metadata.Name, pck.Metadata.Version)
 	if x != 2 {
 		return fmt.Errorf("'name' and 'version' must be set")
 	}
-	if !misc.ValidateK8sName(app.Metadata.Name) {
+	if !misc.ValidateK8sName(pck.Metadata.Name) {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
 	var err error
-	if app.Spec.ParametersSchema != nil {
-		app.Spec.ParametersSchema, err = kuboschema.Kubo2openAPI(app.Spec.ParametersSchema, false)
+	if pck.Spec.ParametersSchema != nil {
+		pck.Spec.ParametersSchema, err = kuboschema.Kubo2openAPI(pck.Spec.ParametersSchema, false)
 		if err != nil {
 			return fmt.Errorf("invalid 'parametersSchema': %w", err)
 		}
 	}
-	if app.Spec.ContextSchema != nil {
-		app.Spec.ContextSchema, err = kuboschema.Kubo2openAPI(app.Spec.ContextSchema, true)
+	if pck.Spec.ContextSchema != nil {
+		pck.Spec.ContextSchema, err = kuboschema.Kubo2openAPI(pck.Spec.ContextSchema, true)
 		if err != nil {
 			return fmt.Errorf("invalid 'contextSchema': %w", err)
 		}
 	}
-	if app.Spec.Modules == nil || len(app.Spec.Modules) == 0 {
-		return fmt.Errorf("an application must have at least one module")
+	if pck.Spec.Modules == nil || len(pck.Spec.Modules) == 0 {
+		return fmt.Errorf("a package must have at least one module")
 	}
 	// ------- Now, check modules
 	moduleByName := make(map[string]*Module)
-	for idx := range app.Spec.Modules {
-		module := app.Spec.Modules[idx]
-		err := app.Spec.Modules[idx].groom(app, idx)
+	for idx := range pck.Spec.Modules {
+		module := pck.Spec.Modules[idx]
+		err := pck.Spec.Modules[idx].groom(pck, idx)
 		if err != nil {
-			return fmt.Errorf("module '%s': %w", app.Spec.Modules[idx].Name, err)
+			return fmt.Errorf("module '%s': %w", pck.Spec.Modules[idx].Name, err)
 		}
 		_, ok := moduleByName[module.Name]
 		if ok {
 			return fmt.Errorf("duplicate module name: %s", module.Name)
 		}
-		moduleByName[module.Name] = app.Spec.Modules[idx]
+		moduleByName[module.Name] = pck.Spec.Modules[idx]
 	}
-	app.templates = &applicationTemplates{}
-	app.templates.usage, err = tmpl.New("", string(app.Spec.Usage), app.Spec.TemplateHeader)
+	pck.templates = &packageTemplates{}
+	pck.templates.usage, err = tmpl.New("", string(pck.Spec.Usage), pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'usage' template: %w", err)
 	}
-	app.templates.roles, err = tmpl.NewFromAny("", app.Spec.Roles, app.Spec.TemplateHeader)
+	pck.templates.roles, err = tmpl.NewFromAny("", pck.Spec.Roles, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'roles' template: %w", err)
 	}
-	app.templates.dependencies, err = tmpl.NewFromAny("", app.Spec.Dependencies, app.Spec.TemplateHeader)
+	pck.templates.dependencies, err = tmpl.NewFromAny("", pck.Spec.Dependencies, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
@@ -140,15 +140,15 @@ func (app *Application) Groom() error {
 	return nil
 }
 
-type applicationTemplates struct {
+type packageTemplates struct {
 	usage        tmpl.Tmpl
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
 }
 
-// Rendered object is a proxy for a release e of an application.
+// Rendered object is a proxy for a release e of a package.
 // Aim is to concentrate all error detection in its constructor
-// Standard way should be to have Getters on application and module object.
+// Standard way should be to have Getters on package and module object.
 // But each getter may generate an error, thus complicate the code.
 type Rendered struct {
 	Usage                string
@@ -157,25 +157,25 @@ type Rendered struct {
 	ModuleRenderedByName map[string]*ModuleRendered
 }
 
-func (app *Application) Render(model map[string]interface{}) (*Rendered, error) {
+func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	r := &Rendered{
 		ModuleRenderedByName: make(map[string]*ModuleRendered),
 	}
 	var err error
-	r.Usage, err = app.templates.usage.RenderToText(model)
+	r.Usage, err = pck.templates.usage.RenderToText(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'usage' template: %w", err)
 	}
 	var txt string
-	r.Roles, txt, err = app.templates.roles.RenderToStringList(model)
+	r.Roles, txt, err = pck.templates.roles.RenderToStringList(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'roles' template: %w (%s)", err, txt)
 	}
-	r.Dependencies, txt, err = app.templates.dependencies.RenderToStringList(model)
+	r.Dependencies, txt, err = pck.templates.dependencies.RenderToStringList(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'dependencies' template: %w (%s)", err, txt)
 	}
-	for _, module := range app.Spec.Modules {
+	for _, module := range pck.Spec.Modules {
 		//fmt.Printf("*********************** module.name %s\n", module.Name)
 		r.ModuleRenderedByName[module.Name], err = module.Render(model)
 		if err != nil {
@@ -183,10 +183,10 @@ func (app *Application) Render(model map[string]interface{}) (*Rendered, error) 
 		}
 	}
 	// Check intra module dependencies
-	for _, module := range app.Spec.Modules {
+	for _, module := range pck.Spec.Modules {
 		rendered, ok := r.ModuleRenderedByName[module.Name]
 		if !ok {
-			panic(fmt.Sprintf("missng module of name %s", module.Name)) // Should not occurs
+			panic(fmt.Sprintf("missng module of name %s", module.Name)) // Should not occur
 		}
 		for _, dep := range rendered.DependsOn {
 			_, ok = r.ModuleRenderedByName[dep]

@@ -315,15 +315,15 @@ var controllerCmd = &cobra.Command{
 		}
 
 		releaseReconciler := &controller.ReleaseReconciler{
-			Client:           mgr.GetClient(),
-			EventRecorder:    mgr.GetEventRecorderFor("release"),
-			Logger:           controllerRootLog.WithName("ReleaseReconciler"),
-			Fetcher:          archiveFetcher,
-			ServerRoot:       serverRoot,
-			HelmRepoAdvAddr:  controllerParams.helmRepoAdvAddr,
-			ApplicationCache: cache.NewCache(time.Second*60, controllerRootLog.WithName("ApplicationCache")),
-			ConfigStore:      theConfigStore,
-			RoleStore:        roleStore,
+			Client:          mgr.GetClient(),
+			EventRecorder:   mgr.GetEventRecorderFor("release"),
+			Logger:          controllerRootLog.WithName("ReleaseReconciler"),
+			Fetcher:         archiveFetcher,
+			ServerRoot:      serverRoot,
+			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
+			PackageCache:    cache.NewCache(time.Second*60, controllerRootLog.WithName("PackageCache")),
+			ConfigStore:     theConfigStore,
+			RoleStore:       roleStore,
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).

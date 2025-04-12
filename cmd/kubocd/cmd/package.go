@@ -11,8 +11,8 @@ import (
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
-	"kubocd/internal/application"
 	"kubocd/internal/global"
+	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
@@ -44,15 +44,15 @@ var packageParams struct {
 }
 
 func init() {
-	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/applications'). Can also be specified with OCI_REPO_PREFIX environment variable")
+	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 
 }
 
 var packageCmd = &cobra.Command{
-	Use:     "package <Application manifest>",
-	Short:   "Assemble a KuboCd Application from a manifest to an OCI image",
+	Use:     "package <Package manifest>",
+	Short:   "Assemble a KuboCd Package from a manifest to an OCI image",
 	Args:    cobra.MinimumNArgs(1),
 	Aliases: []string{"pack", "build"},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -75,8 +75,8 @@ var packageCmd = &cobra.Command{
 		// We can't loop as the https://github.com/mittwald/go-helm-client library we used does not support to be
 		// called twice with the same repo name (see helmrepo.SetupHelmRepo)
 		// Need to fix this (patch the lib ?) to allow this loop.
-		//for _, app := range args {
-		//	err := pack(app)
+		//for _, pck := range args {
+		//	err := pack(pck)
 		//	if err != nil {
 		//		_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 		//		os.Exit(1)
@@ -85,23 +85,23 @@ var packageCmd = &cobra.Command{
 	},
 }
 
-func pack(app string) error {
-	fmt.Printf("\n====================================== Packaging application '%s'\n", app)
-	appOriginal := &application.Application{}
-	appGroomed := &application.Application{}
-	err := misc.LoadYaml(app, appOriginal, appGroomed)
+func pack(pck string) error {
+	fmt.Printf("\n====================================== Packaging package '%s'\n", pck)
+	pckOriginal := &kubopackage.Package{}
+	pckGroomed := &kubopackage.Package{}
+	err := misc.LoadYaml(pck, pckOriginal, pckGroomed)
 	if err != nil {
 		return err
 	}
-	err = appGroomed.Groom()
+	err = pckGroomed.Groom()
 	if err != nil {
 		return err
 	}
-	abs, err := filepath.Abs(app)
+	abs, err := filepath.Abs(pck)
 	if err != nil {
 		return err
 	}
-	applicationFolder := filepath.Dir(abs)
+	packageFolder := filepath.Dir(abs)
 
 	// --------------------- Handle entry parameters
 	repository := packageParams.ociRepoPrefix
@@ -111,9 +111,9 @@ func pack(app string) error {
 			return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
 		}
 	}
-	repository = path.Join(repository, appGroomed.Metadata.Name)
+	repository = path.Join(repository, pckGroomed.Metadata.Name)
 
-	tag := appGroomed.Metadata.Version
+	tag := pckGroomed.Metadata.Version
 
 	// ---------- Prepare the target layout
 	fsPath := path.Join(packageParams.workDir, "fs")
@@ -127,7 +127,7 @@ func pack(app string) error {
 		return err
 	}
 	// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-	chartSet, status, err := cmn.FetchArchives("", appGroomed, assemblyPath, packageParams.workDir, applicationFolder)
+	chartSet, status, err := cmn.FetchArchives("", pckGroomed, assemblyPath, packageParams.workDir, packageFolder)
 	if err != nil {
 		return err
 	}
@@ -149,12 +149,12 @@ func pack(app string) error {
 		return err
 	}
 	// Generate the original.yaml file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(appOriginal), os.ModePerm)
+	err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(pckOriginal), os.ModePerm)
 	if err != nil {
 		return err
 	}
 	// Generate the groomed.yaml file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(appGroomed), os.ModePerm)
+	err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(pckGroomed), os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func pack(app string) error {
 		return err
 	}
 	// Generate the manifest.json file to be set as config in the image
-	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(appOriginal), os.ModePerm)
+	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(pckOriginal), os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	ctx := context.Background()
 
 	// 1. Add files to the file store
-	mediaType := global.ApplicationContentMediaType
+	mediaType := global.PackageContentMediaType
 	fileNames := []string{"assembly.tgz"}
 	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
@@ -246,7 +246,7 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	}
 
 	// Add config stuff
-	configFileDescriptor, err := ociFs.Add(ctx, "manifest.json", global.ApplicationConfigMediaType, "")
+	configFileDescriptor, err := ociFs.Add(ctx, "manifest.json", global.PackageConfigMediaType, "")
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := ""

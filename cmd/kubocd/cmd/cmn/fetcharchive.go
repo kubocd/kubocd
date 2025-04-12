@@ -13,8 +13,8 @@ import (
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
-	"kubocd/internal/application"
 	"kubocd/internal/global"
+	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"log/slog"
 	"os"
@@ -32,14 +32,14 @@ type ArchiveInfo struct {
 // FetchArchives load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
 // - return a status with a map of chartInfo by module
-func FetchArchives(printPrefix string, app *application.Application, assemblyPath string, workDir string, applicationFolder string) ([]ArchiveInfo, *application.Status, error) {
+func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath string, workDir string, packageFolder string) ([]ArchiveInfo, *kubopackage.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
-	archives := make([]ArchiveInfo, 0, len(app.Spec.Modules))
-	status := &application.Status{
-		ApiVersion:    global.ApplicationApiVersion,
-		ChartByModule: make(map[string]application.ChartRef),
+	archives := make([]ArchiveInfo, 0, len(pck.Spec.Modules))
+	status := &kubopackage.Status{
+		ApiVersion:    global.PackageApiVersion,
+		ChartByModule: make(map[string]kubopackage.ChartRef),
 	}
-	for _, module := range app.Spec.Modules {
+	for _, module := range pck.Spec.Modules {
 		fmt.Printf("%s--- Handling module '%s':\n", printPrefix, module.Name)
 		var archive string
 		var err error
@@ -79,7 +79,7 @@ func FetchArchives(printPrefix string, app *application.Application, assemblyPat
 			} else if module.Source.Local != nil {
 				chartPath := module.Source.Local.Path
 				if !path.IsAbs(chartPath) {
-					chartPath = path.Join(applicationFolder, module.Source.Local.Path)
+					chartPath = path.Join(packageFolder, module.Source.Local.Path)
 				}
 				archive, err = getHelmCharArchiveFromLocal(printPrefix+"    ", chartPath, module.Name, workDir)
 				if err != nil {
@@ -109,7 +109,7 @@ func FetchArchives(printPrefix string, app *application.Application, assemblyPat
 				return nil, nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
 			}
 		}
-		status.ChartByModule[module.Name] = application.ChartRef{
+		status.ChartByModule[module.Name] = kubopackage.ChartRef{
 			Name:    chartName,
 			Version: chartVersion,
 		}
@@ -241,7 +241,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		}
 		if !d.IsDir() {
 			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			//fmt.Printf("%sadding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
+			//fmt.Printf("%s adding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
 			err := tgz.AddToArchive(tw, thePath, targetFileName)
 			if err != nil {
 				return err

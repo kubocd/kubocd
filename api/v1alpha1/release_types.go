@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ApplicationSource struct {
+type PackageSource struct {
 	// Part of OCI url oci://<repository>:<tag>
 	// +kubebuilder:validation:Required
 	Repository string `json:"repository"`
@@ -68,9 +68,9 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`
 
-	// The application to deploy
+	// The package to deploy
 	// +kubebuilder:validation:Required
-	Application ApplicationSource `json:"application"`
+	Package PackageSource `json:"package"`
 
 	// To provide contextual variables
 	// Refer to Context resource description for some explanation
@@ -108,19 +108,19 @@ type ReleaseSpec struct {
 	// Default: false
 	CreateNamespace bool `json:"createNamespace"`
 
-	// The namespace to deploy in. (May also be a partial name for a multi-namespaces application)
-	// Not required, as it can be setup another way, depending on the application
-	// (i.e the application has a fixed namespace, or several ones).
+	// The namespace to deploy in. (May also be a partial name for a multi-namespaces package)
+	// Not required, as it can be setup another way, depending on the package
+	// (i.e. the package has a fixed namespace, or several ones).
 	// +kubebuilder:validation:Optional
 	// Default: Release.metadata.namespace
 	TargetNamespace string `json:"targetNamespace,omitempty"`
 
-	// List of roles fulfilled by this release. (appended to the one of the underlying application)
+	// List of roles fulfilled by this release. (appended to the one of the underlying package)
 	// +kubebuilder:validation:Optional
 	// Default: []
 	Roles []string `json:"roles,omitempty"`
 
-	// The roles we depend on. (appended to the one of the underlying Application)
+	// The roles we depend on. (appended to the one of the underlying package)
 	// +kubebuilder:validation:Optional
 	// Default: []
 	Dependencies []string `json:"dependencies,omitempty"`
@@ -130,7 +130,7 @@ type ReleaseSpec struct {
 	//,Default: false
 	SkipDefaultContext bool `json:"skipDefaultContext,omitempty"`
 
-	// Group a set of parameters useful for debugging Release and Application
+	// Group a set of parameters useful for debugging Release and Package
 	// +kubebuilder:validation:Optional
 	Debug *ReleaseDebug `json:"debug,omitempty"`
 }
@@ -169,11 +169,11 @@ type ReleaseStatus struct {
 	// +kubebuilder:validation:Optional
 	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
 
-	// Usage is the rendering of the Application.spec.usage. Aimed to provide user informations
+	// Usage is the rendering of the Package.spec.usage. Aimed to provide user information
 	// +kubebuilder:validation:Optional
 	Usage string `json:"usage"`
 
-	// Protected result of Release.spec.protected defaulted to Application.spec.protected
+	// Protected result of Release.spec.protected defaulted to package.spec.protected
 	Protected bool `json:"protected"`
 
 	// HelmReleaseState describe the observed state of child HelmReleases by name
@@ -184,10 +184,10 @@ type ReleaseStatus struct {
 	// as printcolumn
 	ReadyReleases string `json:"readyReleases"`
 
-	// The result of the application template and release value
+	// The result of the package template and release value
 	Dependencies []string `json:"dependencies"`
 
-	// The result of the application template and release value
+	// The result of the package template and release value
 	Roles []string `json:"roles"`
 
 	MissingDependency string `json:"missingDependency"`
@@ -195,8 +195,8 @@ type ReleaseStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.application.repository`
-// +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.application.tag`
+// +kubebuilder:printcolumn:name="Repository",type=string,JSONPath=`.spec.package.repository`
+// +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.package.tag`
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`

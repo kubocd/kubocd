@@ -62,8 +62,8 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 }
 
 func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
-	kuboAppRedirectSpec, newUrl := configStore.GetKuboAppRedirect(fmt.Sprintf("%s:%s", release.Spec.Application.Repository, release.Spec.Application.Tag))
-	if kuboAppRedirectSpec != nil {
+	packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
+	if packageRedirectSpec != nil {
 		repo, tag, err := misc.DecodeImageUrl(newUrl)
 		if err != nil {
 			return fmt.Errorf("invalid OCI repository URL: %w", err)
@@ -72,33 +72,33 @@ func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1
 		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
 			Tag: tag,
 		}
-		ociRepository.Spec.Provider = kuboAppRedirectSpec.Provider
-		ociRepository.Spec.SecretRef = kuboAppRedirectSpec.SecretRef
-		ociRepository.Spec.Verify = kuboAppRedirectSpec.Verify
-		ociRepository.Spec.ServiceAccountName = kuboAppRedirectSpec.ServiceAccountName
-		ociRepository.Spec.CertSecretRef = kuboAppRedirectSpec.CertSecretRef
-		ociRepository.Spec.ProxySecretRef = kuboAppRedirectSpec.ProxySecretRef
-		ociRepository.Spec.Interval = kuboAppRedirectSpec.Interval
-		ociRepository.Spec.Timeout = kuboAppRedirectSpec.Timeout
-		ociRepository.Spec.Ignore = kuboAppRedirectSpec.Ignore
-		ociRepository.Spec.Insecure = kuboAppRedirectSpec.Insecure
-		ociRepository.Spec.Suspend = kuboAppRedirectSpec.Suspend
+		ociRepository.Spec.Provider = packageRedirectSpec.Provider
+		ociRepository.Spec.SecretRef = packageRedirectSpec.SecretRef
+		ociRepository.Spec.Verify = packageRedirectSpec.Verify
+		ociRepository.Spec.ServiceAccountName = packageRedirectSpec.ServiceAccountName
+		ociRepository.Spec.CertSecretRef = packageRedirectSpec.CertSecretRef
+		ociRepository.Spec.ProxySecretRef = packageRedirectSpec.ProxySecretRef
+		ociRepository.Spec.Interval = packageRedirectSpec.Interval
+		ociRepository.Spec.Timeout = packageRedirectSpec.Timeout
+		ociRepository.Spec.Ignore = packageRedirectSpec.Ignore
+		ociRepository.Spec.Insecure = packageRedirectSpec.Insecure
+		ociRepository.Spec.Suspend = packageRedirectSpec.Suspend
 	} else {
-		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Application.Repository)
+		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Package.Repository)
 		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
-			Tag: release.Spec.Application.Tag,
+			Tag: release.Spec.Package.Tag,
 		}
-		ociRepository.Spec.Provider = release.Spec.Application.Provider
-		ociRepository.Spec.SecretRef = release.Spec.Application.SecretRef
-		ociRepository.Spec.Verify = release.Spec.Application.Verify
-		ociRepository.Spec.ServiceAccountName = release.Spec.Application.ServiceAccountName
-		ociRepository.Spec.CertSecretRef = release.Spec.Application.CertSecretRef
-		ociRepository.Spec.ProxySecretRef = release.Spec.Application.ProxySecretRef
-		ociRepository.Spec.Interval = release.Spec.Application.Interval
-		ociRepository.Spec.Timeout = release.Spec.Application.Timeout
-		ociRepository.Spec.Ignore = release.Spec.Application.Ignore
-		ociRepository.Spec.Insecure = release.Spec.Application.Insecure
-		ociRepository.Spec.Suspend = release.Spec.Application.Suspend
+		ociRepository.Spec.Provider = release.Spec.Package.Provider
+		ociRepository.Spec.SecretRef = release.Spec.Package.SecretRef
+		ociRepository.Spec.Verify = release.Spec.Package.Verify
+		ociRepository.Spec.ServiceAccountName = release.Spec.Package.ServiceAccountName
+		ociRepository.Spec.CertSecretRef = release.Spec.Package.CertSecretRef
+		ociRepository.Spec.ProxySecretRef = release.Spec.Package.ProxySecretRef
+		ociRepository.Spec.Interval = release.Spec.Package.Interval
+		ociRepository.Spec.Timeout = release.Spec.Package.Timeout
+		ociRepository.Spec.Ignore = release.Spec.Package.Ignore
+		ociRepository.Spec.Insecure = release.Spec.Package.Insecure
+		ociRepository.Spec.Suspend = release.Spec.Package.Suspend
 	}
 	//ociRepository.Spec.LayerSelector = nil // Wll take the first one
 	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{

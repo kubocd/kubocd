@@ -1,4 +1,4 @@
-package application
+package kubopackage
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ type Module struct {
 	Name string `json:"name,omitempty"`
 	// required:true
 	// default: HelmChart
-	Type   string `json:"type,omitempty"` // HelmChart or Application
+	Type   string `json:"type,omitempty"` // HelmChart or Package
 	Source struct {
 		// Only for HelmChart
 		HelmRepository *struct {
@@ -43,7 +43,7 @@ type Module struct {
 			Path string `json:"path"`
 		} `json:"local,omitempty"`
 	} `yaml:"source" json:"source"`
-	// For Type == Application
+	// For Type == Package
 	Parameters KcdTemplateMap `json:"parameters,omitempty"`
 	// For Type == HelmChart
 	Values KcdTemplateMap `json:"values,omitempty"`
@@ -54,13 +54,13 @@ type Module struct {
 	// Effective value is And-ed with the release corresponding value
 	// Default: "true"
 	Enabled KcdTemplateBool `json:"enabled,omitempty"`
-	// Intra-application dependency. List of module names
+	// Intra-package dependency. List of module names
 	DependsOn KcdTemplateStringList `json:"dependsOn,omitempty"`
 	// ------------------- Private part
 	templates *moduleTemplates
 }
 
-func (m *Module) groom(application *Application, idx int) error {
+func (m *Module) groom(pck *Package, idx int) error {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
@@ -106,8 +106,8 @@ func (m *Module) groom(application *Application, idx int) error {
 			return fmt.Errorf("one and only one of 'branch' and 'tag' should be set for 'source.git'")
 		}
 	}
-	if m.Type == global.ApplicationType && !misc.IsZero(m.Values) {
-		return fmt.Errorf("'values' should not be defined for 'type.Application'")
+	if m.Type == global.PackageType && !misc.IsZero(m.Values) {
+		return fmt.Errorf("'values' should not be defined for 'type.Package'")
 
 	}
 	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
@@ -116,27 +116,27 @@ func (m *Module) groom(application *Application, idx int) error {
 	// ---------------- Now, handle templates
 	m.templates = &moduleTemplates{}
 	var err error
-	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, application.Spec.TemplateHeader)
+	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'parameters' template: %w", err)
 	}
-	m.templates.values, err = tmpl.NewFromAny("", m.Values, application.Spec.TemplateHeader)
+	m.templates.values, err = tmpl.NewFromAny("", m.Values, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, application.Spec.TemplateHeader)
+	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'specPatch' template: %w", err)
 	}
-	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), application.Spec.TemplateHeader)
+	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
 	}
-	m.templates.enabled, err = tmpl.New("", string(m.Enabled), application.Spec.TemplateHeader)
+	m.templates.enabled, err = tmpl.New("", string(m.Enabled), pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
 	}
-	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, application.Spec.TemplateHeader)
+	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, pck.Spec.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependsOn' template: %w", err)
 	}

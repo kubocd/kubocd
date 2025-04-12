@@ -20,7 +20,8 @@ contexts: []
 #    context: {}
 
 config:
-  kuboAppRedirects: []
+  enabled: true
+  packageRedirects: []
 #    - oldPrefix: # TBD
 #      newPrefix: # TBD
 #      certSecretRef:

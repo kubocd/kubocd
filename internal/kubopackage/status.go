@@ -1,4 +1,4 @@
-package application
+package kubopackage
 
 // Status
 // This structure is built on packaging, and saved in OCI image
