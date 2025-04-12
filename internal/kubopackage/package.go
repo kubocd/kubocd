@@ -95,7 +95,7 @@ func (pck *Package) Groom() error {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
 	var err error
-	if pck.Schema == nil {
+	if pck.Schema != nil {
 		if pck.Schema.Parameters != nil {
 			pck.Schema.Parameters, err = kuboschema.Kubo2openAPI(pck.Schema.Parameters, false)
 			if err != nil {

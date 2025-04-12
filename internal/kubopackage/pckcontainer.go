@@ -43,7 +43,7 @@ func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string)
 	if err != nil {
 		return err
 	}
-	if pck.Schema == nil {
+	if pck.Schema != nil {
 		p.DefaultParameters, err = kuboschema.Defaulter(pck.Schema.Parameters)
 		if err != nil {
 			return fmt.Errorf("defaultParameters: %w", err)

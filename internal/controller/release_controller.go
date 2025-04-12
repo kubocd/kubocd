@@ -21,7 +21,7 @@ import (
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
@@ -52,13 +52,14 @@ const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
 type ReleaseReconciler struct {
 	client.Client
 	record.EventRecorder
-	Logger          logr.Logger
-	Fetcher         *fetch.ArchiveFetcher
-	ServerRoot      string
-	HelmRepoAdvAddr string
-	PackageCache    cache.Cache
-	ConfigStore     configstore.ConfigStore
-	RoleStore       rolestore.RoleStore
+	Logger           logr.Logger
+	Fetcher          *fetch.ArchiveFetcher
+	ServerRoot       string
+	HelmRepoAdvAddr  string
+	PackageCache     cache.Cache
+	ConfigStore      configstore.ConfigStore
+	RoleStore        rolestore.RoleStore
+	statusErrorCount int
 }
 
 // Just a container to avoid messy parameters passing
@@ -167,7 +168,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			// No finalizer at all. Nothing to do anymore
 			return ctrl.Result{}, nil
 		}
-		logger.V(1).Info("Deleting release")
+		logger.V(0).Info("Deleting release")
 		// Perform deletion cleanup.
 		err := misc.SafeRemove(helmRepositoryFolder)
 		if err != nil {
@@ -216,7 +217,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content, if not in cache
@@ -226,8 +227,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	revisionCached, err := os.ReadFile(revisionFile)
 	if err != nil {
-		if !errors.IsNotFound(err) {
-			// Just log. Don't stop processing
+		if !os.IsNotExist(err) {
 			op.logger.Error(err, "Failed to read revision file")
 		}
 		// If notFound, it is a normal case. revision == "", so load it below
@@ -258,7 +258,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		return ctrl.Result{}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
 	}
 
 	// ---------------------------------------------------------- Retrieve package from cache, or load it
@@ -298,7 +298,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	err = op.pckContainer.ValidateContext(theContext)
 	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), false, "Context"))
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), true, "Context"))
 	}
 	// ----------------------------------------------------------------------- Handle parameters
 	parameters, err := HandleParameters(release, theContext, r.ConfigStore, op.pckContainer)
@@ -395,7 +395,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		forceUpdate = true
 	}
 
-	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back
+	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back after 5s
 	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
 	if missing != op.release.Status.MissingDependency {
 		op.release.Status.MissingDependency = missing
@@ -403,9 +403,17 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if missing != "" {
 		r.Event(op.release, "Normal", "MissingDependency", fmt.Sprintf("Waiting for the role '%s' to be ready", missing))
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, forceUpdate)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if r.Requeue {
+			// It is a Requeue due to update status error
+			return r, nil
+		}
 		return ctrl.Result{
 			RequeueAfter: time.Second * 5,
-		}, r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, forceUpdate)
+		}, nil
 	}
 
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
@@ -440,7 +448,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			phase = kv1alpha1.ReleasePhaseWaitHelmReleases
 		}
 	}
-	return ctrl.Result{}, r.updateStatus(op, phase, forceUpdate)
+	return r.updateStatus(op, phase, forceUpdate)
 }
 
 func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, pckContainer *kubopackage.PckContainer) (map[string]interface{}, error) {
@@ -510,7 +518,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		contextObj := &kv1alpha1.Context{}
 		err := k8sClient.Get(ctx, contextRef.ToObjectKey(), contextObj)
 		if err != nil {
-			if errors.IsNotFound(err) {
+			if k8serror.IsNotFound(err) {
 				if reflect.DeepEqual(contextRef, namespaceContext) {
 					continue // This specific context may not exist. This is not an error
 				} else {
@@ -540,7 +548,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
 func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError) (ctrl.Result, error) {
-	err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, false)
+	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, false)
 	if err2 != nil {
 		return ctrl.Result{}, rErr // Will retry
 	}
@@ -549,32 +557,17 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	}
 	if rErr.IsFatal() {
 		op.logger.Error(rErr, "Wait for this to be fixed")
-		return ctrl.Result{}, nil
+		return ctrlResult, nil
 	} else {
 		return ctrl.Result{}, rErr
 	}
 }
 
-//
-//func (r *ReleaseReconciler) buildStatusContextsList(release *kv1alpha1.Release) string {
-//	contexts := release.Spec.Contexts
-//	if !release.Spec.SkipDefaultContext {
-//		contexts = append(r.ConfigStore.GetDefaultContexts(), contexts...)
-//	}
-//	if len(contexts) == 0 {
-//		return ""
-//	}
-//	ctxs := make([]string, len(contexts))
-//	for idx := range contexts {
-//		ctxs[idx] = contexts[idx].String()
-//	}
-//	return strings.Join(ctxs, ",")
-//}
-
-func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) error {
+func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) (ctrl.Result, error) {
 	if op.release.Status.Phase == phase && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
-		return nil
+		//fmt.Printf("  .  .  .   .   .   .   : %s\n", phase)
+		return ctrl.Result{}, nil
 	}
 	if phase == kv1alpha1.ReleasePhaseReady {
 		r.RoleStore.RegisterRelease(op.request.NamespacedName, op.roles)
@@ -584,13 +577,26 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
 	err := r.Status().Update(op.ctx, op.release)
-	return err
+	if err != nil {
+		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
+		if r.statusErrorCount > 0 {
+			return ctrl.Result{}, err
+		} else {
+			r.statusErrorCount++
+			op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
+			return ctrl.Result{Requeue: true}, nil
+		}
+	} else {
+		//fmt.Printf("-----------------------: %s\n", phase)
+		r.statusErrorCount = 0
+		return ctrl.Result{}, err
+	}
 }
 
 func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, repoName string, logger logr.Logger) map[string]metav1.ConditionStatus {
 	statusByType := make(map[string]metav1.ConditionStatus)
 	if len(conditions) < 2 {
-		logger.V(0).Info("Not enough conditions found yet", repoKind, repoName)
+		logger.V(1).Info("Not enough conditions found yet", repoKind, repoName)
 	}
 	for _, condition := range conditions {
 		logger.V(1).Info("condition", "type", condition.Type, "status", condition.Status, repoKind, repoName)
