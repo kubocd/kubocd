@@ -116,27 +116,27 @@ func (m *Module) groom(pck *Package, idx int) error {
 	// ---------------- Now, handle templates
 	m.templates = &moduleTemplates{}
 	var err error
-	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, pck.Spec.TemplateHeader)
+	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'parameters' template: %w", err)
 	}
-	m.templates.values, err = tmpl.NewFromAny("", m.Values, pck.Spec.TemplateHeader)
+	m.templates.values, err = tmpl.NewFromAny("", m.Values, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, pck.Spec.TemplateHeader)
+	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'specPatch' template: %w", err)
 	}
-	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.Spec.TemplateHeader)
+	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
 	}
-	m.templates.enabled, err = tmpl.New("", string(m.Enabled), pck.Spec.TemplateHeader)
+	m.templates.enabled, err = tmpl.New("", string(m.Enabled), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
 	}
-	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, pck.Spec.TemplateHeader)
+	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependsOn' template: %w", err)
 	}

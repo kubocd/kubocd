@@ -1,15 +1,10 @@
 
 # TODO
 
-- Rename Application to Package
-- Application layout should be more different of k8s resources
-- schema.parameters and schema.context
-
-
-- Remove on reconcile error:the object has been modified....
-- Make info message more relevant
 - Usage can also be a map, to have several context dependent version (ie: text, html,...)
-- Set the groomed application descriptor on manifest config
+
+- Debug 'on reconcile error:the object has been modified....'
+- Make info message more relevant
 - Release description should default to the (templated) application description.  
 - CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
@@ -63,6 +58,10 @@
 - Make Release.parameters a template
 - if a Context named 'context' exits in a namespace, it will be used in all Release, after a global default one. (Except SkipDefaultContext)
 - dump context command
+- Rename Application to Package
+- Set the groomed application descriptor on manifest config
+- Application layout should be more different of k8s resources
+- schema.parameters and schema.context
 
 
 

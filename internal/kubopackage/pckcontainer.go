@@ -31,7 +31,7 @@ func (p *PckContainer) SetInsertionTime(t time.Time) {
 }
 
 func (p *PckContainer) String() string {
-	return fmt.Sprintf("Package %s:%s (%s)", p.Package.Metadata.Name, p.Package.Metadata.Version, p.Revision)
+	return fmt.Sprintf("Package %s:%s (%s)", p.Package.Name, p.Package.Version, p.Revision)
 }
 
 func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string) error {
@@ -43,25 +43,30 @@ func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string)
 	if err != nil {
 		return err
 	}
-	p.DefaultParameters, err = kuboschema.Defaulter(p.Package.Spec.ParametersSchema)
-	if err != nil {
-		return fmt.Errorf("defaultParameters: %w", err)
-	}
-	p.DefaultContext, err = kuboschema.Defaulter(p.Package.Spec.ContextSchema)
-	if err != nil {
-		return fmt.Errorf("defaultContext: %w", err)
-	}
-	if pck.Spec.ParametersSchema != nil && len(pck.Spec.ParametersSchema) > 0 {
-		p.ParameterSchema, err = gojsonschema.NewSchema(gojsonschema.NewGoLoader(pck.Spec.ParametersSchema))
+	if pck.Schema == nil {
+		p.DefaultParameters, err = kuboschema.Defaulter(pck.Schema.Parameters)
 		if err != nil {
-			return fmt.Errorf("parameterSchema: %w", err)
+			return fmt.Errorf("defaultParameters: %w", err)
 		}
-	}
-	if pck.Spec.ContextSchema != nil && len(pck.Spec.ContextSchema) > 0 {
-		p.ContextSchema, err = gojsonschema.NewSchema(gojsonschema.NewGoLoader(pck.Spec.ContextSchema))
+		p.DefaultContext, err = kuboschema.Defaulter(pck.Schema.Context)
 		if err != nil {
-			return fmt.Errorf("contextSchema: %w", err)
+			return fmt.Errorf("defaultContext: %w", err)
 		}
+		if pck.Schema.Parameters != nil && len(pck.Schema.Parameters) > 0 {
+			p.ParameterSchema, err = gojsonschema.NewSchema(gojsonschema.NewGoLoader(pck.Schema.Parameters))
+			if err != nil {
+				return fmt.Errorf("parameterSchema: %w", err)
+			}
+		}
+		if pck.Schema.Context != nil && len(pck.Schema.Context) > 0 {
+			p.ContextSchema, err = gojsonschema.NewSchema(gojsonschema.NewGoLoader(pck.Schema.Context))
+			if err != nil {
+				return fmt.Errorf("contextSchema: %w", err)
+			}
+		}
+	} else {
+		p.DefaultParameters = map[string]interface{}{}
+		p.DefaultContext = map[string]interface{}{}
 	}
 	return nil
 }

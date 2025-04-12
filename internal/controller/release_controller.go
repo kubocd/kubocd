@@ -319,7 +319,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	// --------------------------------------- Build a map of module by name for intra-package dependencies handling.
 	op.helmReleaseNameByModuleName = make(map[string]string)
-	for _, module := range op.pckContainer.Package.Spec.Modules {
+	for _, module := range op.pckContainer.Package.Modules {
 		op.helmReleaseNameByModuleName[module.Name] = BuildHelmReleaseName(op.release.Name, module.Name)
 	}
 
@@ -365,7 +365,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		forceUpdate = true
 	}
 	// Store protected in status
-	protected := op.pckContainer.Package.Spec.Protected
+	protected := op.pckContainer.Package.Protected
 	if op.release.Spec.Protected != nil {
 		protected = *op.release.Spec.Protected
 	}
@@ -403,7 +403,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
 	if !op.release.Spec.Suspended {
 		op.helmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
-		for _, module := range op.pckContainer.Package.Spec.Modules {
+		for _, module := range op.pckContainer.Package.Modules {
 			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
 			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
 			if reconcileError != nil {

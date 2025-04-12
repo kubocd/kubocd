@@ -239,10 +239,10 @@ var renderCmd = &cobra.Command{
 
 			// ---------------------------------------------------------------------- Generate helm releases
 			helmReleaseNameByModuleName := make(map[string]string)
-			for _, module := range pkgContainer.Package.Spec.Modules {
+			for _, module := range pkgContainer.Package.Modules {
 				helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
 			}
-			for _, module := range pkgContainer.Package.Spec.Modules {
+			for _, module := range pkgContainer.Package.Modules {
 				enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 				if enabled {
 					helmRelease := &fluxv2.HelmRelease{

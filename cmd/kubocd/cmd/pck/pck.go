@@ -55,7 +55,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			return err
 		}
 		if output != "" {
-			output = filepath.Join(output, pckOriginal.Metadata.Name)
+			output = filepath.Join(output, pckOriginal.Name)
 			err := misc.SafeEnsureEmpty(output)
 			if err != nil {
 				return err
@@ -91,7 +91,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			return err
 		}
 		if output != "" {
-			output = filepath.Join(output, pckOriginal.Metadata.Name)
+			output = filepath.Join(output, pckOriginal.Name)
 			err := misc.SafeEnsureEmpty(output)
 			if err != nil {
 				return err

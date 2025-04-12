@@ -34,12 +34,12 @@ type ArchiveInfo struct {
 // - return a status with a map of chartInfo by module
 func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath string, workDir string, packageFolder string) ([]ArchiveInfo, *kubopackage.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
-	archives := make([]ArchiveInfo, 0, len(pck.Spec.Modules))
+	archives := make([]ArchiveInfo, 0, len(pck.Modules))
 	status := &kubopackage.Status{
 		ApiVersion:    global.PackageApiVersion,
 		ChartByModule: make(map[string]kubopackage.ChartRef),
 	}
-	for _, module := range pck.Spec.Modules {
+	for _, module := range pck.Modules {
 		fmt.Printf("%s--- Handling module '%s':\n", printPrefix, module.Name)
 		var archive string
 		var err error

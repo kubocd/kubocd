@@ -111,9 +111,9 @@ func pack(pck string) error {
 			return fmt.Errorf("an OCI repository prefix must be definded. Use OCI_REPO_PREFIX environment variable or --ociRepoPrefix option")
 		}
 	}
-	repository = path.Join(repository, pckGroomed.Metadata.Name)
+	repository = path.Join(repository, pckGroomed.Name)
 
-	tag := pckGroomed.Metadata.Version
+	tag := pckGroomed.Version
 
 	// ---------- Prepare the target layout
 	fsPath := path.Join(packageParams.workDir, "fs")
@@ -164,7 +164,7 @@ func pack(pck string) error {
 		return err
 	}
 	// Generate the manifest.json file to be set as config in the image
-	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(pckOriginal), os.ModePerm)
+	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(pckGroomed), os.ModePerm)
 	if err != nil {
 		return err
 	}
