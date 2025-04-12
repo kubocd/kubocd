@@ -535,6 +535,13 @@ func (in *ReleaseStatus) DeepCopyInto(out *ReleaseStatus) {
 		*out = new(apiextensionsv1.JSON)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Usage != nil {
+		in, out := &in.Usage, &out.Usage
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.HelmReleaseStates != nil {
 		in, out := &in.HelmReleaseStates, &out.HelmReleaseStates
 		*out = make(map[string]HelmReleaseState, len(*in))

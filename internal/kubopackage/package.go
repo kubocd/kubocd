@@ -34,13 +34,12 @@ type Package struct {
 	Name string `json:"name"`
 	// required:true
 	Version string `json:"version"`
-	// Package description. Can be completed by ParametersSchema descriptions
-	Description string `json:"description,omitempty"`
+	// Package description.
+	Description KcdTemplateString `json:"description,omitempty"`
 	// A template aimed to be rendered on deployment.
 	// Intended to provide user with usage information // (Access link, configuration, ....)
-	// 0ne and only one of the properties must be defined
-	//Usage map[string]KcdTemplateString `json:"usage,omitempty"`
-	Usage KcdTemplateString `json:"usage,omitempty"`
+	Usage map[string]KcdTemplateString `json:"usage,omitempty"`
+	//Usage KcdTemplateString `json:"usage,omitempty"`
 	// Prevent deletion
 	// Default: false
 	// Act as default for corresponding Release value
@@ -129,9 +128,9 @@ func (pck *Package) Groom() error {
 		moduleByName[module.Name] = pck.Modules[idx]
 	}
 	pck.templates = &packageTemplates{}
-	pck.templates.usage, err = tmpl.New("", string(pck.Usage), pck.TemplateHeader)
+	pck.templates.description, err = tmpl.New("", string(pck.Description), pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'usage' template: %w", err)
+		return fmt.Errorf("could not parse 'description' template: %w", err)
 	}
 	pck.templates.roles, err = tmpl.NewFromAny("", pck.Roles, pck.TemplateHeader)
 	if err != nil {
@@ -141,14 +140,22 @@ func (pck *Package) Groom() error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
+	pck.templates.usage = make(map[string]tmpl.Tmpl)
+	for key, usage := range pck.Usage {
+		pck.templates.usage[key], err = tmpl.New("", string(usage), pck.TemplateHeader)
+		if err != nil {
+			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
+		}
+	}
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
 
 type packageTemplates struct {
-	usage        tmpl.Tmpl
+	usage        map[string]tmpl.Tmpl
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
+	description  tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release e of a package.
@@ -156,10 +163,11 @@ type packageTemplates struct {
 // Standard way should be to have Getters on package and module object.
 // But each getter may generate an error, thus complicate the code.
 type Rendered struct {
-	Usage                string
+	Usage                map[string]string
 	Roles                []string
 	Dependencies         []string
 	ModuleRenderedByName map[string]*ModuleRendered
+	Description          string
 }
 
 func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
@@ -167,9 +175,12 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		ModuleRenderedByName: make(map[string]*ModuleRendered),
 	}
 	var err error
-	r.Usage, err = pck.templates.usage.RenderToText(model)
-	if err != nil {
-		return nil, fmt.Errorf("could not render 'usage' template: %w", err)
+	r.Usage = make(map[string]string)
+	for key, tmpl := range pck.templates.usage {
+		r.Usage[key], err = tmpl.RenderToText(model)
+		if err != nil {
+			return nil, fmt.Errorf("could not render 'usage[%s]' template: %w", key, err)
+		}
 	}
 	var txt string
 	r.Roles, txt, err = pck.templates.roles.RenderToStringList(model)
@@ -180,6 +191,10 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'dependencies' template: %w (%s)", err, txt)
 	}
+	r.Description, err = pck.templates.description.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'description' template: %w", err)
+	}
 	for _, module := range pck.Modules {
 		//fmt.Printf("*********************** module.name %s\n", module.Name)
 		r.ModuleRenderedByName[module.Name], err = module.Render(model)
@@ -187,7 +202,7 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 			return nil, fmt.Errorf("module '%s': %w", module.Name, err)
 		}
 	}
-	// Check intra module dependencies
+	// Render intra module dependencies
 	for _, module := range pck.Modules {
 		rendered, ok := r.ModuleRenderedByName[module.Name]
 		if !ok {

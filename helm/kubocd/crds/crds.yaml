@@ -440,7 +440,7 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .spec.description
+    - jsonPath: .status.printDescription
       name: Description
       type: string
     name: v1alpha1
@@ -766,6 +766,11 @@ spec:
                   PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              printDescription:
+                description: |-
+                  PrintDescription
+                  Copy of the release description, or, if empty the (templated) package one
+                type: string
               protected:
                 description: Protected result of Release.spec.protected defaulted
                   to package.spec.protected
@@ -781,14 +786,16 @@ spec:
                   type: string
                 type: array
               usage:
-                description: Usage is the rendering of the Package.spec.usage. Aimed
-                  to provide user information
-                type: string
+                additionalProperties:
+                  type: string
+                description: |-
+                  Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
+                  Key could 'html', 'text', some language id, etc...
+                type: object
             required:
             - dependencies
             - missingDependency
             - phase
-            - printContexts
             - protected
             - readyReleases
             - roles

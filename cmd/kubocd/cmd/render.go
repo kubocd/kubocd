@@ -217,7 +217,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
 			// -------------------------------------------------------------------------Generate Usage
-			cmn.DumpTxt(output, "usage.txt", rendered.Usage)
+			cmn.Dump(output, "usage.txt", rendered.Usage)
 
 			// -------------------------------------------------------------------------Generate Helm repository
 			helmRepositoryName := fmt.Sprintf(controller.HelmRepositoryNameFormat, release.Name)

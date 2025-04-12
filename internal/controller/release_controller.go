@@ -360,8 +360,16 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 	}
 	// And store usage
-	if rendered.Usage != op.release.Status.Usage {
+	if !reflect.DeepEqual(rendered.Usage, op.release.Status.Usage) {
 		op.release.Status.Usage = rendered.Usage
+		forceUpdate = true
+	}
+	description := op.release.Spec.Description
+	if description == "" {
+		description = rendered.Description
+	}
+	if description != op.release.Status.PrintDescription {
+		op.release.Status.PrintDescription = description
 		forceUpdate = true
 	}
 	// Store protected in status

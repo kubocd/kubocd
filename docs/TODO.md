@@ -1,19 +1,17 @@
 
 # TODO
 
-- Usage can also be a map, to have several context dependent version (ie: text, html,...)
+- Application: host/hostname parameters. Make this coherent
+- minio application: Add dependencies
+- Translate all KAD components
+
 
 - Debug 'on reconcile error:the object has been modified....'
 - Make info message more relevant
-- Release description should default to the (templated) application description.  
 - CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
 - Improve usage on kubocd CLI (Add sample)
 
-- Application: host/hostname parameters. Make this coherent
-- minio application: Add dependencies
-
-- Translate all KAD components
 
 ## Later
 
@@ -62,6 +60,8 @@
 - Set the groomed application descriptor on manifest config
 - Application layout should be more different of k8s resources
 - schema.parameters and schema.context
+- Usage is now a map, to have several context dependent version (ie: text, html,...)
+- Release description should default to the (templated) application description.
 
 
 

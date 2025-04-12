@@ -159,7 +159,13 @@ type ReleaseStatus struct {
 
 	// PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
 	// as printcolumn
+	// +kubebuilder:validation:Optional
 	PrintContexts string `json:"printContexts"`
+
+	// PrintDescription
+	// Copy of the release description, or, if empty the (templated) package one
+	// +kubebuilder:validation:Optional
+	PrintDescription string `json:"printDescription"`
 
 	// Context is the resulting context, if requested in debug options
 	// +kubebuilder:validation:Optional
@@ -169,9 +175,10 @@ type ReleaseStatus struct {
 	// +kubebuilder:validation:Optional
 	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
 
-	// Usage is the rendering of the Package.spec.usage. Aimed to provide user information
+	// Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
+	// Key could 'html', 'text', some language id, etc...
 	// +kubebuilder:validation:Optional
-	Usage string `json:"usage"`
+	Usage map[string]string `json:"usage"`
 
 	// Protected result of Release.spec.protected defaulted to package.spec.protected
 	Protected bool `json:"protected"`
@@ -202,7 +209,7 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
 // +kubebuilder:printcolumn:name="Waiting",type=string,JSONPath=`.status.missingDependency`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
+// +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`
 
 // Release is the Schema for the releases API.
 type Release struct {
