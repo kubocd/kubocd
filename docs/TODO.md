@@ -6,7 +6,6 @@
 - Translate all KAD components
 
 
-- CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
 - Improve usage on kubocd CLI (Add sample)
 
@@ -62,6 +61,7 @@
 - Release description should default to the (templated) application description.
 - Debug 'on reconcile error:the object has been modified....'
 - Make info message more relevant
+- CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
 
 # Mid term roadmap 
 

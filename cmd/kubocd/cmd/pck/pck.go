@@ -64,9 +64,9 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 		cmn.Dump(output, "groomed-oci.yaml", pckGroomedOci)
 		if charts {
 			chartsDir := path.Join(output, "charts")
-			for _, chartRef := range status.ChartByModule {
+			for moduleName, chartRef := range status.ChartByModule {
 				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
 				if err != nil {
 					return err
 				}
@@ -107,9 +107,9 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 				return err
 			}
 			chartsDir := path.Join(output, "charts")
-			for _, chartRef := range status.ChartByModule {
+			for moduleName, chartRef := range status.ChartByModule {
 				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), chartsDir)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
 				if err != nil {
 					return err
 				}
