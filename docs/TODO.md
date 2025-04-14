@@ -1,11 +1,6 @@
 
 # TODO
 
-- Application: host/hostname parameters. Make this coherent
-- minio application: Add dependencies
-- Translate all KAD components
-
-
 - On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
 - Improve usage on kubocd CLI (Add sample)
 

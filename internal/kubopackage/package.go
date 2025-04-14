@@ -33,7 +33,7 @@ type Package struct {
 	// required:true
 	Name string `json:"name"`
 	// required:true
-	Version string `json:"version"`
+	Tag string `json:"tag"`
 	// Package description.
 	Description KcdTemplateString `json:"description,omitempty"`
 	// A template aimed to be rendered on deployment.
@@ -87,9 +87,9 @@ func (pck *Package) Groom() error {
 	if pck.Type != global.PackageType {
 		return fmt.Errorf("'type' must be %s", global.PackageType)
 	}
-	x := misc.CountNonZero(pck.Name, pck.Version)
+	x := misc.CountNonZero(pck.Name, pck.Tag)
 	if x != 2 {
-		return fmt.Errorf("'name' and 'version' must be set")
+		return fmt.Errorf("'name' and 'tag' must be set")
 	}
 	if !misc.ValidateK8sName(pck.Name) {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")

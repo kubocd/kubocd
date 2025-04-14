@@ -212,7 +212,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
 	ociRepository, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError)
+		return r.reportError(op, reconcileError, false)
 	}
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
@@ -235,16 +235,16 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if string(revisionCached) != revision {
 		err = misc.SafeEnsureEmpty(helmRepositoryFolder)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS"), false)
 		}
 		logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
 		err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository"), false)
 		}
 		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("writing '%s'", revisionFile), false, "LocalFS"), false)
 		}
 	} else {
 		logger.V(1).Info("Use already existing cached package artifact")
@@ -253,7 +253,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
 	helmRepository, reconcileError := r.handleHelmRepository(op, repoUrl)
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError)
+		return r.reportError(op, reconcileError, false)
 	}
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
@@ -275,62 +275,48 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		pck := &kubopackage.Package{}
 		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), pck)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing package original.yaml file: %w", err), true, "OCIImage"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing package original.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		// -------- And fetch status
 		status := &kubopackage.Status{}
 		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), status)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		op.pckContainer = &kubopackage.PckContainer{}
 		err := op.pckContainer.SetPackage(pck, status, revision)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"))
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}
 		r.PackageCache.Set(revision, op.pckContainer)
 	}
 
+	forceUpdate := false
+	// Store protected in status
+	protected := op.pckContainer.Package.Protected
+	if op.release.Spec.Protected != nil {
+		protected = *op.release.Spec.Protected
+	}
+	if protected != op.release.Status.Protected {
+		op.release.Status.Protected = protected
+		forceUpdate = true
+	}
 	// ---------------------------------------------------------- Compute context
 	theContext, contextList, reconcileError := ComputeContext(op.ctx, r, op.release, r.ConfigStore, op.pckContainer.DefaultContext)
 	if reconcileError != nil {
-		return r.reportError(op, reconcileError)
+		return r.reportError(op, reconcileError, forceUpdate)
 	}
-	err = op.pckContainer.ValidateContext(theContext)
-	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), true, "Context"))
+	ctxList := misc.FlattenNamespacedNames(contextList)
+	if ctxList != op.release.Status.PrintContexts {
+		op.release.Status.PrintContexts = ctxList
+		forceUpdate = true
 	}
-	// ----------------------------------------------------------------------- Handle parameters
-	parameters, err := HandleParameters(release, theContext, r.ConfigStore, op.pckContainer)
-	if err != nil {
-		return r.reportError(op, NewReconcileError(err, true, "Parameters"))
-	}
-	// -------------------------------------------------------------------- Render all values
-	model := BuildModel(theContext, parameters, release, r.ConfigStore)
-	rendered, err := op.pckContainer.Package.Render(model)
-	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"))
-	}
-
-	// --------------------------------------------------------------------- compute roles/dependencies
-	// Roles will be registered at the end, only if status is READY
-	op.roles = misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
-	op.dependencies = misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
-
-	// --------------------------------------- Build a map of module by name for intra-package dependencies handling.
-	op.helmReleaseNameByModuleName = make(map[string]string)
-	for _, module := range op.pckContainer.Package.Modules {
-		op.helmReleaseNameByModuleName[module.Name] = BuildHelmReleaseName(op.release.Name, module.Name)
-	}
-
-	// ------------------------------------------------------------------Prepare status update
-	forceUpdate := false
 	if op.release.Spec.Debug != nil {
 		if op.release.Spec.Debug.DumpContext {
 			// Sore context in status
 			ba, err := json.Marshal(&theContext)
 			if err != nil {
-				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal context"), false, "ContextError")) // Should not occur
+				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal context"), false, "ContextError"), forceUpdate) // Should not occur
 			}
 			op.release.Status.Context = &apiextensionsv1.JSON{
 				Raw: ba,
@@ -342,11 +328,23 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 				forceUpdate = true
 			}
 		}
+	}
+	// ------------------------------------------------------ Validate context
+	err = op.pckContainer.ValidateContext(theContext)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), true, "Context"), forceUpdate)
+	}
+	// ----------------------------------------------------------------------- Handle parameters
+	parameters, err := HandleParameters(release, theContext, r.ConfigStore, op.pckContainer)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, true, "Parameters"), forceUpdate)
+	}
+	if op.release.Spec.Debug != nil {
 		if op.release.Spec.Debug.DumpParameters {
 			// Sore parameters in status
 			ba, err := json.Marshal(&parameters)
 			if err != nil {
-				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal parameters"), false, "ParametersError")) // Should not occur
+				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to marshal parameters"), false, "ParametersError"), forceUpdate) // Should not occur
 			}
 			op.release.Status.Parameters = &apiextensionsv1.JSON{
 				Raw: ba,
@@ -359,7 +357,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			}
 		}
 	}
-	// And store usage
+	// -------------------------------------------------------------------- Render all values
+	model := BuildModel(theContext, parameters, release, r.ConfigStore)
+	rendered, err := op.pckContainer.Package.Render(model)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
+	}
+	// --------------------------------------------------- Store some rendered values to status
 	if !reflect.DeepEqual(rendered.Usage, op.release.Status.Usage) {
 		op.release.Status.Usage = rendered.Usage
 		forceUpdate = true
@@ -372,15 +376,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.PrintDescription = description
 		forceUpdate = true
 	}
-	// Store protected in status
-	protected := op.pckContainer.Package.Protected
-	if op.release.Spec.Protected != nil {
-		protected = *op.release.Spec.Protected
-	}
-	if protected != op.release.Status.Protected {
-		op.release.Status.Protected = protected
-		forceUpdate = true
-	}
+
+	// --------------------------------------------------------------------- compute roles/dependencies
+	// Roles will be registered at the end, only if status is READY
+	op.roles = misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
+	op.dependencies = misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
 	if !reflect.DeepEqual(op.roles, op.release.Status.Roles) {
 		op.release.Status.Roles = op.roles
 		forceUpdate = true
@@ -389,11 +389,14 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.Dependencies = op.dependencies
 		forceUpdate = true
 	}
-	ctxList := misc.FlattenNamespacedNames(contextList)
-	if ctxList != op.release.Status.PrintContexts {
-		op.release.Status.PrintContexts = ctxList
-		forceUpdate = true
+
+	// --------------------------------------- Build a map of module by name for intra-package dependencies handling.
+	op.helmReleaseNameByModuleName = make(map[string]string)
+	for _, module := range op.pckContainer.Package.Modules {
+		op.helmReleaseNameByModuleName[module.Name] = BuildHelmReleaseName(op.release.Name, module.Name)
 	}
+
+	// ------------------------------------------------------------------Prepare status update
 
 	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back after 5s
 	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
@@ -423,7 +426,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
 			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
 			if reconcileError != nil {
-				return r.reportError(op, reconcileError)
+				return r.reportError(op, reconcileError, forceUpdate)
 			}
 		}
 	}
@@ -453,9 +456,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, pckContainer *kubopackage.PckContainer) (map[string]interface{}, error) {
 
+	if release.Spec.Parameters == nil || release.Spec.Parameters.Raw == nil || len(release.Spec.Parameters.Raw) == 0 {
+		return map[string]interface{}{}, nil
+	}
 	parametersStr := string(release.Spec.Parameters.Raw)
+
 	var err error
-	if strings.Contains(parametersStr, "\\n") {
+	if strings.Contains(parametersStr, "\\n") && parametersStr[0:1] != "{" { // If there is some '\n' and this is not json.
 		parametersStr, err = strconv.Unquote(parametersStr)
 		if err != nil {
 			return nil, fmt.Errorf("could not unquote parameter value: %w", err)
@@ -547,8 +554,8 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
-func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError) (ctrl.Result, error) {
-	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, false)
+func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError, forceUpdate bool) (ctrl.Result, error) {
+	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, forceUpdate)
 	if err2 != nil {
 		return ctrl.Result{}, rErr // Will retry
 	}

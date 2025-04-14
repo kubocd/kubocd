@@ -31,7 +31,7 @@ func (p *PckContainer) SetInsertionTime(t time.Time) {
 }
 
 func (p *PckContainer) String() string {
-	return fmt.Sprintf("Package %s:%s (%s)", p.Package.Name, p.Package.Version, p.Revision)
+	return fmt.Sprintf("Package %s:%s (%s)", p.Package.Name, p.Package.Tag, p.Revision)
 }
 
 func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string) error {

@@ -113,7 +113,7 @@ func pack(pck string) error {
 	}
 	repository = path.Join(repository, pckGroomed.Name)
 
-	tag := pckGroomed.Version
+	tag := pckGroomed.Tag
 
 	// ---------- Prepare the target layout
 	fsPath := path.Join(packageParams.workDir, "fs")

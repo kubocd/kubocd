@@ -16,9 +16,9 @@ const DockerCredentialHelperEnvVar = "KCD_DOCKER_CREDENTIAL_HELPER"
 
 // --------------------- Media type in KuboCD Package image file
 
-const PackageContentMediaType = "application/vnd.kubotal.kubocd.application.content.v1.tar+gzip"
+const PackageContentMediaType = "application/vnd.kubotal.kubocd.package.content.v1.tar+gzip"
 
-const PackageConfigMediaType = "application/vnd.kubotal.kubocd.application.config.v1alpha1+json"
+const PackageConfigMediaType = "application/vnd.kubotal.kubocd.package.config.v1alpha1+json"
 
 // --------------------- Media type in helm chart OCI image
 
