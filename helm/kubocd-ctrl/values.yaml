@@ -1,0 +1,133 @@
+
+# Following will allow a renaming of all kubocd kubernetes resources
+# Allow overriding base name of all resources
+baseNameOverride:
+
+# Image is same for controller and webhook
+image:
+  pullSecrets: []
+  repository: quay.io/kubocd/kubocd
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag:
+  pullPolicy: IfNotPresent
+
+
+contexts: []
+#  - name: # TBD
+#    namespace: # Default to .Release.namespace
+#    description: #TBD
+#    parents: []
+#    context: {}
+
+config:
+  enabled: true
+  packageRedirects: []
+#    - oldPrefix: # TBD
+#      newPrefix: # TBD
+#      certSecretRef:
+#        name: # TBD
+#     # Other OciRepositorySpec elements
+  clusterRoles: []
+#    - storage
+  defaultContexts: []
+#    - name: cluster
+#      namespace: contexts
+  defaultNamespaceContext:
+  imageRedirects: []
+
+# for example, to store contexts
+extraNamespaces: []
+# - name: contexts
+
+networkPolicies:
+  enabled: true
+  fluxNamespace: flux-system
+
+controller:
+  replicaCount: 2
+
+  # Allow to change some logger configuration
+  logger:
+    mode: json
+    level: info
+
+  metrics:
+    enabled: false
+    secured: false  # Set both TLS and client auth (see https://book.kubebuilder.io/reference/metrics)
+    # This will be used to validate communication with the metrics endpoint
+    # By default, will use a self signed certificate issuer. But, you can provide your own ClusterIssuer
+    certificateClusterIssuer:
+    serviceMonitor:
+      enabled: false
+      name:  # -- Will default to {{ include "kubocd.controller.baseName" . }}
+
+    # -- Will default to {{ include "kubocd.controller.baseName" . }}-metrics
+    serviceName:
+    # -- Will default to {{ include "kubocd.controller.baseName" . }}-metrics
+    certificateName:
+    # -- Will default to {{ include "kubocd.controller.baseName" . }}-metrics
+    secretName:
+    # -- Will default to {{ include "kubocd.controller.baseName" . }}-metrics
+    certificateSelfSignedIssuerName:
+
+
+  helmRepository:
+    # -- Will default to {{ include "kubocd.controller.baseName" . }}-helm-repository
+    serviceName:
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+
+  volumeSize:
+    works: 100Mi
+    tmp: 100Mi
+
+  # Security Context for container
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - "ALL"
+
+  # -- Security Context for the whole pod
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # -- Annotations to be added to the pod
+  podAnnotations: {}
+
+  # -- Annotations to be added to all other resources
+  commonAnnotations: {}
+
+  # -- Hooks for specific configuration. Leave as is for standard usage
+  extraEnv:
+  additionalArgs: []
+  disableProbes: false
+  extraVolumes: []
+  #   - name:
+  #     mountPath:
+  #     claimName:
+
+
+  # Following will allow a renaming of kubocd metrics related kubernetes resources
+  # Allow overriding base name of all controller resources
+  # -- Will default to {{ include "kubocd.baseName" . }}-controller
+  baseNameOverride:
+  # -- Will default to {{ include "kubocd.controller.baseName" . }}
+  deploymentName:
+  # -- Will default to {{ include "kubocd.controller.baseName" . }}
+  serviceAccountName:
+  # -- Will default to {{ include "kubocd.controller.baseName" . }}
+  clusterRoleName:
+
+  enabled: true   # Set to false for controller running outside kubernetes, for dev
+
+

@@ -1,10 +1,10 @@
 
-{{ if and .Values.controller.enabled .Values.controller.networkPolicies.enabled }}
+{{ if .Values.networkPolicies.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: kubocd-allow-sources-fetch
-  namespace: {{ .Values.controller.networkPolicies.fluxNamespace }}
+  namespace: {{ .Values.networkPolicies.fluxNamespace }}
 spec:
   ingress:
     - from:

@@ -1,4 +1,4 @@
-{{ if .Values.webhook.enabled }}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -136,4 +136,4 @@ spec:
       {{- end }}
       {{- end }}
 
-{{ end }}
+

@@ -1,5 +1,5 @@
 
-{{ if .Values.webhook.enabled}}
+
 ---
 apiVersion: v1
 kind: Service
@@ -44,4 +44,4 @@ spec:
     {{- include "kubocd.webhook.selectorLabels" . | nindent 6 }}
 {{ end }}
 
-{{ end }}
+
