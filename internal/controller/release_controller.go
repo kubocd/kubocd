@@ -571,15 +571,15 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 }
 
 func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) (ctrl.Result, error) {
-	if op.release.Status.Phase == phase && !force {
-		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
-		//fmt.Printf("  .  .  .   .   .   .   : %s\n", phase)
-		return ctrl.Result{}, nil
-	}
 	if phase == kv1alpha1.ReleasePhaseReady {
 		r.RoleStore.RegisterRelease(op.request.NamespacedName, op.roles)
 	} else {
 		r.RoleStore.UnRegisterRelease(op.request.NamespacedName)
+	}
+	if op.release.Status.Phase == phase && !force {
+		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
+		//fmt.Printf("  .  .  .   .   .   .   : %s\n", phase)
+		return ctrl.Result{}, nil
 	}
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
 	op.release.Status.Phase = phase
