@@ -181,7 +181,11 @@ type ReleaseStatus struct {
 	Usage map[string]string `json:"usage"`
 
 	// Protected result of Release.spec.protected defaulted to package.spec.protected
+	// It is the value checked by the webhook
 	Protected bool `json:"protected"`
+
+	// PrintProtected is a copy of Protected, with a Y/n flag. To be used in display
+	PrintProtected string `json:"printProtected"`
 
 	// HelmReleaseState describe the observed state of child HelmReleases by name
 	// +kubebuilder:validation:Optional
@@ -207,7 +211,8 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
-// +kubebuilder:printcolumn:name="Waiting",type=string,JSONPath=`.status.missingDependency`
+// +kubebuilder:printcolumn:name="Wait",type=string,JSONPath=`.status.missingDependency`
+// +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`
 

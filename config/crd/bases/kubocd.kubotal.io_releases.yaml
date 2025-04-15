@@ -31,7 +31,10 @@ spec:
       name: Ready
       type: string
     - jsonPath: .status.missingDependency
-      name: Waiting
+      name: Wait
+      type: string
+    - jsonPath: .status.printProtected
+      name: PRT
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -367,9 +370,14 @@ spec:
                   PrintDescription
                   Copy of the release description, or, if empty the (templated) package one
                 type: string
+              printProtected:
+                description: PrintProtected is a copy of Protected, with a Y/n flag.
+                  To be used in display
+                type: string
               protected:
-                description: Protected result of Release.spec.protected defaulted
-                  to package.spec.protected
+                description: |-
+                  Protected result of Release.spec.protected defaulted to package.spec.protected
+                  It is the value checked by the webhook
                 type: boolean
               readyReleases:
                 description: |-
@@ -392,6 +400,7 @@ spec:
             - dependencies
             - missingDependency
             - phase
+            - printProtected
             - protected
             - readyReleases
             - roles

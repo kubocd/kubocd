@@ -297,6 +297,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if op.release.Spec.Protected != nil {
 		protected = *op.release.Spec.Protected
 	}
+	op.release.Status.PrintProtected = misc.Ternary(protected, "X", "-")
 	if protected != op.release.Status.Protected {
 		op.release.Status.Protected = protected
 		forceUpdate = true
@@ -457,7 +458,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, pckContainer *kubopackage.PckContainer) (map[string]interface{}, error) {
 
 	if release.Spec.Parameters == nil || release.Spec.Parameters.Raw == nil || len(release.Spec.Parameters.Raw) == 0 {
-		return map[string]interface{}{}, nil
+		return pckContainer.DefaultParameters, nil
 	}
 	parametersStr := string(release.Spec.Parameters.Raw)
 

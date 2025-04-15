@@ -56,7 +56,7 @@
 - Release description should default to the (templated) application description.
 - Debug 'on reconcile error:the object has been modified....'
 - Make info message more relevant
-- CLI - render command: Add helm templating (Or provide a script to launch helm template ?)
+- CLI - render command: Add helm templating
 
 # Mid term roadmap 
 
@@ -68,6 +68,7 @@
   NB: This may seems redundant with the appsOfApps/stack pattern.
   But handling this in an integrated way will allow better control of generated helm release. and an efficient 'render'
   cli command
+  Also, stack pattern issue: In case of deletion of child release, there is no auto-resync. Need to 
 
 - Embed application image to the package
 
