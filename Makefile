@@ -1,11 +1,11 @@
-APP_VERSION ?= v0.2.0
+APP_VERSION ?= v0.2.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
 IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
 #IMG ?= localhost:5001/kubocd/kubocd:${DOCKER_TAG}
 #IMG ?= ghcr.io/sergealexandre/kubocd/kubocd:${DOCKER_TAG}
 
-HELM_VERSION ?= v0.2.0
+HELM_VERSION ?= v0.2.1-snapshot
 
 HELM_DOCKER_REPO := quay.io/kubocd/charts
 #HELM_DOCKER_REPO := ghcr.io/sergealexandre/kubocd/charts
