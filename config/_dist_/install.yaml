@@ -444,12 +444,15 @@ spec:
       name: Ready
       type: string
     - jsonPath: .status.missingDependency
-      name: Waiting
+      name: Wait
+      type: string
+    - jsonPath: .status.printProtected
+      name: PRT
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .spec.description
+    - jsonPath: .status.printDescription
       name: Description
       type: string
     name: v1alpha1
@@ -775,9 +778,19 @@ spec:
                   PrintContextsContexts is a string to list our context. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              printDescription:
+                description: |-
+                  PrintDescription
+                  Copy of the release description, or, if empty the (templated) package one
+                type: string
+              printProtected:
+                description: PrintProtected is a copy of Protected, with a Y/n flag.
+                  To be used in display
+                type: string
               protected:
-                description: Protected result of Release.spec.protected defaulted
-                  to package.spec.protected
+                description: |-
+                  Protected result of Release.spec.protected defaulted to package.spec.protected
+                  It is the value checked by the webhook
                 type: boolean
               readyReleases:
                 description: |-
@@ -790,14 +803,17 @@ spec:
                   type: string
                 type: array
               usage:
-                description: Usage is the rendering of the Package.spec.usage. Aimed
-                  to provide user information
-                type: string
+                additionalProperties:
+                  type: string
+                description: |-
+                  Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
+                  Key could 'html', 'text', some language id, etc...
+                type: object
             required:
             - dependencies
             - missingDependency
             - phase
-            - printContexts
+            - printProtected
             - protected
             - readyReleases
             - roles
@@ -1180,7 +1196,7 @@ spec:
         - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
         command:
         - /manager
-        image: localhost:5001/kubocd/kubocd:v0.2.0-snapshot
+        image: quay.io/kubocd/kubocd:v0.2.0
         livenessProbe:
           httpGet:
             path: /healthz
