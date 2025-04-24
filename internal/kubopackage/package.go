@@ -18,9 +18,21 @@ type KcdTemplateBool string
 // KcdTemplateString A template where expected result is a string
 type KcdTemplateString string
 
+// KcdTemplateDuration A template where expected result is a string
+type KcdTemplateDuration string
+
 // KcdTemplateStringList A template where expected result is a []string
 // May be a string or a []string
 type KcdTemplateStringList interface{}
+
+// ------------------------------------------------
+
+type PackageSchema struct {
+	// Allow Release.spec.parameters validation. And provide default values
+	Parameters kuboschema.KuboSchema `json:"parameters,omitempty"`
+	// Allow context validation. And provide default values
+	Context kuboschema.KuboSchema `json:"context,omitempty"`
+}
 
 // ------------------------------------------------
 
@@ -43,13 +55,8 @@ type Package struct {
 	// Prevent deletion
 	// Default: false
 	// Act as default for corresponding Release value
-	Protected bool `json:"protected"`
-	Schema    *struct {
-		// Allow Release.spec.parameters validation. And provide default values
-		Parameters kuboschema.KuboSchema `json:"parameters,omitempty"`
-		// Allow context validation. And provide default values
-		Context kuboschema.KuboSchema `json:"context,omitempty"`
-	} `json:"schema,omitempty"`
+	Protected bool           `json:"protected"`
+	Schema    *PackageSchema `json:"schema,omitempty"`
 	// List of modules (HelmChart) included in the package
 	// required: true
 	Modules []*Module `json:"modules"`
@@ -67,6 +74,14 @@ type Package struct {
 type ChartRef struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+}
+
+var noParamSchema = map[string]interface{}{
+	"$schema":              "http://json-schema.org/draft-04/schema#",
+	"type":                 "object",
+	"properties":           map[string]interface{}{},
+	"required":             []string{},
+	"additionalProperties": false,
 }
 
 func (pck *Package) Groom() error {
@@ -95,20 +110,23 @@ func (pck *Package) Groom() error {
 		return fmt.Errorf("invalid 'name'. Must contain only alphanumeric characters, dashes and underscores")
 	}
 	var err error
-	if pck.Schema != nil {
-		if pck.Schema.Parameters != nil {
-			pck.Schema.Parameters, err = kuboschema.Kubo2openAPI(pck.Schema.Parameters, false)
-			if err != nil {
-				return fmt.Errorf("invalid 'schema.parameters': %w", err)
-			}
+	if pck.Schema == nil {
+		pck.Schema = &PackageSchema{}
+	}
+	if pck.Schema.Parameters != nil {
+		pck.Schema.Parameters, err = kuboschema.Kubo2openAPI(pck.Schema.Parameters, false)
+		if err != nil {
+			return fmt.Errorf("invalid 'schema.parameters': %w", err)
 		}
-		if pck.Schema.Context != nil {
-			pck.Schema.Context, err = kuboschema.Kubo2openAPI(pck.Schema.Context, true)
-			if err != nil {
-				return fmt.Errorf("invalid 'schema.context': %w", err)
-			}
-		}
+	} else {
+		pck.Schema.Parameters = noParamSchema
+	}
 
+	if pck.Schema.Context != nil {
+		pck.Schema.Context, err = kuboschema.Kubo2openAPI(pck.Schema.Context, true)
+		if err != nil {
+			return fmt.Errorf("invalid 'schema.context': %w", err)
+		}
 	}
 	if pck.Modules == nil || len(pck.Modules) == 0 {
 		return fmt.Errorf("a package must have at least one module")
@@ -176,8 +194,8 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	}
 	var err error
 	r.Usage = make(map[string]string)
-	for key, tmpl := range pck.templates.usage {
-		r.Usage[key], err = tmpl.RenderToText(model)
+	for key, template := range pck.templates.usage {
+		r.Usage[key], err = template.RenderToText(model)
 		if err != nil {
 			return nil, fmt.Errorf("could not render 'usage[%s]' template: %w", key, err)
 		}

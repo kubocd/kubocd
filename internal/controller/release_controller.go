@@ -46,7 +46,7 @@ import (
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
-const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
+const HelmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -457,10 +457,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, pckContainer *kubopackage.PckContainer) (map[string]interface{}, error) {
 
+	var parametersStr string
 	if release.Spec.Parameters == nil || release.Spec.Parameters.Raw == nil || len(release.Spec.Parameters.Raw) == 0 {
-		return pckContainer.DefaultParameters, nil
+		parametersStr = "{}"
+		//return pckContainer.DefaultParameters, nil
+	} else {
+		parametersStr = string(release.Spec.Parameters.Raw)
 	}
-	parametersStr := string(release.Spec.Parameters.Raw)
 
 	var err error
 	if strings.Contains(parametersStr, "\\n") && parametersStr[0:1] != "{" { // If there is some '\n' and this is not json.
@@ -505,18 +508,19 @@ func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
 
 // ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
 func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, store configstore.ConfigStore, defaultContext map[string]interface{}) (map[string]interface{}, []kv1alpha1.NamespacedName, ReconcileError) {
-	namespaceContext := kv1alpha1.NamespacedName{}
-	if store.GetDefaultNamespaceContext() != "" {
-		namespaceContext = kv1alpha1.NamespacedName{
-			Namespace: release.GetNamespace(),
-			Name:      store.GetDefaultNamespaceContext(),
-		}
-	}
+
+	optionalContexts := make(map[kv1alpha1.NamespacedName]bool)
+
 	contextList := make([]kv1alpha1.NamespacedName, 0, 3)
 	if !release.Spec.SkipDefaultContext {
 		contextList = append(contextList, store.GetDefaultContexts()...)
-		if !namespaceContext.IsNil() {
-			contextList = append(contextList, namespaceContext)
+		for _, nsContextName := range store.GetDefaultNamespaceContexts() {
+			nsContext := kv1alpha1.NamespacedName{
+				Namespace: release.GetNamespace(),
+				Name:      nsContextName,
+			}
+			contextList = append(contextList, nsContext)
+			optionalContexts[nsContext] = true
 		}
 	}
 	contextList = append(contextList, release.Spec.Contexts...)
@@ -527,7 +531,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		err := k8sClient.Get(ctx, contextRef.ToObjectKey(), contextObj)
 		if err != nil {
 			if k8serror.IsNotFound(err) {
-				if reflect.DeepEqual(contextRef, namespaceContext) {
+				if optionalContexts[contextRef] {
 					continue // This specific context may not exist. This is not an error
 				} else {
 					return nil, nil, NewReconcileError(fmt.Errorf("context '%s' not found", contextRef.String()), true, "ContextNotFound")

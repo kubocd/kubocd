@@ -1,9 +1,10 @@
 
 # TODO
 
-- On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
-- Improve usage on kubocd CLI (Add sample)
 
+- pack on docker hub (docker.io) does not works.
+
+- On image and kuboApp redirection, a list of pass through (exception). Use case, initial cert-manager release, when there is still no ca.crt
 
 ## Later
 
@@ -57,6 +58,17 @@
 - Debug 'on reconcile error:the object has been modified....'
 - Make info message more relevant
 - CLI - render command: Add helm templating
+- BUG: if a parameter is required and there is no parameters in release => no error generated (spec.parameters: {} fix it)
+- BUG If schema.parameters is not defined, this means the Release should not accept parameters. But it does ! (cf kubocd-workbench/m48/kubo1/project1/cnpg.yaml)
+- Add kcd- prefix as helmRelease name
+- specPatch.timeout => timeout. And set default to 2mn
+- defaultNamespaceContext should be a list
+- kubocd render display expand chart 'podinfo' in .....
+- hide kubocd dump oci
+- kubocd dump package --charts: display expand chart 'podinfo' in .dump/podinfo/charts/main
+- kubocd dump package podinfo-p01.yaml -> status.yaml is meaningless. Remove it
+- Improve usage on kubocd CLI (Add sample)
+
 
 # Mid term roadmap 
 
@@ -74,5 +86,9 @@
 
 - A webhook to patch all image in pod manifests (https://slack.engineering/simple-kubernetes-webhook/)
 
+# Useless idea
+
+- A mode where helm chart is not embedded, referencing original. (Usage ?)
+- Add package info in model
 
 

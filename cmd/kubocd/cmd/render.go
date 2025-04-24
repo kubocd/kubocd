@@ -46,6 +46,11 @@ var renderCmd = &cobra.Command{
 	Use:   "render <Release manifest> [<package manifest>]",
 	Short: "Render a KuboCD release",
 	Args:  cobra.RangeArgs(1, 2),
+	Example: `	Preview a Release.
+	$ render releases/podinfo2-ctx.yaml
+
+	Preview a Release using an alternate package manifest. 
+	$ kubocd render releases/podinfo1.yaml packages/podinfo-p01.yaml`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ------------------------------------------- Setup working folder
 		if renderParams.workDir == "" {
@@ -133,8 +138,10 @@ var renderCmd = &cobra.Command{
 				}
 				// Deploy all charts
 				for moduleName, chartRef := range pkgContainer.Status.ChartByModule {
-					fmt.Printf("Expand chart %s in %s\n", chartRef.Name, chartsDir)
-					err := tgz.ExtractAllFromTgz(path.Join(assemblyPath, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
+					target := path.Join(chartsDir, moduleName)
+					//fmt.Printf("Expand chart %s in %s\n", chartRef.Name, chartsDir)
+					fmt.Printf("Create %s\n", target)
+					err := tgz.ExtractAllFromTgz(path.Join(assemblyPath, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
 					if err != nil {
 						return err
 					}
@@ -184,8 +191,10 @@ var renderCmd = &cobra.Command{
 					return err
 				}
 				for moduleName, chartRef := range status.ChartByModule {
-					fmt.Printf("Expand chart %s\n", chartRef.Name)
-					err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
+					target := path.Join(chartsDir, moduleName)
+					//fmt.Printf("Expand chart %s into %s\n", chartRef.Name, target)
+					fmt.Printf("Create %s\n", target)
+					err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
 					if err != nil {
 						return err
 					}

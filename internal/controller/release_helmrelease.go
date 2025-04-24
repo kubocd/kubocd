@@ -128,7 +128,9 @@ func PopulateHelmRelease(
 		"targetNamespace": moduleRendered.TargetNamespace,
 		"releaseName":     helmRelease.Name, // We remove namespace from the releaseName
 		"dependsOn":       dependsOn,
+		"timeout":         &moduleRendered.Timeout,
 	}
+	// fmt.Printf("====================== timeout:%v  (%T)\n", moduleRendered.Timeout, moduleRendered.Timeout)
 	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch)
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {

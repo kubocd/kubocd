@@ -46,7 +46,7 @@ var packageParams struct {
 func init() {
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
-	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
+	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "Working directory. Default to $HOME/.kubocd")
 
 }
 
@@ -55,6 +55,13 @@ var packageCmd = &cobra.Command{
 	Short:   "Assemble a KuboCd Package from a manifest to an OCI image",
 	Args:    cobra.MinimumNArgs(1),
 	Aliases: []string{"pack", "build"},
+	Example: `	Build and push a package:
+	$ kubocd package podinfo-p01.yaml --ociRepoPrefix quay.io/kubodoc/packages
+
+	or
+	$ export OCI_REPO_PREFIX=quay.io/kubodoc/packages
+	$ kubocd package podinfo-p01.yaml`,
+	
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ------------------------------------------- Setup working folder
 		if packageParams.workDir == "" {

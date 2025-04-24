@@ -16,7 +16,7 @@ func init() {
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "display kcd client version",
+	Short: "display kubocd CLI version",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if versionParams.extended {

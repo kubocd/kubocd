@@ -65,8 +65,10 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 		if charts {
 			chartsDir := path.Join(output, "charts")
 			for moduleName, chartRef := range status.ChartByModule {
-				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
+				// fmt.Printf("Expand chart %s\n", chartRef.Name)
+				target := path.Join(chartsDir, moduleName)
+				fmt.Printf("Create %s\n", target)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
 				if err != nil {
 					return err
 				}
@@ -108,15 +110,21 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			}
 			chartsDir := path.Join(output, "charts")
 			for moduleName, chartRef := range status.ChartByModule {
-				fmt.Printf("Expand chart %s\n", chartRef.Name)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), path.Join(chartsDir, moduleName))
+				//fmt.Printf("Expand chart %s\n", chartRef.Name)
+				target := path.Join(chartsDir, moduleName)
+				fmt.Printf("Create %s\n", target)
+				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
 				if err != nil {
 					return err
 				}
 			}
+		} else {
+			status = nil // Flag as un-relevant
 		}
 	}
-	cmn.Dump(output, "status.yaml", status)
+	if status != nil {
+		cmn.Dump(output, "status.yaml", status)
+	}
 	cmn.Dump(output, "original.yaml", pckOriginal)
 
 	pckContainer := &kubopackage.PckContainer{}

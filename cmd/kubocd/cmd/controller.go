@@ -255,9 +255,9 @@ var controllerCmd = &cobra.Command{
 					contexts = append(contexts, fmt.Sprintf("%s:%s", ctx.Namespace, ctx.Name))
 				}
 			}
-			// Add the one of the namespace
-			if theConfigStore.GetDefaultNamespaceContext() != "" {
-				contexts = append(contexts, fmt.Sprintf("%s:%s", release.Namespace, theConfigStore.GetDefaultNamespaceContext()))
+			// Add the ones of the namespace
+			for _, context := range theConfigStore.GetDefaultNamespaceContexts() {
+				contexts = append(contexts, fmt.Sprintf("%s:%s", release.Namespace, context))
 			}
 
 			//fmt.Printf("**********************GetFieldIndexer(release:%s) -> %v\n", release.Name, contexts)

@@ -3,11 +3,13 @@ package tmpl
 import (
 	"bytes"
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kubocd/internal/misc"
 	"sigs.k8s.io/yaml"
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 )
 
 type Tmpl interface {
@@ -17,6 +19,7 @@ type Tmpl interface {
 	RenderToBool(model map[string]interface{}) (bool, string, error)
 	RenderToStringList(model map[string]interface{}) ([]string, string, error)
 	SetDelimiters(d1, d2 string)
+	RenderToDuration(model map[string]interface{}) (metav1.Duration, string, error)
 }
 
 var _ Tmpl = &tmpl{}
@@ -124,4 +127,23 @@ func (tt *tmpl) RenderToBool(model map[string]interface{}) (bool, string, error)
 		return false, txt, err
 	}
 	return b, txt, nil
+}
+
+func (tt *tmpl) RenderToDuration(model map[string]interface{}) (metav1.Duration, string, error) {
+	txt, err := tt.RenderToText(model)
+	if err != nil {
+		return metav1.Duration{
+			Duration: time.Duration(0),
+		}, txt, err
+	}
+	txt = strings.TrimSpace(txt)
+	d, err := time.ParseDuration(txt)
+	if err != nil {
+		return metav1.Duration{
+			Duration: time.Duration(0),
+		}, txt, err
+	}
+	return metav1.Duration{
+		Duration: d,
+	}, txt, nil
 }

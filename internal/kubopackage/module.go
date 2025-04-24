@@ -2,6 +2,7 @@ package kubopackage
 
 import (
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
@@ -49,6 +50,9 @@ type Module struct {
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
 	SpecPatch KcdTemplateMap `json:"specPatch,omitempty"`
+	// Timeout is the time to wait for any individual Kubernetes operation (like Jobs for hooks)
+	// during the performance of a Helm action. Defaults to ‘2m’.
+	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
@@ -73,6 +77,9 @@ func (m *Module) groom(pck *Package, idx int) error {
 	}
 	if m.Enabled == "" {
 		m.Enabled = "true"
+	}
+	if misc.IsZero(m.Timeout) {
+		m.Timeout = "2m0s"
 	}
 	// Normalize
 	if m.DependsOn == nil {
@@ -128,6 +135,10 @@ func (m *Module) groom(pck *Package, idx int) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'specPatch' template: %w", err)
 	}
+	m.templates.timeout, err = tmpl.New("", string(m.Timeout), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'timeout' template: %w", err)
+	}
 	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
@@ -150,6 +161,7 @@ type moduleTemplates struct {
 	targetNamespace tmpl.Tmpl
 	enabled         tmpl.Tmpl
 	dependsOn       tmpl.Tmpl
+	timeout         tmpl.Tmpl
 }
 
 // ModuleRendered object is a proxy for module. Aim is to concentrate all error detection in its constructor
@@ -162,6 +174,7 @@ type ModuleRendered struct {
 	TargetNamespace string
 	Enabled         bool
 	DependsOn       []string
+	Timeout         metav1.Duration
 }
 
 var createNamespacePatch = map[string]interface{}{
@@ -185,6 +198,10 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	mr.SpecPatch, txt, err = m.templates.specPatch.RenderToMap(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'specPatch' template: %w (%s)", err, txt)
+	}
+	mr.Timeout, txt, err = m.templates.timeout.RenderToDuration(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'timeout' template: %w (%s)", err, txt)
 	}
 	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToSingleLine(model)
 	if err != nil {

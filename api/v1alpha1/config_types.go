@@ -97,8 +97,9 @@ type ConfigSpec struct {
 	// Default: []
 	DefaultContexts []NamespacedName `json:"defaultContexts,omitempty"`
 
-	// Define a context name which will be added to all releases located in a namespace, except the one with 'skipDefaultContext' flag
-	DefaultNamespaceContext string `json:"defaultNamespaceContext,omitempty"`
+	// Define a list of context name which will be added to all releases located in a namespace,
+	// except the one with 'skipDefaultContext' flag
+	DefaultNamespaceContexts []string `json:"defaultNamespaceContexts,omitempty"`
 }
 
 // ConfigStatus defines the observed state of Config.

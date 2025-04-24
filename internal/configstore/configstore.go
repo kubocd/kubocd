@@ -17,16 +17,16 @@ type ConfigStore interface {
 	GetDefaultContexts() []v1alpha1.NamespacedName
 	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string)
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
-	GetDefaultNamespaceContext() string
+	GetDefaultNamespaceContexts() []string
 }
 
 type configStore struct {
-	mutex                   sync.Mutex
-	clusterRoles            map[string]bool
-	packageRedirects        []*v1alpha1.PackageRedirectSpec
-	imageRedirects          []*v1alpha1.ImageRedirectSpec
-	defaultContexts         []v1alpha1.NamespacedName
-	defaultNamespaceContext string
+	mutex                    sync.Mutex
+	clusterRoles             map[string]bool
+	packageRedirects         []*v1alpha1.PackageRedirectSpec
+	imageRedirects           []*v1alpha1.ImageRedirectSpec
+	defaultContexts          []v1alpha1.NamespacedName
+	defaultNamespaceContexts []string
 }
 
 var _ ConfigStore = &configStore{}
@@ -81,10 +81,10 @@ func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {
 	return c.defaultContexts
 }
 
-func (c *configStore) GetDefaultNamespaceContext() string {
+func (c *configStore) GetDefaultNamespaceContexts() []string {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	return c.defaultNamespaceContext
+	return c.defaultNamespaceContexts
 }
 
 func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespace string) {
@@ -98,6 +98,7 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 	c.packageRedirects = make([]*v1alpha1.PackageRedirectSpec, 0, 10)
 	c.imageRedirects = make([]*v1alpha1.ImageRedirectSpec, 0, 10)
 	c.defaultContexts = make([]v1alpha1.NamespacedName, 0, 10)
+	c.defaultNamespaceContexts = make([]string, 0, 10)
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
 			c.clusterRoles[role] = true
@@ -105,7 +106,7 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		c.packageRedirects = append(c.packageRedirects, config.Spec.PackageRedirects...)
 		c.imageRedirects = append(c.imageRedirects, config.Spec.ImageRedirects...)
 		c.defaultContexts = append(c.defaultContexts, config.Spec.DefaultContexts...)
-		c.defaultNamespaceContext = config.Spec.DefaultNamespaceContext
+		c.defaultNamespaceContexts = append(c.defaultNamespaceContexts, config.Spec.DefaultNamespaceContexts...)
 	}
 	for idx := range c.defaultContexts {
 		if c.defaultContexts[idx].Namespace == "" {

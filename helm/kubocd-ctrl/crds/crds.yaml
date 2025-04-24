@@ -67,11 +67,13 @@ spec:
                   - name
                   type: object
                 type: array
-              defaultNamespaceContext:
-                description: Define a context name which will be added to all releases
-                  located in a namespace, except the one with 'skipDefaultContext'
-                  flag
-                type: string
+              defaultNamespaceContexts:
+                description: |-
+                  Define a list of context name which will be added to all releases located in a namespace,
+                  except the one with 'skipDefaultContext' flag
+                items:
+                  type: string
+                type: array
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart
