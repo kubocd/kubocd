@@ -46,7 +46,7 @@ import (
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
-const HelmReleaseNameFormat = "kcd-%s-%s" // parameters: releaseName, moduleName
+const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {

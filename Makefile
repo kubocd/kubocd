@@ -1,8 +1,8 @@
 APP_VERSION ?= v0.2.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
-#IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
-IMG ?= localhost:5001/kubocd/kubocd:${DOCKER_TAG}
+IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
+#IMG ?= localhost:5001/kubocd/kubocd:${DOCKER_TAG}
 #IMG ?= ghcr.io/sergealexandre/kubocd/kubocd:${DOCKER_TAG}
 
 HELM_VERSION ?= v0.2.1-snapshot
@@ -131,7 +131,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: cli-release
 cli-release:		## Upload a release of kubpcd cli client
 	goreleaser release --clean --skip validate
-	#export GORELEASER_CURRENT_TAG=${RELEASE_TAG}; goreleaser release --clean --skip validate
+
+
+.PHONY: cli-build
+cli-build:		## Build locally a release of kubpcd cli client
+	goreleaser build --clean --skip validate
 
 
 .PHONY: docker
