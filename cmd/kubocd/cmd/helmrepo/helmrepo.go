@@ -28,6 +28,7 @@ import (
 	"os"
 	"path"
 	"sigs.k8s.io/yaml"
+	"sort"
 )
 
 type Operation struct {
@@ -67,8 +68,14 @@ func DumpHelmRepo(op *Operation) error {
 		if !ok {
 			return fmt.Errorf("chart %s not found in index", op.ChartName)
 		}
-		for _, chartVersion := range chartVersions {
-			fmt.Printf("%s\n", chartVersion.Version)
+		versions := make([]string, len(chartVersions))
+		for idx, v := range chartVersions {
+			versions[idx] = v.Version
+		}
+		sort.Strings(versions)
+
+		for _, v := range versions {
+			fmt.Printf("%s\n", v)
 		}
 	} else {
 		// Dump Chart.yaml and content
