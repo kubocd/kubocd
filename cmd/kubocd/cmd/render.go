@@ -47,6 +47,8 @@ var renderParams struct {
 	workDir         string
 	kubocdNamespace string
 	namespace       string
+	debug           bool
+	trace           bool
 }
 
 var renderLog logr.Logger
@@ -56,6 +58,8 @@ func init() {
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.namespace, "namespace", "n", "default", "Value to set if release.metadata.namespace is empty")
+	renderCmd.PersistentFlags().BoolVar(&renderParams.debug, "debug", false, "Enable debug logging")
+	renderCmd.PersistentFlags().BoolVar(&renderParams.trace, "trace", false, "Enable trace logging")
 }
 
 var renderCmd = &cobra.Command{
@@ -78,9 +82,16 @@ var renderCmd = &cobra.Command{
 			renderParams.workDir = fmt.Sprintf("%s/.kubocd", dir)
 		}
 		var err error
-		// logger is just used for some functions shared,with the release reconciler. So currently, we hard code level and mode.
+		// logger is just used for some functions shared,with the release reconciler. So currently, we hard code mode.
+		level := "info"
+		if renderParams.debug {
+			level = "debug"
+		}
+		if renderParams.trace {
+			level = "trace"
+		}
 		renderLog, err = misc.HandleLog(&misc.LogConfig{
-			Level: "info",
+			Level: level,
 			Mode:  "dev",
 		})
 		if err != nil {
@@ -90,6 +101,8 @@ var renderCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
+			renderLog.V(1).Info("Debug mode set")
+			renderLog.V(2).Info("Trace mode set")
 			output := renderParams.output
 
 			release := &kapi.Release{}
@@ -185,27 +198,33 @@ var renderCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("error getting OCI content: %w", err)
 				}
+				renderLog.V(1).Info("OCI fetched successfully", "archive", archive)
 				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
 				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &pkgOriginal)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
 				}
+				renderLog.V(1).Info("Unmarshalled original.yaml")
 				status := &kubopackage.Status{}
 				err = tgz.UnmarshalDataFromTgz(archive, "status.yaml", &status)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
 				}
+				renderLog.V(1).Info("Unmarshalled status.yaml")
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000")
+				renderLog.V(1).Info("Setting package in pkgContainer OK")
 
 				// Deploy all charts
 				tarManifest := path.Join(renderParams.workDir, "manifest.tar")
 				if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
 					return err
 				}
+				renderLog.V(1).Info("SafeEnsureEmpty OK", "folder", tarManifest)
 				err = tgz.ExtractAllFromTgz(archive, tarManifest)
 				if err != nil {
 					return err
 				}
+				renderLog.V(1).Info("ExtractAllFromTgz OK", "archive", archive)
 				for moduleName, chartRef := range status.ChartByModule {
 					target := path.Join(chartsDir, moduleName)
 					//fmt.Printf("Expand chart %s into %s\n", chartRef.Name, target)
@@ -214,6 +233,7 @@ var renderCmd = &cobra.Command{
 					if err != nil {
 						return err
 					}
+					renderLog.V(1).Info("ExtractAllFromTgz OK", "target", target)
 				}
 			}
 			cmn.Dump(output, "package.yaml", pkgContainer.Package)
