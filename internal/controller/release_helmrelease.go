@@ -18,13 +18,14 @@ package controller
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/kubopackage"
+	"kubocd/internal/misc"
+
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	kv1alpha1 "kubocd/api/v1alpha1"
-	"kubocd/internal/kubopackage"
-	"kubocd/internal/misc"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -62,7 +63,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 		}
 	} else {
 		if enabled {
-			changed, err := r.patchHelmRelease(op, helmRelease, rendered, module)
+			changed, err := patchHelmRelease(r, op, helmRelease, rendered, module)
 			if err != nil {
 				return nil, NewReconcileError(err, false, "HelmReleasePatch")
 			}
@@ -107,26 +108,35 @@ func PopulateHelmRelease(
 	helmRepositoryName string,
 	module *kubopackage.Module,
 	helmReleaseNameByModuleName map[string]string,
-) {
+) error {
 	helmRelease.Spec.Interval = release.Spec.Package.Interval
+
+	// Get chart reference for the module
 	chartRef, ok := pckContainer.Status.ChartByModule[module.Name]
 	if !ok {
-		panic("Internal error chart not found by module name")
+		return fmt.Errorf("chart not found for module '%s'", module.Name)
 	}
-	moduleRendered := rendered.ModuleRenderedByName[module.Name]
 
-	dependsOn := make([]map[string]string, 0)
+	// Get rendered module configuration
+	moduleRendered, ok := rendered.ModuleRenderedByName[module.Name]
+	if !ok {
+		return fmt.Errorf("rendered module not found for module '%s'", module.Name)
+	}
+
+	// Build dependencies list
+	dependsOn := make([]map[string]string, 0, len(moduleRendered.DependsOn))
 	for _, dep := range moduleRendered.DependsOn {
 		rn, ok := helmReleaseNameByModuleName[dep]
 		if !ok {
-			// Should no occurs, as this should be trapped on module rendering
-			panic(fmt.Sprintf("dependency '%s' not found for module name '%s'", dep, module.Name))
+			return fmt.Errorf("dependency '%s' not found for module '%s'", dep, module.Name)
 		}
 		dependsOn = append(dependsOn, map[string]string{
 			"name":      rn,
 			"namespace": helmRelease.Namespace, // All helmRelease of a release are in the same namespace
 		})
 	}
+
+	// Build the spec configuration
 	spec := map[string]interface{}{
 		"chart": map[string]interface{}{
 			"spec": map[string]interface{}{
@@ -146,33 +156,43 @@ func PopulateHelmRelease(
 		"dependsOn":       dependsOn,
 		"timeout":         &moduleRendered.Timeout,
 	}
-	// fmt.Printf("====================== timeout:%v  (%T)\n", moduleRendered.Timeout, moduleRendered.Timeout)
+
+	// Apply module-specific spec patches
 	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch)
+
+	// Apply release-specific spec patches
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
 		var err error
 		spec, err = Merge(spec, patch)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("failed to merge spec patch for module '%s': %w", module.Name, err)
 		}
 	}
+
+	// Convert spec to YAML and unmarshal into HelmRelease spec
 	specTxt, err := yaml.Marshal(spec)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to marshal spec to YAML for module '%s': %w", module.Name, err)
 	}
-	// fmt.Printf("================= specTxt\n%s\n", specTxt)
+
 	err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': %w", module.Name, err)
 	}
+
+	return nil
 }
 
 func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, name string, module *kubopackage.Module) error {
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(name)
 	helmRelease.SetNamespace(op.release.Namespace)
-	PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
-	err := ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
+	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	if err != nil {
+		return fmt.Errorf("failed to populate HelmRelease '%s': %w", name, err)
+	}
+	err = ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
 	}
@@ -182,13 +202,25 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *ku
 	return nil
 }
 
-func (r *ReleaseReconciler) patchHelmRelease(op *releaseOperation, helmRelease *fluxv2.HelmRelease, rendered *kubopackage.Rendered, module *kubopackage.Module) (bool, error) {
+func patchHelmRelease(r *ReleaseReconciler, op *releaseOperation, helmRelease *fluxv2.HelmRelease, rendered *kubopackage.Rendered, module *kubopackage.Module) (bool, error) {
+	// Store original generation to detect changes
 	originalGeneration := helmRelease.Generation
+
+	// Create a deep copy for the patch operation
 	patch := client.MergeFrom(helmRelease.DeepCopy())
-	PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
-	err := r.Patch(op.ctx, helmRelease, patch)
+
+	// Populate the HelmRelease with updated configuration
+	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	if err != nil {
+		return false, fmt.Errorf("failed to populate HelmRelease '%s': %w", helmRelease.Name, err)
+	}
+
+	// Apply the patch
+	err = r.Patch(op.ctx, helmRelease, patch)
 	if err != nil {
 		return false, fmt.Errorf("error while patching HelmRelease '%s': %w", helmRelease.Name, err)
 	}
+
+	// Check if the generation changed to determine if an update occurred
 	return originalGeneration != helmRelease.Generation, nil
 }
