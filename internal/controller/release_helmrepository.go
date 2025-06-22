@@ -27,12 +27,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl string) (*sourcev1.HelmRepository, ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidate bool, repoUrl string) (*sourcev1.HelmRepository, ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
 	if err != nil {
-		//logger.V(1).Info("Unable to fetch HELM Repository", "error", err.Error())
 		if !apierrors.IsNotFound(err) {
 			return nil, NewReconcileError(fmt.Errorf("on '%s': %w", op.helmRepositoryName, err), false, "HelmRepositoryAccess")
 		}
@@ -43,19 +42,32 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, repoUrl s
 			return nil, NewReconcileError(err, false, "HelmRepositoryCreateFailed")
 		}
 		r.Event(op.release, "Normal", "HelmRepositoryCreated", fmt.Sprintf("Created HelmRepository %q", op.helmRepositoryName))
-		// Caller will Requeue, waiting for Helm
+		// Caller will Requeue
 		return nil, nil
-	} else {
-		changed, err := r.patchHelmRepository(op, helmRepository, repoUrl)
-		if err != nil {
-			return nil, NewReconcileError(err, false, "HelmRepositoryPatchFailed")
-		}
-		if changed {
-			op.logger.V(0).Info("Helm repository updated", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
-		} else {
-			op.logger.V(1).Info("Helm repository unchanged", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
-		}
 	}
+	// Helm repo exists
+	if invalidate {
+		op.logger.V(0).Info("Will delete associated HelmRepository as content have changed", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
+		err := r.Delete(op.ctx, helmRepository)
+		if err != nil {
+			return nil, NewReconcileError(err, false, "HelmRepositoryDeleteFailed")
+		}
+		r.Event(op.release, "Normal", "HelmRepositoryDeleted", fmt.Sprintf("Delete HelmRepository %q for content change", op.helmRepositoryName))
+		//
+		// Caller will Requeue,
+		return nil, nil
+	}
+
+	changed, err := r.patchHelmRepository(op, helmRepository, repoUrl)
+	if err != nil {
+		return nil, NewReconcileError(err, false, "HelmRepositoryPatchFailed")
+	}
+	if changed {
+		op.logger.V(0).Info("Helm repository updated", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
+	} else {
+		op.logger.V(1).Info("Helm repository unchanged", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
+	}
+
 	statusByType := buildConditionStatusByType(helmRepository.Status.Conditions, "HelmRepository", op.helmRepositoryName, op.logger)
 
 	if statusByType["Ready"] != metav1.ConditionTrue {

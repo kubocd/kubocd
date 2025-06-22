@@ -78,12 +78,12 @@ func (store *roleStore) RegisterRelease(namespacedName types.NamespacedName, rol
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	store.rolesByRelease[namespacedName.String()] = roles
-	store.logger.V(1).Info("registered release", "release", namespacedName, "roles", roles)
+	store.logger.V(1).Info("registered release role(s)", "release", namespacedName, "roles", roles)
 }
 
 func (store *roleStore) UnRegisterRelease(namespacedName types.NamespacedName) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	delete(store.rolesByRelease, namespacedName.String())
-	store.logger.V(1).Info("un-registered release", "release", namespacedName)
+	store.logger.V(1).Info("un-registered release role(s)", "release", namespacedName)
 }

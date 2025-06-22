@@ -225,6 +225,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	revision := ociArtifact.Revision
 	revisionFile := path.Join(helmRepositoryFolder, "revision.txt")
 
+	// The following flag mark the case we update the helmRepository contents. So, the index.yaml may be changed (In case
+	// of helm chart change and we need to delete/recreate the helmRepository resource to force index reload
+	invalidate := false
+
 	revisionCached, err := os.ReadFile(revisionFile)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -233,6 +237,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		// If notFound, it is a normal case. revision == "", so load it below
 	}
 	if string(revisionCached) != revision {
+		invalidate = true // If in initial load, invalidate==true will have no effect, as helmRepository resource does not exits yet
 		err = misc.SafeEnsureEmpty(helmRepositoryFolder)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS"), false)
@@ -251,7 +256,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
-	helmRepository, reconcileError := r.handleHelmRepository(op, repoUrl)
+	helmRepository, reconcileError := r.handleHelmRepository(op, invalidate, repoUrl)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError, false)
 	}
