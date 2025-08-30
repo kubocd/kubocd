@@ -40,7 +40,7 @@ spec:
     name: {{ include "kubocd.controller.metrics.certificateSelfSignedIssuerName" . }}
 {{- else }}
     kind: ClusterIssuer
-    name: .Values.metrics.certificateClusterIssuer
+    name: {{ .Values.controller.metrics.certificateClusterIssuer}}
 {{- end }}
   secretName: {{ include "kubocd.controller.metrics.secretName" . }}
 
