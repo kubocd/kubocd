@@ -188,12 +188,35 @@ func digestToFile(digest digest.Digest, workDir string) string {
 
 // GetCredentials retrieves stored credentials from the macOS/linux/windows Keychain
 func GetCredentials(registry string) (string, string, error) {
-	user := os.Getenv(global.OciUserEnvVar)
-	secret := os.Getenv(global.OciSecretEnvVar)
+
+	registryTag := strings.Replace(registry, ":", "_", -1)
+	registryTag = strings.Replace(registryTag, "/", "_", -1)
+	registryTag = strings.Replace(registryTag, "-", "_", -1)
+	registryTag = strings.Replace(registryTag, ".", "_", -1)
+	registryTag = strings.ToUpper(registryTag)
+
+	userEnvVar := fmt.Sprintf(global.OciUserEnvVarFormat, registryTag)
+	secretEnvVar := fmt.Sprintf(global.OciSecretEnvVarFormat, registryTag)
+
+	user := os.Getenv(global.DeprecatedOciUserEnvVar)
+	secret := os.Getenv(global.DeprecatedOciSecretEnvVar)
 	if user != "" && secret != "" {
-		slog.Debug(fmt.Sprintf("User authentication from %s and %s", global.OciUserEnvVar, global.OciSecretEnvVar))
+		fmt.Printf("    User authentication for '%s' found in %s and %s\n", registry, global.DeprecatedOciUserEnvVar, global.DeprecatedOciSecretEnvVar)
+		fmt.Printf("    WARNING: This is deprecated. Use %s and %s instead if you need authentication on this registry\n", userEnvVar, secretEnvVar)
 		return user, secret, nil
+	} else {
+		slog.Debug("Deprecated credential environment variables not found. skipping", "registry", registry, "userEnvVar", global.DeprecatedOciUserEnvVar, "secretEnvVar", global.DeprecatedOciSecretEnvVar)
 	}
+
+	user = os.Getenv(userEnvVar)
+	secret = os.Getenv(secretEnvVar)
+	if user != "" && secret != "" {
+		fmt.Printf("    User authentication for '%s' found in %s and %s\n", registry, userEnvVar, secretEnvVar)
+		return user, secret, nil
+	} else {
+		slog.Debug("Credential environment variables not found. Skipping", "registry", registry, "userEnvVar", userEnvVar, "secretEnvVar", secretEnvVar)
+	}
+
 	helper, err := getDockerCredentialsHelper()
 	if err != nil {
 		return "", "", err

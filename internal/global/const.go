@@ -25,8 +25,11 @@ const PackageType = "Package"
 
 // Env variable for OCI authentication
 
-const OciUserEnvVar = "KCD_OCI_USER"
-const OciSecretEnvVar = "KCD_OCI_SECRET"
+const DeprecatedOciUserEnvVar = "KCD_OCI_USER"
+const DeprecatedOciSecretEnvVar = "KCD_OCI_SECRET"
+
+const OciUserEnvVarFormat = "KCD_OCI_%s_USER"
+const OciSecretEnvVarFormat = "KCD_OCI_%s_SECRET"
 
 const DockerCredentialHelperEnvVar = "KCD_DOCKER_CREDENTIAL_HELPER"
 

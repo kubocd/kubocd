@@ -30,6 +30,7 @@ import (
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
+	"log/slog"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -54,12 +55,14 @@ import (
 */
 
 var packageParams struct {
+	logConfig     misc.LogConfig
 	ociRepoPrefix string
 	plainHTTP     bool
 	workDir       string
 }
 
 func init() {
+	packageCmd.PersistentFlags().StringVar(&packageParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "Working directory. Default to $HOME/.kubocd")
@@ -88,6 +91,13 @@ var packageCmd = &cobra.Command{
 			}
 			packageParams.workDir = fmt.Sprintf("%s/.kubocd", dir)
 		}
+		packageParams.logConfig.Mode = "text"
+		packageLogger, err := misc.NewSlogLogger(&packageParams.logConfig)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to load logging configuration: %v\n", err)
+			os.Exit(2)
+		}
+		slog.SetDefault(packageLogger)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		err := pack(args[0])
