@@ -21,16 +21,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"github.com/Masterminds/sprig/v3"
-	"github.com/pkg/errors"
 	"kubocd/internal/configstore"
 	"kubocd/internal/misc"
 	"net"
 	"os"
-	"sigs.k8s.io/yaml"
 	"strings"
 	"text/template"
+
+	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/sprig/v3"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/yaml"
 )
 
 // funcMap returns a mapping of all the functions that Engine has.
@@ -91,10 +92,10 @@ func warnWrap(s string) string {
 
 func required(warn string, val interface{}) (interface{}, error) {
 	if val == nil {
-		return val, errors.Errorf(warnWrap(warn))
+		return val, errors.New(warnWrap(warn))
 	} else if _, ok := val.(string); ok {
 		if val == "" {
-			return val, errors.Errorf(warnWrap(warn))
+			return val, errors.New(warnWrap(warn))
 		}
 	}
 	return val, nil

@@ -18,13 +18,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/fluxcd/pkg/http/fetch"
-	"github.com/go-logr/logr"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	k8serror "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/json"
-	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/cache"
 	"kubocd/internal/configstore"
@@ -36,12 +29,20 @@ import (
 	"os"
 	"path"
 	"reflect"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serror "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
@@ -546,7 +547,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 			}
 		}
 		if contextObj.Status.Phase != kv1alpha1.ContextPhaseReady {
-			return nil, nil, NewReconcileError(fmt.Errorf(fmt.Sprintf("Context '%s' is in error", contextRef.String())), true, "ContextRetrieval")
+			return nil, nil, NewReconcileError(fmt.Errorf("context '%s' is in error", contextRef.String()), true, "ContextRetrieval")
 		}
 		// OK. Merge our info on top
 		ctx := contextObj.Status.Context

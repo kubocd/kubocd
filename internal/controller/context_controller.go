@@ -19,16 +19,17 @@ package controller
 import (
 	"context"
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
+	"strings"
+
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
-	kv1alpha1 "kubocd/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
-	"strings"
 )
 
 // ContextReconciler reconciles a Context object
@@ -112,11 +113,11 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 				if errors.IsNotFound(err) {
 					return r.reportError(op, NewReconcileError(err, true, "GetParent"))
 				} else {
-					return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' not found", parent.String())), false, "MissingParent"))
+					return r.reportError(op, NewReconcileError(fmt.Errorf("parent '%s' not found", parent.String()), false, "MissingParent"))
 				}
 			}
 			if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
-				return r.reportError(op, NewReconcileError(fmt.Errorf(fmt.Sprintf("Parent '%s' is in error", parent.String())), false, "ParentError"))
+				return r.reportError(op, NewReconcileError(fmt.Errorf("parent '%s' is in error", parent.String()), false, "ParentError"))
 			}
 			// OK. Merge our info on top of our parent
 			ctx := parentContext.Status.Context
