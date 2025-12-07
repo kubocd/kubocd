@@ -20,10 +20,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	"helm.sh/helm/v3/pkg/chart"
 	"io"
 	"io/fs"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
@@ -37,6 +33,12 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"helm.sh/helm/v3/pkg/chart"
 	"sigs.k8s.io/yaml"
 )
 
@@ -164,12 +166,22 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 		return "", fmt.Errorf("failed to clone repo: %w", err)
 	}
 
-	// ----------------------------------------------------------- Build chart archive
+	// ----------------------------------------------------------- Check we are at the root of an helm chart
 	chartFile := path.Join(chartLocation, "Chart.yaml")
 	_, err = os.Stat(chartFile)
 	if err != nil {
 		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
 	}
+
+	// ----------------------------------------------------------- Build chart dependencies
+	cmd := exec.Command("helm", "dependency", "build", chartLocation)
+	// Run the command and capture output
+	_, err = cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to build chart dependencies: %w", err)
+	}
+
+	// ----------------------------------------------------------- Build chart archive
 	out, err := os.Create(archive)
 	if err != nil {
 		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
@@ -186,10 +198,15 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 			return nil
 		}
 		if !d.IsDir() {
-			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			err := tgz.AddToArchive(tw, thePath, targetFileName)
-			if err != nil {
-				return err
+			itemFileName := thePath[chartLocationLen:]
+			targetFileName := path.Join(moduleName, itemFileName)
+			if isChartItem(itemFileName) {
+				//fmt.Printf("%s  -> %s (%s)\n", thePath, targetFileName, itemFileName)
+				slog.Debug("Store chart item", "item", itemFileName)
+				err := tgz.AddToArchive(tw, thePath, targetFileName)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -198,7 +215,28 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 		return "", err
 	}
 	return archive, nil
+}
 
+var validChartItems = map[string]bool{
+	"/Chart.yaml":         true,
+	"/Chart.json":         true,
+	"/Chart.yml":          true,
+	"/LICENSE":            true,
+	"/README.md":          true,
+	"/values.yaml":        true,
+	"/values.schema.json": true,
+	"/Chart.lock":         true,
+}
+
+// Test if the file is an effective chart item (cf https://helm.sh/docs/v3/topics/charts)
+func isChartItem(fileName string) bool {
+	if _, ok := validChartItems[fileName]; ok {
+		return true
+	}
+	if strings.HasPrefix(fileName, "/charts") || strings.HasPrefix(fileName, "/crds") || strings.HasPrefix(fileName, "/templates") {
+		return true
+	}
+	return false
 }
 
 func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, moduleName string, workDir string) (string, error) {
@@ -222,12 +260,12 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		return "", err
 	}
 	//----------------------
-	cmd := exec.Command("helm", "dependency", "update", chartLocation2)
+	cmd := exec.Command("helm", "dependency", "build", chartLocation2)
 
 	// Run the command and capture output
 	_, err = cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to update chart dependencies: %w", err)
+		return "", fmt.Errorf("failed to build chart dependencies: %w", err)
 	}
 
 	//----------------------

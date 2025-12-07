@@ -21,9 +21,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/spf13/cobra"
-	"helm.sh/helm/v3/pkg/repo"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
@@ -31,15 +28,19 @@ import (
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"log/slog"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/spf13/cobra"
+	"helm.sh/helm/v3/pkg/repo"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
-	"os"
-	"path"
-	"path/filepath"
-	"strings"
 )
 
 /*
