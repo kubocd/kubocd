@@ -64,6 +64,13 @@ controller:
     mode: json
     level: info
 
+  # Setup toleration and node selector to run inside control plane
+  deployInControlPlane: true
+  # NodeSelector for the pod to be installed (Ignored if deployInControlPlane: true)
+  nodeSelector: {}
+  # -- Tolerations for the pod to be installed (Ignored if deployInControlPlane: true)
+  tolerations: []
+
   metrics:
     enabled: false
     secured: false  # Set both TLS and client auth (see https://book.kubebuilder.io/reference/metrics)

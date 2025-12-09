@@ -19,6 +19,14 @@ webhook:
     mode: json
     level: info
 
+  # Setup toleration and node selector to run inside control plane
+  deployInControlPlane: true
+  # NodeSelector for the pod to be installed (Ignored if deployInControlPlane: true)
+  nodeSelector: {}
+  # -- Tolerations for the pod to be installed (Ignored if deployInControlPlane: true)
+  tolerations: []
+
+
   # This will be used to validate communication between the API server and this webhook server
   # By default, will use a self signed certificate issuer. But, you can provide your own ClusterIssuer
   certificateClusterIssuer:
