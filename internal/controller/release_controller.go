@@ -499,6 +499,9 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 }
 
 func BuildHelmReleaseName(releaseName, moduleName string) string {
+	if moduleName == "noname" {
+		return releaseName
+	}
 	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
 }
 

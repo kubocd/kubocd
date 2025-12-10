@@ -31,32 +31,32 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, name string, module *kubopackage.Module) (*fluxv2.HelmRelease, ReconcileError) {
+func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, helmReleaseName string, module *kubopackage.Module) (*fluxv2.HelmRelease, ReconcileError) {
 	enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 
 	helmRelease := &fluxv2.HelmRelease{}
-	err := r.Get(op.ctx, types.NamespacedName{Name: name, Namespace: op.release.Namespace}, helmRelease)
+	err := r.Get(op.ctx, types.NamespacedName{Name: helmReleaseName, Namespace: op.release.Namespace}, helmRelease)
 	if err != nil {
 		//logger.V(1).Info("Unable to fetch helmRelease", "error", err.Error())
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on helmRelease '%s': %w", name, err), false, "HelmReleaseAccess")
+			return nil, NewReconcileError(fmt.Errorf("on helmRelease '%s': %w", helmReleaseName, err), false, "HelmReleaseAccess")
 		}
 		if enabled {
 			// Must create it
-			op.logger.V(0).Info("Will create helmRelease", "name", name, "namespace", op.release.Namespace, "module", module.Name)
-			err := r.createHelmRelease(op, rendered, name, module)
+			op.logger.V(0).Info("Will create helmRelease", "name", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
+			err := r.createHelmRelease(op, rendered, helmReleaseName, module)
 			if err != nil {
 				return nil, NewReconcileError(err, false, "HelmReleaseCreate")
 			}
-			r.Event(op.release, "Normal", "HelmReleaseCreated", fmt.Sprintf("Created HelmRelease %q", name))
-			op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", name)
+			r.Event(op.release, "Normal", "HelmReleaseCreated", fmt.Sprintf("Created HelmRelease %q", helmReleaseName))
+			op.logger.V(1).Info("Launched helmRelease", "helmReleaseName", helmReleaseName)
 			op.helmReleaseStates[module.Name] = kv1alpha1.HelmReleaseState{
 				Ready:  metav1.ConditionUnknown,
 				Status: "",
 			}
 			return helmRelease, nil
 		} else {
-			op.logger.V(1).Info("Disabled helmRelease", "helmReleaseName", name)
+			op.logger.V(1).Info("Disabled helmRelease", "helmReleaseName", helmReleaseName)
 			delete(op.helmReleaseStates, module.Name)
 			// Nothing to do.
 			return nil, nil
@@ -68,9 +68,9 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 				return nil, NewReconcileError(err, false, "HelmReleasePatch")
 			}
 			if changed {
-				op.logger.V(0).Info("HelmRelease updated", "name", name, "namespace", op.release.Namespace, "module", module.Name)
+				op.logger.V(0).Info("HelmRelease updated", "name", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
 			} else {
-				op.logger.V(1).Info("HelmRelease unchanged", name, "namespace", op.release.Namespace, "module", module.Name)
+				op.logger.V(1).Info("HelmRelease unchanged", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
 			}
 			op.helmReleaseStates[module.Name] = computeHelmReleaseState(helmRelease)
 			return helmRelease, nil
@@ -80,7 +80,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			if err != nil {
 				return nil, NewReconcileError(err, false, "HelmReleaseDelete")
 			}
-			op.logger.V(1).Info("Delete helmRelease", "helmReleaseName", name)
+			op.logger.V(1).Info("Delete helmRelease", "helmReleaseName", helmReleaseName)
 			delete(op.helmReleaseStates, module.Name)
 			return nil, nil
 		}
@@ -184,20 +184,20 @@ func PopulateHelmRelease(
 	return nil
 }
 
-func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, name string, module *kubopackage.Module) error {
+func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, helmReleaseName string, module *kubopackage.Module) error {
 	helmRelease := &fluxv2.HelmRelease{}
-	helmRelease.SetName(name)
+	helmRelease.SetName(helmReleaseName)
 	helmRelease.SetNamespace(op.release.Namespace)
 	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
 	if err != nil {
-		return fmt.Errorf("failed to populate HelmRelease '%s': %w", name, err)
+		return fmt.Errorf("failed to populate HelmRelease '%s': %w", helmReleaseName, err)
 	}
 	err = ctrl.SetControllerReference(op.release, helmRelease, r.Scheme())
 	if err != nil {
-		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", name, err)
+		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", helmReleaseName, err)
 	}
 	if err = r.Create(op.ctx, helmRelease); err != nil {
-		return fmt.Errorf("error while creating HelmRelease '%s': %w", name, err)
+		return fmt.Errorf("error while creating HelmRelease '%s': %w", helmReleaseName, err)
 	}
 	return nil
 }
