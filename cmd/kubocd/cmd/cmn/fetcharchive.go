@@ -174,7 +174,7 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 	}
 
 	// ----------------------------------------------------------- Build chart dependencies
-	cmd := exec.Command("helm", "dependency", "build", chartLocation)
+	cmd := exec.Command("helm", "dependency", "update", chartLocation)
 	// Run the command and capture output
 	_, err = cmd.CombinedOutput()
 	if err != nil {
@@ -260,7 +260,7 @@ func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, modul
 		return "", err
 	}
 	//----------------------
-	cmd := exec.Command("helm", "dependency", "build", chartLocation2)
+	cmd := exec.Command("helm", "dependency", "update", chartLocation2)
 
 	// Run the command and capture output
 	_, err = cmd.CombinedOutput()

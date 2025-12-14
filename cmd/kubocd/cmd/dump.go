@@ -19,7 +19,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/spf13/cobra"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
@@ -31,6 +30,8 @@ import (
 	"kubocd/internal/misc"
 	"os"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 func init() {
@@ -88,6 +89,8 @@ var dumpOciCmd = &cobra.Command{
 	Short:  "Dump OCI metadata",
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
+	Example: `	Download locally KuboCD OCI helm chart
+	$  kubocd dump oci oci://quay.io/kubocd/charts/kubocd-wh:v0.2.3 --chart`,
 	Run: func(command *cobra.Command, args []string) {
 
 		err := func() error {
