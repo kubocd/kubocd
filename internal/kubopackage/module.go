@@ -18,10 +18,11 @@ package kubopackage
 
 import (
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Module struct {
@@ -69,6 +70,12 @@ type Module struct {
 	// Timeout is the time to wait for any individual Kubernetes operation (like Jobs for hooks)
 	// during the performance of a Helm action. Defaults to ‘2m’.
 	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
+	// Number of retry in case of failure on Helm deployment.
+	// Default: 0 (No retry)
+	//Retries KcdTemplateInt `json:"retries,omitempty"`
+	// retry interval if Retry != 0
+	// Default to timeout * 2
+	//RetryInterval KcdTemplateDuration `json:"retryInterval,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value

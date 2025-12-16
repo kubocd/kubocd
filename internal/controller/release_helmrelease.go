@@ -176,7 +176,9 @@ func PopulateHelmRelease(
 		return fmt.Errorf("failed to marshal spec to YAML for module '%s': %w", module.Name, err)
 	}
 
-	err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
+	//err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
+	//fmt.Printf("HelmRelease spec:\n%s\n", string(specTxt))
+	err = yaml.UnmarshalStrict(specTxt, &helmRelease.Spec)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': %w", module.Name, err)
 	}

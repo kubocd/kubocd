@@ -19,13 +19,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
-	"github.com/go-logr/logr"
-	"github.com/spf13/cobra"
 	"io/fs"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kapi "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
@@ -40,6 +34,13 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
+	"github.com/go-logr/logr"
+	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var renderParams struct {
