@@ -18,20 +18,21 @@ package controller
 
 import (
 	"fmt"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/misc"
+
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1b2.OCIRepository, ReconcileError) {
+func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, ReconcileError) {
 	// Fetch associated OCIRepository
-	ociRepository := &sourcev1b2.OCIRepository{}
+	ociRepository := &sourcev1.OCIRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.ociRepositoryName, Namespace: op.release.Namespace}, ociRepository)
 	if err != nil {
 		//logger.V(1).Info("Unable to fetch OCI Repository", "error", err.Error())
@@ -77,7 +78,7 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 	return ociRepository, nil
 }
 
-func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
+func PopulateOciRepository(ociRepository *sourcev1.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
 	packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
 	if packageRedirectSpec != nil {
 		repo, tag, err := misc.DecodeImageUrl(newUrl)
@@ -85,7 +86,7 @@ func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1
 			return fmt.Errorf("invalid OCI repository URL: %w", err)
 		}
 		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", repo)
-		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
+		ociRepository.Spec.Reference = &sourcev1.OCIRepositoryRef{
 			Tag: tag,
 		}
 		ociRepository.Spec.Provider = packageRedirectSpec.Provider
@@ -101,7 +102,7 @@ func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1
 		ociRepository.Spec.Suspend = packageRedirectSpec.Suspend
 	} else {
 		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Package.Repository)
-		ociRepository.Spec.Reference = &sourcev1b2.OCIRepositoryRef{
+		ociRepository.Spec.Reference = &sourcev1.OCIRepositoryRef{
 			Tag: release.Spec.Package.Tag,
 		}
 		ociRepository.Spec.Provider = release.Spec.Package.Provider
@@ -117,7 +118,7 @@ func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1
 		ociRepository.Spec.Suspend = release.Spec.Package.Suspend
 	}
 	//ociRepository.Spec.LayerSelector = nil // Wll take the first one
-	ociRepository.Spec.LayerSelector = &sourcev1b2.OCILayerSelector{
+	ociRepository.Spec.LayerSelector = &sourcev1.OCILayerSelector{
 		MediaType: mediaType,
 		Operation: ociOperation,
 	}
@@ -125,7 +126,7 @@ func PopulateOciRepository(ociRepository *sourcev1b2.OCIRepository, release *kv1
 }
 
 func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType string, ociOperation string) error {
-	ociRepository := &sourcev1b2.OCIRepository{}
+	ociRepository := &sourcev1.OCIRepository{}
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
 	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)
@@ -142,7 +143,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 	return nil
 }
 
-func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1b2.OCIRepository, mediaType string, ociOperation string) (bool, error) {
+func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
 	patch := client.MergeFrom(ociRepository.DeepCopy())
 	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)

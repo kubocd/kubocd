@@ -37,7 +37,6 @@ import (
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -289,10 +288,10 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "dependencies.yaml", dependencies)
 
 			// -------------------------------------------------------------------------Generate OCI repository
-			ociRepository := &sourcev1b2.OCIRepository{
+			ociRepository := &sourcev1.OCIRepository{
 				TypeMeta: metav1.TypeMeta{
-					Kind:       sourcev1b2.OCIRepositoryKind,
-					APIVersion: sourcev1b2.GroupVersion.String(),
+					Kind:       sourcev1.OCIRepositoryKind,
+					APIVersion: sourcev1.GroupVersion.String(),
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: release.Namespace,

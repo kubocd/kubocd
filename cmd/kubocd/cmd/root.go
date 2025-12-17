@@ -18,15 +18,15 @@ package cmd
 
 import (
 	"fmt"
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"os"
+
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	kubocdv1alpha1 "kubocd/api/v1alpha1"
-	"os"
 )
 
 var (
@@ -44,7 +44,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(kubocdv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(sourcev1b2.AddToScheme(scheme))
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
 	utilruntime.Must(fluxv2.AddToScheme(scheme))
 

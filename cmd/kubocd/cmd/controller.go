@@ -20,16 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
-	"github.com/fluxcd/pkg/http/fetch"
-	"github.com/fluxcd/pkg/tar"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
-	"github.com/go-logr/logr"
-	"github.com/spf13/cobra"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/cache"
 	"kubocd/internal/configstore"
@@ -42,6 +32,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
+
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
+	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/fluxcd/pkg/tar"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	"github.com/go-logr/logr"
+	"github.com/spf13/cobra"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,7 +51,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 )
 
 var controllerRootLog logr.Logger
@@ -345,7 +345,7 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.Release{}).
 			Named("kubocd-release").
-			Owns(&sourcev1b2.OCIRepository{}).
+			Owns(&sourcev1.OCIRepository{}).
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
