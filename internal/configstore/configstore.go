@@ -18,11 +18,16 @@ package configstore
 
 import (
 	"context"
+	"fmt"
 	"kubocd/api/v1alpha1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"kubocd/internal/misc"
 	"sort"
 	"strings"
 	"sync"
+	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 )
 
 type ConfigStore interface {
@@ -31,9 +36,12 @@ type ConfigStore interface {
 	GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string)
 	GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string)
 	GetDefaultContexts() []v1alpha1.NamespacedName
-	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string)
+	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string) error
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
 	GetDefaultNamespaceContexts() []string
+	GetOnFailureStrategy(name string) map[string]interface{}
+	GetDefaultOnFailureStrategy() map[string]interface{}
+	GetDefaultHelmTimeout() time.Duration
 }
 
 type configStore struct {
@@ -43,6 +51,9 @@ type configStore struct {
 	imageRedirects           []*v1alpha1.ImageRedirectSpec
 	defaultContexts          []v1alpha1.NamespacedName
 	defaultNamespaceContexts []string
+	DefaultOnFailureStrategy string
+	OnFailureStrategyByName  map[string]map[string]interface{} `json:"onFailureStrategyByName,omitempty"`
+	DefaultHelmTimeout       time.Duration
 }
 
 var _ ConfigStore = &configStore{}
@@ -103,7 +114,7 @@ func (c *configStore) GetDefaultNamespaceContexts() []string {
 	return c.defaultNamespaceContexts
 }
 
-func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespace string) {
+func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespace string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	configs := configList.DeepCopy()
@@ -115,6 +126,9 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 	c.imageRedirects = make([]*v1alpha1.ImageRedirectSpec, 0, 10)
 	c.defaultContexts = make([]v1alpha1.NamespacedName, 0, 10)
 	c.defaultNamespaceContexts = make([]string, 0, 10)
+	c.OnFailureStrategyByName = make(map[string]map[string]interface{})
+	c.DefaultOnFailureStrategy = ""
+	c.DefaultHelmTimeout = time.Minute * 2
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
 			c.clusterRoles[role] = true
@@ -123,20 +137,48 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		c.imageRedirects = append(c.imageRedirects, config.Spec.ImageRedirects...)
 		c.defaultContexts = append(c.defaultContexts, config.Spec.DefaultContexts...)
 		c.defaultNamespaceContexts = append(c.defaultNamespaceContexts, config.Spec.DefaultNamespaceContexts...)
+		if config.Spec.OnFailureStrategies != nil {
+			for _, strategy := range config.Spec.OnFailureStrategies {
+				v := make(map[string]interface{})
+				err := yaml.Unmarshal(strategy.Values.Raw, &v)
+				if err != nil {
+					return fmt.Errorf("OnFailureStrategy '%s' failed to unmarshal value: %v", strategy.Name, err)
+				}
+				c.OnFailureStrategyByName[strategy.Name] = v
+			}
+		}
+		if config.Spec.DefaultOnFailureStrategy != "" {
+			if c.DefaultOnFailureStrategy != "" && c.DefaultOnFailureStrategy != config.Spec.DefaultOnFailureStrategy {
+				return fmt.Errorf("DefaultOnFailureStrategy is defined multiple times (%s and %s", c.DefaultOnFailureStrategy, config.Spec.DefaultOnFailureStrategy)
+			}
+			c.DefaultOnFailureStrategy = config.Spec.DefaultOnFailureStrategy
+		}
+		if config.Spec.DefaultHelmTimeout != nil {
+			c.DefaultHelmTimeout = config.Spec.DefaultHelmTimeout.Duration
+		}
 	}
 	for idx := range c.defaultContexts {
 		if c.defaultContexts[idx].Namespace == "" {
 			c.defaultContexts[idx].Namespace = defaultNamespace
 		}
 	}
+	if c.DefaultOnFailureStrategy != "" && c.OnFailureStrategyByName[c.DefaultOnFailureStrategy] == nil {
+		return fmt.Errorf("OnFailureStrategy '%s' is not defined while defined as defaut", c.DefaultOnFailureStrategy)
+	}
+	return nil
 }
 
 func (c *configStore) ObjectMap() map[string]interface{} {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return map[string]interface{}{
-		"clusterRoles":     c.clusterRoles,
-		"packageRedirects": c.packageRedirects,
+		"clusterRoles":             c.clusterRoles,
+		"packageRedirects":         c.packageRedirects,
+		"imageRedirects":           c.imageRedirects,
+		"defaultContexts":          c.defaultContexts,
+		"defaultNamespaceContexts": c.defaultNamespaceContexts,
+		"defaultOnFailureStrategy": c.DefaultOnFailureStrategy,
+		"onFailureStrategyByName":  c.OnFailureStrategyByName,
 	}
 }
 
@@ -146,6 +188,65 @@ func (c *configStore) Init(ctx context.Context, kubeClient client.Client, myPodN
 	if err != nil {
 		return err
 	}
-	c.AddConfigs(configs, myPodNamespace)
-	return nil
+	err = c.AddConfigs(configs, myPodNamespace)
+	return err
+}
+
+func (c *configStore) GetOnFailureStrategy(name string) map[string]interface{} {
+	// We need to DeepCopy the result, as this result may be modified by the caller. See release_helmrelease.deleteFailureConf()
+	return misc.DeepCopyMap(c.OnFailureStrategyByName[name])
+}
+
+func (c *configStore) GetDefaultOnFailureStrategy() map[string]interface{} {
+	if c.DefaultOnFailureStrategy == "" {
+		return nil
+	}
+	return c.GetOnFailureStrategy(c.DefaultOnFailureStrategy)
+}
+
+func (c *configStore) GetDefaultHelmTimeout() time.Duration {
+	return c.DefaultHelmTimeout
+}
+
+func deepCopyMap(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+
+	cp := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		cp[k] = deepCopy(v)
+	}
+	return cp
+}
+
+func deepCopy(v interface{}) interface{} {
+	switch val := v.(type) {
+
+	case map[string]interface{}:
+		return deepCopyMap(val)
+
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, item := range val {
+			out[i] = deepCopy(item)
+		}
+		return out
+
+	case map[interface{}]interface{}:
+		out := make(map[interface{}]interface{}, len(val))
+		for k, v := range val {
+			out[k] = deepCopy(v)
+		}
+		return out
+
+	// immutable / value types → safe to reuse
+	case string, int, int64, float64, bool, nil:
+		return val
+
+	default:
+		// structs, pointers, time.Time, etc.
+		// You must decide what to do here
+		return val
+	}
 }

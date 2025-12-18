@@ -120,9 +120,6 @@ var renderCmd = &cobra.Command{
 			if release.Namespace == "" {
 				release.Namespace = renderParams.namespace
 			}
-			controller.GroomRelease(release, renderLog)
-			cmn.Dump(output, "release.yaml", release)
-
 			k8sClient, err := k8sapi.GetKubeClient(scheme)
 			if err != nil {
 				return fmt.Errorf("error getting kubernetes client: %w", err)
@@ -135,6 +132,10 @@ var renderCmd = &cobra.Command{
 				return fmt.Errorf("could not fetch config(s): %w", err)
 			}
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
+
+			//------------------------------------------------------------------------- Groom release
+			controller.GroomRelease(release, renderLog, configStore)
+			cmn.Dump(output, "release.yaml", release)
 
 			// ----------------------------------------------------------------------- Retrieve package
 			packageFolder := ""
@@ -349,7 +350,10 @@ var renderCmd = &cobra.Command{
 							Namespace: release.Namespace,
 						},
 					}
-					controller.PopulateHelmRelease(helmRelease, release, pkgContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName)
+					err = controller.PopulateHelmRelease(helmRelease, release, pkgContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName, configStore)
+					if err != nil {
+						return fmt.Errorf("could not build helm release for module %s: %w", module.Name, err)
+					}
 					cmn.Dump(out, "helmRelease.yaml", helmRelease)
 					// -------------------------------------------------------------- Generate final manifests
 					cmn.Dump(out, "values.yaml", rendered.ModuleRenderedByName[module.Name].Values)

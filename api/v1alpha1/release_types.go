@@ -103,6 +103,9 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	SpecPatchByModule map[string]*apiextensionsv1.JSON `json:"specPatchByModule,omitempty"`
 
+	// +kubebuilder:validation:Optional
+	OnFailureStrategyByModule map[string]string `json:"onFailureStrategyByModule,omitempty"`
+
 	// If true, add  { install: { createNamespace: true } } to config map.
 	// Must be set, as used in module.Render()
 	// +kubebuilder:validation:Optional
@@ -115,6 +118,11 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	// Default: Release.metadata.namespace
 	TargetNamespace string `json:"targetNamespace,omitempty"`
+
+	// Timeout is the time to wait for any individual Kubernetes operation
+	// during the performance of a Helm action. Defaults to ‘2m’.
+	// Default: from config resource
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
 	// List of roles fulfilled by this release. (appended to the one of the underlying package)
 	// +kubebuilder:validation:Optional

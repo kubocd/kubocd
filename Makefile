@@ -128,6 +128,22 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+ifndef ignore-not-found
+  ignore-not-found = false
+endif
+
+.PHONY: install
+install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+
+.PHONY: uninstall
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: run
+run: manifests generate fmt vet ## Run a controller from your host.
+	export ENABLE_WEBHOOKS=false; go run ./cmd/kubocd/main.go controller
+
 ##@ Build
 
 .PHONY: build
@@ -136,10 +152,6 @@ build:  manifests generate fmt vet build-kubocd  ## Build kubocd binaries with d
 .PHONY: build-kubocd
 build-kubocd: ## Build kubocd binary.
 	CGO_ENABLED=0 go build -o bin/kubocd cmd/kubocd/main.go
-
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	export ENABLE_WEBHOOKS=false; go run ./cmd/controller/main.go
 
 
 .PHONY: cli-release

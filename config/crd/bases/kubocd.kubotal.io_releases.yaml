@@ -117,6 +117,10 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
+              onFailureStrategyByModule:
+                additionalProperties:
+                  type: string
+                type: object
               package:
                 description: The package to deploy
                 properties:
@@ -318,6 +322,12 @@ spec:
                   Not required, as it can be setup another way, depending on the package
                   (i.e. the package has a fixed namespace, or several ones).
                   Default: Release.metadata.namespace
+                type: string
+              timeout:
+                description: |-
+                  Timeout is the time to wait for any individual Kubernetes operation
+                  during the performance of a Helm action. Defaults to ‘2m’.
+                  Default: 2mn
                 type: string
             required:
             - package

@@ -67,15 +67,12 @@ type Module struct {
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
 	SpecPatch KcdTemplateMap `json:"specPatch,omitempty"`
-	// Timeout is the time to wait for any individual Kubernetes operation (like Jobs for hooks)
-	// during the performance of a Helm action. Defaults to ‘2m’.
+	//
+	OnFailureStrategy KcdTemplateString `json:"onFailureStrategy,omitempty"`
+	// Timeout is the time to wait for any individual Kubernetes operation
+	// during the performance of a Helm action.
+	//Defaults to the package value
 	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
-	// Number of retry in case of failure on Helm deployment.
-	// Default: 0 (No retry)
-	//Retries KcdTemplateInt `json:"retries,omitempty"`
-	// retry interval if Retry != 0
-	// Default to timeout * 2
-	//RetryInterval KcdTemplateDuration `json:"retryInterval,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
@@ -174,30 +171,36 @@ func (m *Module) groom(pck *Package, idx int) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependsOn' template: %w", err)
 	}
+	m.templates.onFailureStrategy, err = tmpl.New("", string(m.OnFailureStrategy), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'onFailureStrategy' template: %w", err)
+	}
 	return nil
 }
 
 type moduleTemplates struct {
-	parameters      tmpl.Tmpl
-	values          tmpl.Tmpl
-	specPatch       tmpl.Tmpl
-	targetNamespace tmpl.Tmpl
-	enabled         tmpl.Tmpl
-	dependsOn       tmpl.Tmpl
-	timeout         tmpl.Tmpl
+	parameters        tmpl.Tmpl
+	values            tmpl.Tmpl
+	specPatch         tmpl.Tmpl
+	targetNamespace   tmpl.Tmpl
+	enabled           tmpl.Tmpl
+	dependsOn         tmpl.Tmpl
+	timeout           tmpl.Tmpl
+	onFailureStrategy tmpl.Tmpl
 }
 
 // ModuleRendered object is a proxy for module. Aim is to concentrate all error detection in its constructor
 // Standard way should be to hev Getters on module object.
 // But each getter may generate an error, thus complicate the code.
 type ModuleRendered struct {
-	Parameters      map[string]interface{}
-	Values          map[string]interface{}
-	SpecPatch       map[string]interface{}
-	TargetNamespace string
-	Enabled         bool
-	DependsOn       []string
-	Timeout         metav1.Duration
+	Parameters        map[string]interface{}
+	Values            map[string]interface{}
+	SpecPatch         map[string]interface{}
+	TargetNamespace   string
+	Enabled           bool
+	DependsOn         []string
+	Timeout           metav1.Duration
+	OnFailureStrategy string
 }
 
 var createNamespacePatch = map[string]interface{}{
@@ -241,6 +244,11 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if model["Release"].(map[string]interface{})["spec"].(map[string]interface{})["createNamespace"].(bool) {
 		mr.SpecPatch = misc.MergeMaps(mr.SpecPatch, createNamespacePatch)
 	}
+	mr.OnFailureStrategy, err = m.templates.onFailureStrategy.RenderToSingleLine(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'onFailureStrategy' template: %w", err)
+	}
+
 	//fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
 	//fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))
 	//fmt.Printf("****** namespace:\n%s\n", misc.Map2Yaml(mr.Namespace))

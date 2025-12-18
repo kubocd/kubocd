@@ -19,10 +19,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/go-logr/logr"
-	"k8s.io/client-go/tools/record"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
+
+	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -61,6 +62,9 @@ func (r *ConfigReconciler) reconcile2(ctx context.Context, req ctrl.Request, log
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	r.ConfigStore.AddConfigs(configs, r.MyPodNamespace)
+	err = r.ConfigStore.AddConfigs(configs, r.MyPodNamespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
 }

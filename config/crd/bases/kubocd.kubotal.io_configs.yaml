@@ -68,6 +68,11 @@ spec:
                   - name
                   type: object
                 type: array
+              defaultHelmTimeout:
+                description: |-
+                  Value to set to helmRelease.spec.timeout
+                  Default: 2mn
+                type: string
               defaultNamespaceContexts:
                 description: |-
                   Define a list of context name which will be added to all releases located in a namespace,
@@ -75,6 +80,8 @@ spec:
                 items:
                   type: string
                 type: array
+              defaultOnFailureStrategy:
+                type: string
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart
@@ -106,6 +113,17 @@ spec:
                   required:
                   - newPrefix
                   - oldPrefix
+                  type: object
+                type: array
+              onFailureStrategies:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    values:
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - name
                   type: object
                 type: array
               packageRedirects:

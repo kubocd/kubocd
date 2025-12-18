@@ -19,6 +19,7 @@ package controller
 import (
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/configstore"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 
@@ -108,6 +109,7 @@ func PopulateHelmRelease(
 	helmRepositoryName string,
 	module *kubopackage.Module,
 	helmReleaseNameByModuleName map[string]string,
+	configStore configstore.ConfigStore,
 ) error {
 	helmRelease.Spec.Interval = release.Spec.Package.Interval
 
@@ -157,10 +159,32 @@ func PopulateHelmRelease(
 		"timeout":         &moduleRendered.Timeout,
 	}
 
-	// Apply module-specific spec patches
-	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch)
+	// ------------------------- helmRelease patches from the package
+	// Apply DefaultOnFailureStrategy if any
+	defaultStrategy := configStore.GetDefaultOnFailureStrategy()
+	if defaultStrategy != nil {
+		spec = misc.MergeMaps(spec, defaultStrategy)
+	}
+	if moduleRendered.OnFailureStrategy != "" {
+		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
+		if strategy == nil {
+			return fmt.Errorf("onFailureStrategy: %s not found for module '%s'", moduleRendered.OnFailureStrategy, module.Name)
+		}
+		deleteFailureConf(spec)
+		spec = misc.MergeMaps(spec, strategy)
+	}
+	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch) // Including install.namespace
 
-	// Apply release-specific spec patches
+	// ------------------------- helmRelease patches from the release
+	strategyName := release.Spec.OnFailureStrategyByModule[module.Name]
+	if strategyName != "" {
+		onFailureStrategy := configStore.GetOnFailureStrategy(strategyName)
+		if onFailureStrategy == nil {
+			return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", strategyName, module.Name)
+		}
+		deleteFailureConf(spec)
+		spec = misc.MergeMaps(spec, onFailureStrategy)
+	}
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
 		var err error
@@ -182,15 +206,39 @@ func PopulateHelmRelease(
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': %w", module.Name, err)
 	}
-
 	return nil
+}
+
+func deleteFailureConf(spec map[string]interface{}) {
+	install, ok := spec["install"].(map[string]interface{})
+	if ok {
+		_, ok := install["strategy"].(map[string]interface{})
+		if ok {
+			delete(install, "strategy")
+		}
+		_, ok = install["remediation"].(map[string]interface{})
+		if ok {
+			delete(install, "remediation")
+		}
+	}
+	upgrade, ok := spec["upgrade"].(map[string]interface{})
+	if ok {
+		_, ok := upgrade["strategy"].(map[string]interface{})
+		if ok {
+			delete(upgrade, "strategy")
+		}
+		_, ok = upgrade["remediation"].(map[string]interface{})
+		if ok {
+			delete(upgrade, "remediation")
+		}
+	}
 }
 
 func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, helmReleaseName string, module *kubopackage.Module) error {
 	helmRelease := &fluxv2.HelmRelease{}
 	helmRelease.SetName(helmReleaseName)
 	helmRelease.SetNamespace(op.release.Namespace)
-	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName, r.ConfigStore)
 	if err != nil {
 		return fmt.Errorf("failed to populate HelmRelease '%s': %w", helmReleaseName, err)
 	}
@@ -212,7 +260,7 @@ func patchHelmRelease(r *ReleaseReconciler, op *releaseOperation, helmRelease *f
 	patch := client.MergeFrom(helmRelease.DeepCopy())
 
 	// Populate the HelmRelease with updated configuration
-	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName)
+	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName, r.ConfigStore)
 	if err != nil {
 		return false, fmt.Errorf("failed to populate HelmRelease '%s': %w", helmRelease.Name, err)
 	}

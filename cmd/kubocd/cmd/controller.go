@@ -227,7 +227,7 @@ var controllerCmd = &cobra.Command{
 		theConfigStore := configstore.New()
 		err = theConfigStore.Init(context.Background(), kubeClient, myPodNamespace)
 		if err != nil {
-			setupLog.Error(err, "unable to initialize configstore")
+			setupLog.Error(err, "error while loading config resources")
 			os.Exit(1)
 		}
 		roleStore := rolestore.New(theConfigStore, controllerRootLog.WithName("roleStore"))

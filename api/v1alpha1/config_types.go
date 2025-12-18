@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -65,6 +66,15 @@ type ImageRedirectSpec struct {
 	ImagePullSecrets []string `json:"imagePullSecrets"`
 }
 
+type OnFailureStrategySpec struct {
+
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+}
+
 // ConfigSpec defines the desired state of Config.
 type ConfigSpec struct {
 
@@ -101,6 +111,17 @@ type ConfigSpec struct {
 	// Define a list of context name which will be added to all releases located in a namespace,
 	// except the one with 'skipDefaultContext' flag
 	DefaultNamespaceContexts []string `json:"defaultNamespaceContexts,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	OnFailureStrategies []*OnFailureStrategySpec `json:"onFailureStrategies,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	DefaultOnFailureStrategy string `json:"defaultOnFailureStrategy,omitempty"`
+
+	// Value to set to helmRelease.spec.timeout
+	// Default: 2mn
+	// +kubebuilder:validation:Optional
+	DefaultHelmTimeout *metav1.Duration `json:"defaultHelmTimeout,omitempty"`
 }
 
 // ConfigStatus defines the observed state of Config.
