@@ -127,7 +127,7 @@ func pack(pck string) error {
 	if err != nil {
 		return err
 	}
-	err = pckGroomed.Groom()
+	err = pckGroomed.Groom(nil)
 	if err != nil {
 		return err
 	}

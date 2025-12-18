@@ -208,7 +208,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//}
 	}
 
-	GroomRelease(release, logger, r.ConfigStore)
+	GroomRelease(release, logger)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
 	ociRepository, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
@@ -290,7 +290,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		op.pckContainer = &kubopackage.PckContainer{}
-		err := op.pckContainer.SetPackage(pck, status, revision)
+		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}
@@ -627,7 +627,7 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 }
 
 // GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
-func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, store configstore.ConfigStore) {
+func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	if release.Spec.TargetNamespace == "" {
 		release.Spec.TargetNamespace = release.Namespace
 	}

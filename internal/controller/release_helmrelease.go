@@ -159,6 +159,11 @@ func PopulateHelmRelease(
 		"timeout":         &moduleRendered.Timeout,
 	}
 
+	// Patch the timeout with the helmRelease value
+	if release.Spec.Timeout != nil {
+		spec["timeout"] = &release.Spec.Timeout
+	}
+
 	// ------------------------- helmRelease patches from the package
 	// Apply DefaultOnFailureStrategy if any
 	defaultStrategy := configStore.GetDefaultOnFailureStrategy()

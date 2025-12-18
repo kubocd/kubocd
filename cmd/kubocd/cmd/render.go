@@ -134,7 +134,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
 			//------------------------------------------------------------------------- Groom release
-			controller.GroomRelease(release, renderLog, configStore)
+			controller.GroomRelease(release, renderLog)
 			cmn.Dump(output, "release.yaml", release)
 
 			// ----------------------------------------------------------------------- Retrieve package
@@ -155,7 +155,7 @@ var renderCmd = &cobra.Command{
 				packageFolder = filepath.Dir(abs)
 
 				// Status is computed right after, to have a groomed version of the package
-				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
+				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000", configStore)
 				// Compute status to give the map module->helmChart (Need to fetch helm charts)
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
 				err = misc.SafeEnsureEmpty(assemblyPath)
@@ -212,7 +212,7 @@ var renderCmd = &cobra.Command{
 					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
 				}
 				renderLog.V(1).Info("Unmarshalled status.yaml")
-				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000")
+				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000", configStore)
 				renderLog.V(1).Info("Setting package in pkgContainer OK")
 
 				// Deploy all charts

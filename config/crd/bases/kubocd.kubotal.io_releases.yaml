@@ -327,7 +327,7 @@ spec:
                 description: |-
                   Timeout is the time to wait for any individual Kubernetes operation
                   during the performance of a Helm action. Defaults to ‘2m’.
-                  Default: 2mn
+                  Default: from config resource
                 type: string
             required:
             - package

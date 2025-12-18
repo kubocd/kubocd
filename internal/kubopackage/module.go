@@ -18,6 +18,7 @@ package kubopackage
 
 import (
 	"fmt"
+	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
@@ -84,7 +85,7 @@ type Module struct {
 	templates *moduleTemplates
 }
 
-func (m *Module) groom(pck *Package, idx int) error {
+func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStore) error {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
@@ -99,7 +100,12 @@ func (m *Module) groom(pck *Package, idx int) error {
 		m.Enabled = "true"
 	}
 	if misc.IsZero(m.Timeout) {
-		m.Timeout = "2m0s"
+		if configStore == nil {
+			// When used in packaging
+			m.Timeout = "2m0s"
+		} else {
+			m.Timeout = KcdTemplateDuration(configStore.GetDefaultHelmTimeout().String())
+		}
 	}
 	// Normalize
 	if m.DependsOn == nil {

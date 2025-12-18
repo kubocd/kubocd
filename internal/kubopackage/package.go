@@ -18,6 +18,7 @@ package kubopackage
 
 import (
 	"fmt"
+	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
@@ -100,7 +101,7 @@ var noParamSchema = map[string]interface{}{
 	"additionalProperties": false,
 }
 
-func (pck *Package) Groom() error {
+func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 	// ------------------------ Normalize
 	if pck.Roles == nil {
 		pck.Roles = []string{}
@@ -151,7 +152,7 @@ func (pck *Package) Groom() error {
 	moduleByName := make(map[string]*Module)
 	for idx := range pck.Modules {
 		module := pck.Modules[idx]
-		err := pck.Modules[idx].groom(pck, idx)
+		err := pck.Modules[idx].groom(pck, idx, configSore)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", pck.Modules[idx].Name, err)
 		}

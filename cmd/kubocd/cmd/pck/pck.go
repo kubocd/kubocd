@@ -104,7 +104,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 		}
 		packageFolder := filepath.Dir(abs)
 
-		err = pckGroomed.Groom()
+		err = pckGroomed.Groom(nil)
 		if err != nil {
 			return err
 		}
@@ -144,7 +144,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 	cmn.Dump(output, "original.yaml", pckOriginal)
 
 	pckContainer := &kubopackage.PckContainer{}
-	err := pckContainer.SetPackage(pckOriginal, nil, "0.0.0@sha256:0000000000000000000000000")
+	err := pckContainer.SetPackage(pckOriginal, nil, "0.0.0@sha256:0000000000000000000000000", nil)
 	// We dump even in case of error, to let user have a look.
 	cmn.Dump(output, "groomed.yaml", pckContainer.Package)
 	cmn.Dump(output, "default-parameters.yaml", pckContainer.DefaultParameters)
