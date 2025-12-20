@@ -159,17 +159,20 @@ func PopulateHelmRelease(
 		"timeout":         &moduleRendered.Timeout,
 	}
 
+	releaseOnFailure := release.Spec.OnFailureByModule[module.Name]
 	// Patch the timeout with the helmRelease value
-	if release.Spec.Timeout != nil {
-		spec["timeout"] = &release.Spec.Timeout
+	if releaseOnFailure != nil {
+		if !misc.IsZero(releaseOnFailure.Timeout) {
+			spec["timeout"] = releaseOnFailure.Timeout
+		}
 	}
 
-	// ------------------------- helmRelease patches from the package
-	// Apply DefaultOnFailureStrategy if any
+	// --------------- Apply DefaultOnFailureStrategy if any
 	defaultStrategy := configStore.GetDefaultOnFailureStrategy()
 	if defaultStrategy != nil {
 		spec = misc.MergeMaps(spec, defaultStrategy)
 	}
+	// ------------------------- helmRelease patches from the package
 	if moduleRendered.OnFailureStrategy != "" {
 		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
 		if strategy == nil {
@@ -181,15 +184,17 @@ func PopulateHelmRelease(
 	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch) // Including install.namespace
 
 	// ------------------------- helmRelease patches from the release
-	strategyName := release.Spec.OnFailureStrategyByModule[module.Name]
-	if strategyName != "" {
-		onFailureStrategy := configStore.GetOnFailureStrategy(strategyName)
-		if onFailureStrategy == nil {
-			return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", strategyName, module.Name)
+	if releaseOnFailure != nil {
+		if releaseOnFailure.Strategy != "" {
+			onFailureStrategy := configStore.GetOnFailureStrategy(releaseOnFailure.Strategy)
+			if onFailureStrategy == nil {
+				return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", releaseOnFailure.Strategy, module.Name)
+			}
+			deleteFailureConf(spec)
+			spec = misc.MergeMaps(spec, onFailureStrategy)
 		}
-		deleteFailureConf(spec)
-		spec = misc.MergeMaps(spec, onFailureStrategy)
 	}
+	// ------------------------- And handle generic specPatchByModule
 	patch, ok := release.Spec.SpecPatchByModule[module.Name]
 	if ok {
 		var err error

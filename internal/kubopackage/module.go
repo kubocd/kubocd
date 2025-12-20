@@ -68,11 +68,12 @@ type Module struct {
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// Rendered value must be a Map, which will be applied on top of fluxCD helmRelease.spec
 	SpecPatch KcdTemplateMap `json:"specPatch,omitempty"`
-	//
+	// Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
+	// May be overridden at the release level
 	OnFailureStrategy KcdTemplateString `json:"onFailureStrategy,omitempty"`
-	// Timeout is the time to wait for any individual Kubernetes operation
-	// during the performance of a Helm action.
-	//Defaults to the package value
+	// Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
+	// May be overridden at the release level
+	// Default from the KuboCD global configuration, or '2m'
 	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`

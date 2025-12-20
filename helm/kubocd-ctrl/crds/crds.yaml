@@ -67,6 +67,11 @@ spec:
                   - name
                   type: object
                 type: array
+              defaultHelmTimeout:
+                description: |-
+                  Value to set to helmRelease.spec.timeout
+                  Default: 2mn
+                type: string
               defaultNamespaceContexts:
                 description: |-
                   Define a list of context name which will be added to all releases located in a namespace,
@@ -74,6 +79,8 @@ spec:
                 items:
                   type: string
                 type: array
+              defaultOnFailureStrategy:
+                type: string
               imageRedirects:
                 description: |-
                   This may apply to image referenced in Helm Chart
@@ -105,6 +112,17 @@ spec:
                   required:
                   - newPrefix
                   - oldPrefix
+                  type: object
+                type: array
+              onFailureStrategies:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    values:
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - name
                   type: object
                 type: array
               packageRedirects:
@@ -523,6 +541,10 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
+              onFailureStrategyByModule:
+                additionalProperties:
+                  type: string
+                type: object
               package:
                 description: The package to deploy
                 properties:
@@ -724,6 +746,12 @@ spec:
                   Not required, as it can be setup another way, depending on the package
                   (i.e. the package has a fixed namespace, or several ones).
                   Default: Release.metadata.namespace
+                type: string
+              timeout:
+                description: |-
+                  Timeout is the time to wait for any individual Kubernetes operation
+                  during the performance of a Helm action. Defaults to ‘2m’.
+                  Default: from config resource
                 type: string
             required:
             - package

@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type PackageSource struct {
+type PackageSourceSpec struct {
 	// Part of OCI url oci://<repository>:<tag>
 	// +kubebuilder:validation:Required
 	Repository string `json:"repository"`
@@ -49,6 +49,15 @@ type PackageSource struct {
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
+type OnFailureSpec struct {
+	// Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
+	// If provided, override package provided value
+	Strategy string `json:"strategy,omitempty"`
+	// Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
+	// If provided, override package provided value
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
 type ReleaseDebug struct {
 
 	// DumpContext instruct to save a representation of the context
@@ -71,7 +80,7 @@ type ReleaseSpec struct {
 
 	// The package to deploy
 	// +kubebuilder:validation:Required
-	Package PackageSource `json:"package"`
+	Package PackageSourceSpec `json:"package"`
 
 	// To provide contextual variables
 	// Refer to Context resource description for some explanation
@@ -104,7 +113,7 @@ type ReleaseSpec struct {
 	SpecPatchByModule map[string]*apiextensionsv1.JSON `json:"specPatchByModule,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	OnFailureStrategyByModule map[string]string `json:"onFailureStrategyByModule,omitempty"`
+	OnFailureByModule map[string]*OnFailureSpec `json:"onFailureByModule,omitempty"`
 
 	// If true, add  { install: { createNamespace: true } } to config map.
 	// Must be set, as used in module.Render()
@@ -118,11 +127,6 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	// Default: Release.metadata.namespace
 	TargetNamespace string `json:"targetNamespace,omitempty"`
-
-	// Timeout is the time to wait for any individual Kubernetes operation
-	// during the performance of a Helm action. Defaults to ‘2m’.
-	// Default: from config resource
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
 	// List of roles fulfilled by this release. (appended to the one of the underlying package)
 	// +kubebuilder:validation:Optional

@@ -48,6 +48,35 @@ config:
   defaultNamespaceContexts: []
   imageRedirects: []
 
+  defaultOnFailureStrategy: updateOnFailure
+  onFailureStrategies:
+    - name: stopOnFailure
+      values: {}
+    - name: reinstallOnFailure
+      values:
+        install:
+          strategy:
+            name: RemediateOnFailure
+          remediation:
+            retries: 5
+        upgrade:
+          strategy:
+            name: RemediateOnFailure
+          remediation:
+            retries: 5
+
+    - name: updateOnFailure
+      values:
+        install:
+          strategy:
+            name: RetryOnFailure
+            retryInterval: 1m0s
+        upgrade:
+          strategy:
+            name: RetryOnFailure
+            retryInterval: 1m0s
+
+
 # for example, to store contexts
 extraNamespaces: []
 # - name: contexts

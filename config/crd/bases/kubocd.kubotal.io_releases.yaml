@@ -117,9 +117,20 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
-              onFailureStrategyByModule:
+              onFailureByModule:
                 additionalProperties:
-                  type: string
+                  properties:
+                    strategy:
+                      description: |-
+                        Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
+                        If provided, override package provided value
+                      type: string
+                    timeout:
+                      description: |-
+                        Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
+                        If provided, override package provided value
+                      type: string
+                  type: object
                 type: object
               package:
                 description: The package to deploy
@@ -322,12 +333,6 @@ spec:
                   Not required, as it can be setup another way, depending on the package
                   (i.e. the package has a fixed namespace, or several ones).
                   Default: Release.metadata.namespace
-                type: string
-              timeout:
-                description: |-
-                  Timeout is the time to wait for any individual Kubernetes operation
-                  during the performance of a Helm action. Defaults to ‘2m’.
-                  Default: from config resource
                 type: string
             required:
             - package
