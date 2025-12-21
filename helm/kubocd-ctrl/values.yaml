@@ -49,6 +49,7 @@ config:
   imageRedirects: []
 
   specPath: {}
+  defaultPackageInterval: 30m0s
   defaultHelmTimeout: 3m0s
   defaultHelmInterval: 30m0s
   defaultOnFailureStrategy: updateOnFailure

@@ -45,6 +45,7 @@ type ConfigStore interface {
 	GetDefaultHelmTimeout() time.Duration
 	GetDefaultHelmInterval() time.Duration
 	GetSpecPatch() *apiextensionsv1.JSON
+	GetDefaultPackageInterval() time.Duration
 }
 
 type configStore struct {
@@ -58,6 +59,7 @@ type configStore struct {
 	OnFailureStrategyByName  map[string]map[string]interface{} `json:"onFailureStrategyByName,omitempty"`
 	DefaultHelmTimeout       time.Duration
 	DefaultHelmInterval      time.Duration
+	DefaultPackageInterval   time.Duration
 	SpecPatch                *apiextensionsv1.JSON
 }
 
@@ -135,6 +137,7 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 	c.DefaultOnFailureStrategy = ""
 	c.DefaultHelmTimeout = time.Minute * 2
 	c.DefaultHelmInterval = time.Minute * 30
+	c.DefaultPackageInterval = time.Minute * 30
 	c.SpecPatch = nil
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
@@ -165,6 +168,9 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		}
 		if config.Spec.DefaultHelmInterval != nil {
 			c.DefaultHelmInterval = config.Spec.DefaultHelmInterval.Duration
+		}
+		if config.Spec.DefaultPackageInterval != nil {
+			c.DefaultPackageInterval = config.Spec.DefaultPackageInterval.Duration
 		}
 		c.SpecPatch = config.Spec.SpecPatch
 	}
@@ -221,6 +227,10 @@ func (c *configStore) GetDefaultHelmTimeout() time.Duration {
 
 func (c *configStore) GetDefaultHelmInterval() time.Duration {
 	return c.DefaultHelmInterval
+}
+
+func (c *configStore) GetDefaultPackageInterval() time.Duration {
+	return c.DefaultPackageInterval
 }
 
 func (c *configStore) GetSpecPatch() *apiextensionsv1.JSON {

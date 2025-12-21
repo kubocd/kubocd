@@ -148,6 +148,11 @@ func (in *ConfigSpec) DeepCopyInto(out *ConfigSpec) {
 		*out = new(metav1.Duration)
 		**out = **in
 	}
+	if in.DefaultPackageInterval != nil {
+		in, out := &in.DefaultPackageInterval, &out.DefaultPackageInterval
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	if in.SpecPatch != nil {
 		in, out := &in.SpecPatch, &out.SpecPatch
 		*out = new(apiextensionsv1.JSON)

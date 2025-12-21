@@ -187,6 +187,7 @@ spec:
                       Interval at which the OCIRepository URL is checked for updates.
                       This interval is approximate and may be subject to jitter to ensure
                       efficient use of resources.
+                      Default in global config (Or 30m)
                     pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
                   provider:
@@ -304,7 +305,6 @@ spec:
                     - provider
                     type: object
                 required:
-                - interval
                 - repository
                 - tag
                 type: object

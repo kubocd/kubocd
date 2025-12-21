@@ -18,11 +18,12 @@ package controller
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
+
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	kv1alpha1 "kubocd/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -88,6 +89,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidat
 }
 
 func PopulateHelmRepository(helmRepository *sourcev1.HelmRepository, release *kv1alpha1.Release, repoUrl string) {
+	// As helmRepository is rebuild on change, we don't need a short value. So take the package one.
 	helmRepository.Spec.Interval = release.Spec.Package.Interval
 	helmRepository.Spec.URL = repoUrl
 }

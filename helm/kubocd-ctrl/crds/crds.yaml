@@ -67,6 +67,11 @@ spec:
                   - name
                   type: object
                 type: array
+              defaultHelmInterval:
+                description: |-
+                  Value to set to helmRelease.spec.interval (interval at which to reconcile the Helm release)
+                  Default: 2mn
+                type: string
               defaultHelmTimeout:
                 description: |-
                   Value to set to helmRelease.spec.timeout
@@ -80,6 +85,11 @@ spec:
                   type: string
                 type: array
               defaultOnFailureStrategy:
+                type: string
+              defaultPackageInterval:
+                description: |-
+                  Default value for Release.spec.package.interval. Interval applyed to the OciRepository, to check against new package version
+                  Default: 30mn
                 type: string
               imageRedirects:
                 description: |-
@@ -295,6 +305,9 @@ spec:
                   - oldPrefix
                   type: object
                 type: array
+              specPatch:
+                description: Allow to patch the HelmRelease.spec for all modules
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: ConfigStatus defines the observed state of Config.
@@ -541,10 +554,33 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
-              onFailureStrategyByModule:
-                additionalProperties:
-                  type: string
-                type: object
+              moduleOverrides:
+                items:
+                  properties:
+                    interval:
+                      description: Will be set as spec.interval of the generated HelmRelease,
+                        thus providing interval to which reconcile the helmRelease
+                      type: string
+                    module:
+                      description: The module this override apply on
+                      type: string
+                    onFailureStrategy:
+                      description: |-
+                        Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
+                        If provided, override package provided value
+                      type: string
+                    specPatch:
+                      description: Allow to patch the HelmRelease.spec for each module
+                      x-kubernetes-preserve-unknown-fields: true
+                    timeout:
+                      description: |-
+                        Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
+                        If provided, override package provided value
+                      type: string
+                  required:
+                  - module
+                  type: object
+                type: array
               package:
                 description: The package to deploy
                 properties:
@@ -588,6 +624,7 @@ spec:
                       Interval at which the OCIRepository URL is checked for updates.
                       This interval is approximate and may be subject to jitter to ensure
                       efficient use of resources.
+                      Default in global config (Or 30m)
                     pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                     type: string
                   provider:
@@ -705,7 +742,6 @@ spec:
                     - provider
                     type: object
                 required:
-                - interval
                 - repository
                 - tag
                 type: object
@@ -729,11 +765,6 @@ spec:
                   If yes, the default context(s) of the configs are not taken in account
                   ,Default: false
                 type: boolean
-              specPatchByModule:
-                additionalProperties:
-                  x-kubernetes-preserve-unknown-fields: true
-                description: Allow to patch the HelmRelease.spec for each module
-                type: object
               suspended:
                 description: |-
                   If true, HelmRelease update is suspended at KuboCD level
@@ -746,12 +777,6 @@ spec:
                   Not required, as it can be setup another way, depending on the package
                   (i.e. the package has a fixed namespace, or several ones).
                   Default: Release.metadata.namespace
-                type: string
-              timeout:
-                description: |-
-                  Timeout is the time to wait for any individual Kubernetes operation
-                  during the performance of a Helm action. Defaults to ‘2m’.
-                  Default: from config resource
                 type: string
             required:
             - package

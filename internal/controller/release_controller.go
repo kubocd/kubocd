@@ -208,7 +208,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		//}
 	}
 
-	GroomRelease(release, logger)
+	GroomRelease(release, logger, r.ConfigStore)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
 	ociRepository, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
@@ -627,7 +627,7 @@ func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, 
 }
 
 // GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
-func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
+func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, configStore configstore.ConfigStore) {
 	if release.Spec.TargetNamespace == "" {
 		release.Spec.TargetNamespace = release.Namespace
 	}
@@ -646,6 +646,11 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger) {
 	}
 	if release.Spec.Debug == nil {
 		release.Spec.Debug = &kv1alpha1.ReleaseDebug{}
+	}
+	if misc.IsZero(release.Spec.Package.Interval) {
+		release.Spec.Package.Interval = metav1.Duration{
+			Duration: configStore.GetDefaultPackageInterval(),
+		}
 	}
 	for i := range release.Spec.Contexts {
 		kctx := &release.Spec.Contexts[i]

@@ -134,7 +134,7 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "configs.yaml", configStore.ObjectMap())
 
 			//------------------------------------------------------------------------- Groom release
-			controller.GroomRelease(release, renderLog)
+			controller.GroomRelease(release, renderLog, configStore)
 			cmn.Dump(output, "release.yaml", release)
 
 			// ----------------------------------------------------------------------- Retrieve package

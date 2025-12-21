@@ -35,10 +35,11 @@ type PackageSourceSpec struct {
 	// Interval at which the OCIRepository URL is checked for updates.
 	// This interval is approximate and may be subject to jitter to ensure
 	// efficient use of resources.
+	// Default in global config (Or 30m)
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +kubebuilder:default="5m"
-	// +required
+	// +optional
 	Interval metav1.Duration `json:"interval"`
 
 	// The timeout for remote OCI Repository operations like pulling, defaults to 60s.
