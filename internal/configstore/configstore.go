@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
@@ -42,6 +43,8 @@ type ConfigStore interface {
 	GetOnFailureStrategy(name string) map[string]interface{}
 	GetDefaultOnFailureStrategy() map[string]interface{}
 	GetDefaultHelmTimeout() time.Duration
+	GetDefaultHelmInterval() time.Duration
+	GetSpecPatch() *apiextensionsv1.JSON
 }
 
 type configStore struct {
@@ -54,6 +57,8 @@ type configStore struct {
 	DefaultOnFailureStrategy string
 	OnFailureStrategyByName  map[string]map[string]interface{} `json:"onFailureStrategyByName,omitempty"`
 	DefaultHelmTimeout       time.Duration
+	DefaultHelmInterval      time.Duration
+	SpecPatch                *apiextensionsv1.JSON
 }
 
 var _ ConfigStore = &configStore{}
@@ -129,6 +134,8 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 	c.OnFailureStrategyByName = make(map[string]map[string]interface{})
 	c.DefaultOnFailureStrategy = ""
 	c.DefaultHelmTimeout = time.Minute * 2
+	c.DefaultHelmInterval = time.Minute * 30
+	c.SpecPatch = nil
 	for _, config := range configs.Items {
 		for _, role := range config.Spec.ClusterRoles {
 			c.clusterRoles[role] = true
@@ -156,6 +163,10 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		if config.Spec.DefaultHelmTimeout != nil {
 			c.DefaultHelmTimeout = config.Spec.DefaultHelmTimeout.Duration
 		}
+		if config.Spec.DefaultHelmInterval != nil {
+			c.DefaultHelmInterval = config.Spec.DefaultHelmInterval.Duration
+		}
+		c.SpecPatch = config.Spec.SpecPatch
 	}
 	for idx := range c.defaultContexts {
 		if c.defaultContexts[idx].Namespace == "" {
@@ -208,45 +219,10 @@ func (c *configStore) GetDefaultHelmTimeout() time.Duration {
 	return c.DefaultHelmTimeout
 }
 
-func deepCopyMap(m map[string]interface{}) map[string]interface{} {
-	if m == nil {
-		return nil
-	}
-
-	cp := make(map[string]interface{}, len(m))
-	for k, v := range m {
-		cp[k] = deepCopy(v)
-	}
-	return cp
+func (c *configStore) GetDefaultHelmInterval() time.Duration {
+	return c.DefaultHelmInterval
 }
 
-func deepCopy(v interface{}) interface{} {
-	switch val := v.(type) {
-
-	case map[string]interface{}:
-		return deepCopyMap(val)
-
-	case []interface{}:
-		out := make([]interface{}, len(val))
-		for i, item := range val {
-			out[i] = deepCopy(item)
-		}
-		return out
-
-	case map[interface{}]interface{}:
-		out := make(map[interface{}]interface{}, len(val))
-		for k, v := range val {
-			out[k] = deepCopy(v)
-		}
-		return out
-
-	// immutable / value types → safe to reuse
-	case string, int, int64, float64, bool, nil:
-		return val
-
-	default:
-		// structs, pointers, time.Time, etc.
-		// You must decide what to do here
-		return val
-	}
+func (c *configStore) GetSpecPatch() *apiextensionsv1.JSON {
+	return c.SpecPatch
 }

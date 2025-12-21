@@ -122,6 +122,15 @@ type ConfigSpec struct {
 	// Default: 2mn
 	// +kubebuilder:validation:Optional
 	DefaultHelmTimeout *metav1.Duration `json:"defaultHelmTimeout,omitempty"`
+
+	// Value to set to helmRelease.spec.interval (interval at which to reconcile the Helm release)
+	// Default: 2mn
+	// +kubebuilder:validation:Optional
+	DefaultHelmInterval *metav1.Duration `json:"defaultHelmInterval,omitempty"`
+
+	// Allow to patch the HelmRelease.spec for all modules
+	// +kubebuilder:validation:Optional
+	SpecPatch *apiextensionsv1.JSON `json:"specPatch,omitempty"`
 }
 
 // ConfigStatus defines the observed state of Config.

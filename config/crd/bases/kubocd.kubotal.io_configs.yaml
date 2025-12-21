@@ -68,6 +68,11 @@ spec:
                   - name
                   type: object
                 type: array
+              defaultHelmInterval:
+                description: |-
+                  Value to set to helmRelease.spec.interval (interval at which to reconcile the Helm release)
+                  Default: 2mn
+                type: string
               defaultHelmTimeout:
                 description: |-
                   Value to set to helmRelease.spec.timeout
@@ -296,6 +301,9 @@ spec:
                   - oldPrefix
                   type: object
                 type: array
+              specPatch:
+                description: Allow to patch the HelmRelease.spec for all modules
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: ConfigStatus defines the observed state of Config.

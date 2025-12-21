@@ -49,13 +49,22 @@ type PackageSourceSpec struct {
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
-type OnFailureSpec struct {
+type ModuleOverrideSpec struct {
+	// The module this override apply on
+	// +kubebuilder:validation:Required
+	Module string `json:"module"`
+	// Allow to patch the HelmRelease.spec for each module
+	// +kubebuilder:validation:Optional
+	SpecPatch *apiextensionsv1.JSON `json:"specPatch,omitempty"`
 	// Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
 	// If provided, override package provided value
-	Strategy string `json:"strategy,omitempty"`
+	OnFailureStrategy string `json:"onFailureStrategy,omitempty"`
 	// Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
 	// If provided, override package provided value
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// Will be set as spec.interval of the generated HelmRelease, thus providing interval to which reconcile the helmRelease
+	// +kubebuilder:validation:Optional
+	Interval *metav1.Duration `json:"interval,omitempty"`
 }
 
 type ReleaseDebug struct {
@@ -108,12 +117,8 @@ type ReleaseSpec struct {
 	// +kubebuilder:validation:Optional
 	Parameters *apiextensionsv1.JSON `json:"parameters,omitempty"`
 
-	// Allow to patch the HelmRelease.spec for each module
 	// +kubebuilder:validation:Optional
-	SpecPatchByModule map[string]*apiextensionsv1.JSON `json:"specPatchByModule,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	OnFailureByModule map[string]*OnFailureSpec `json:"onFailureByModule,omitempty"`
+	ModuleOverrides []ModuleOverrideSpec `json:"moduleOverrides,omitempty"`
 
 	// If true, add  { install: { createNamespace: true } } to config map.
 	// Must be set, as used in module.Render()

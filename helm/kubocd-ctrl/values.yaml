@@ -48,6 +48,9 @@ config:
   defaultNamespaceContexts: []
   imageRedirects: []
 
+  specPath: {}
+  defaultHelmTimeout: 3m0s
+  defaultHelmInterval: 30m0s
   defaultOnFailureStrategy: updateOnFailure
   onFailureStrategies:
     - name: stopOnFailure
@@ -58,12 +61,12 @@ config:
           strategy:
             name: RemediateOnFailure
           remediation:
-            retries: 5
+            retries: 10
         upgrade:
           strategy:
             name: RemediateOnFailure
           remediation:
-            retries: 5
+            retries: 10
 
     - name: updateOnFailure
       values:

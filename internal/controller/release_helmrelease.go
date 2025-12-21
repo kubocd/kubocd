@@ -111,8 +111,6 @@ func PopulateHelmRelease(
 	helmReleaseNameByModuleName map[string]string,
 	configStore configstore.ConfigStore,
 ) error {
-	helmRelease.Spec.Interval = release.Spec.Package.Interval
-
 	// Get chart reference for the module
 	chartRef, ok := pckContainer.Status.ChartByModule[module.Name]
 	if !ok {
@@ -157,14 +155,7 @@ func PopulateHelmRelease(
 		"releaseName":     helmRelease.Name, // We remove namespace from the releaseName
 		"dependsOn":       dependsOn,
 		"timeout":         &moduleRendered.Timeout,
-	}
-
-	releaseOnFailure := release.Spec.OnFailureByModule[module.Name]
-	// Patch the timeout with the helmRelease value
-	if releaseOnFailure != nil {
-		if !misc.IsZero(releaseOnFailure.Timeout) {
-			spec["timeout"] = releaseOnFailure.Timeout
-		}
+		"interval":        &moduleRendered.Interval,
 	}
 
 	// --------------- Apply DefaultOnFailureStrategy if any
@@ -172,7 +163,7 @@ func PopulateHelmRelease(
 	if defaultStrategy != nil {
 		spec = misc.MergeMaps(spec, defaultStrategy)
 	}
-	// ------------------------- helmRelease patches from the package
+	// ------------------------- Patch helmRelease OnFailureStrategy from the package
 	if moduleRendered.OnFailureStrategy != "" {
 		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
 		if strategy == nil {
@@ -181,26 +172,49 @@ func PopulateHelmRelease(
 		deleteFailureConf(spec)
 		spec = misc.MergeMaps(spec, strategy)
 	}
+	// ------------------------------------------------ Apply global and from package patch
+	var err error
+	spec, err = Merge(spec, configStore.GetSpecPatch())
+	if err != nil {
+		return fmt.Errorf("unable to merge config.specPatch on module '%s': %w", module.Name, err)
+	}
 	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch) // Including install.namespace
 
-	// ------------------------- helmRelease patches from the release
-	if releaseOnFailure != nil {
-		if releaseOnFailure.Strategy != "" {
-			onFailureStrategy := configStore.GetOnFailureStrategy(releaseOnFailure.Strategy)
+	var override *kv1alpha1.ModuleOverrideSpec = nil
+	// ------------------------------------------------ Handle module override
+	if release.Spec.ModuleOverrides != nil {
+		for idx, ovr := range release.Spec.ModuleOverrides {
+			if ovr.Module == module.Name {
+				if override == nil {
+					override = &release.Spec.ModuleOverrides[idx]
+				} else {
+					return fmt.Errorf("override for module '%s' defined twice", module.Name)
+				}
+			}
+		}
+	}
+	if override != nil {
+		if override.OnFailureStrategy != "" {
+			onFailureStrategy := configStore.GetOnFailureStrategy(override.OnFailureStrategy)
 			if onFailureStrategy == nil {
-				return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", releaseOnFailure.Strategy, module.Name)
+				return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", override.OnFailureStrategy, module.Name)
 			}
 			deleteFailureConf(spec)
 			spec = misc.MergeMaps(spec, onFailureStrategy)
 		}
-	}
-	// ------------------------- And handle generic specPatchByModule
-	patch, ok := release.Spec.SpecPatchByModule[module.Name]
-	if ok {
-		var err error
-		spec, err = Merge(spec, patch)
-		if err != nil {
-			return fmt.Errorf("failed to merge spec patch for module '%s': %w", module.Name, err)
+		// ------------------------- And handle generic specPatchByModule
+		if override.SpecPatch != nil {
+			var err error
+			spec, err = Merge(spec, override.SpecPatch)
+			if err != nil {
+				return fmt.Errorf("failed to merge spec patch for module '%s': %w", module.Name, err)
+			}
+		}
+		if !misc.IsZero(override.Timeout) {
+			spec["timeout"] = override.Timeout
+		}
+		if !misc.IsZero(override.Interval) {
+			spec["interval"] = override.Interval
 		}
 	}
 

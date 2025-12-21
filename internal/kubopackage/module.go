@@ -75,6 +75,10 @@ type Module struct {
 	// May be overridden at the release level
 	// Default from the KuboCD global configuration, or '2m'
 	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
+	// Will be set as spec.interval of the generated HelmRelease, interval at which to reconcile the Helm release.
+	// May be overridden at the release level
+	// Default from the KuboCD global configuration, or '2m'
+	Interval KcdTemplateDuration `json:"interval,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
 	// Effective value is And-ed with the release corresponding value
@@ -106,6 +110,14 @@ func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStor
 			m.Timeout = "2m0s"
 		} else {
 			m.Timeout = KcdTemplateDuration(configStore.GetDefaultHelmTimeout().String())
+		}
+	}
+	if misc.IsZero(m.Interval) {
+		if configStore == nil {
+			// When used in packaging
+			m.Interval = "30m0s"
+		} else {
+			m.Interval = KcdTemplateDuration(configStore.GetDefaultHelmInterval().String())
 		}
 	}
 	// Normalize
@@ -166,6 +178,10 @@ func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStor
 	if err != nil {
 		return fmt.Errorf("could not parse 'timeout' template: %w", err)
 	}
+	m.templates.interval, err = tmpl.New("", string(m.Interval), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'interval' template: %w", err)
+	}
 	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
@@ -193,6 +209,7 @@ type moduleTemplates struct {
 	enabled           tmpl.Tmpl
 	dependsOn         tmpl.Tmpl
 	timeout           tmpl.Tmpl
+	interval          tmpl.Tmpl
 	onFailureStrategy tmpl.Tmpl
 }
 
@@ -207,6 +224,7 @@ type ModuleRendered struct {
 	Enabled           bool
 	DependsOn         []string
 	Timeout           metav1.Duration
+	Interval          metav1.Duration
 	OnFailureStrategy string
 }
 
@@ -235,6 +253,10 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	mr.Timeout, txt, err = m.templates.timeout.RenderToDuration(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'timeout' template: %w (%s)", err, txt)
+	}
+	mr.Interval, txt, err = m.templates.interval.RenderToDuration(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'interval' template: %w (%s)", err, txt)
 	}
 	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToSingleLine(model)
 	if err != nil {

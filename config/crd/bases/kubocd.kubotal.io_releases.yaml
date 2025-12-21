@@ -117,21 +117,33 @@ spec:
               description:
                 description: Short description of this release. Single line only
                 type: string
-              onFailureByModule:
-                additionalProperties:
+              moduleOverrides:
+                items:
                   properties:
-                    strategy:
+                    interval:
+                      description: Will be set as spec.interval of the generated HelmRelease,
+                        thus providing interval to which reconcile the helmRelease
+                      type: string
+                    module:
+                      description: The module this override apply on
+                      type: string
+                    onFailureStrategy:
                       description: |-
                         Define the strategy to use in case of Helm deployment failure. Strategies are defined in the KuboCD global configuration.
                         If provided, override package provided value
                       type: string
+                    specPatch:
+                      description: Allow to patch the HelmRelease.spec for each module
+                      x-kubernetes-preserve-unknown-fields: true
                     timeout:
                       description: |-
                         Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
                         If provided, override package provided value
                       type: string
+                  required:
+                  - module
                   type: object
-                type: object
+                type: array
               package:
                 description: The package to deploy
                 properties:
@@ -316,11 +328,6 @@ spec:
                   If yes, the default context(s) of the configs are not taken in account
                   ,Default: false
                 type: boolean
-              specPatchByModule:
-                additionalProperties:
-                  x-kubernetes-preserve-unknown-fields: true
-                description: Allow to patch the HelmRelease.spec for each module
-                type: object
               suspended:
                 description: |-
                   If true, HelmRelease update is suspended at KuboCD level
