@@ -39,6 +39,7 @@ func init() {
 	dumpCmd.AddCommand(dumpHrCmd)
 	dumpCmd.AddCommand(dumpPackageCmd)
 	dumpCmd.AddCommand(dumpContextCmd)
+	dumpCmd.AddCommand(dumpConfigCmd)
 }
 
 var dumpParams struct {
@@ -286,6 +287,47 @@ var dumpContextCmd = &cobra.Command{
 				return fmt.Errorf("could not compute context: %w", err)
 			}
 			cmn.Dump("", "", context)
+			return nil
+		}()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+			os.Exit(1)
+		}
+	},
+}
+
+// --------------------------------------------------------------------------------- dump config
+
+var dumpConfigParams struct {
+	kubocdNamespace string
+}
+
+func init() {
+	dumpConfigCmd.PersistentFlags().StringVarP(&dumpConfigParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
+}
+
+var dumpConfigCmd = &cobra.Command{
+	Use:     "config",
+	Short:   "Dump KuboCD global configuration",
+	Args:    cobra.NoArgs,
+	Aliases: []string{"Config"},
+	Example: `	Display the global KuboCD configuration.
+	$ kubocd dump config`,
+
+	Run: func(command *cobra.Command, args []string) {
+		err := func() error {
+			k8sClient, err := k8sapi.GetKubeClient(scheme)
+			if err != nil {
+				return fmt.Errorf("error getting kubernetes client: %w", err)
+			}
+			ctx := context.Background()
+			// ------------------------------------------------------------------------ handle config
+			configStore := configstore.New()
+			err = configStore.Init(ctx, k8sClient, dumpConfigParams.kubocdNamespace)
+			if err != nil {
+				return fmt.Errorf("could not fetch config(s): %w", err)
+			}
+			cmn.Dump("", "", configStore.ObjectMap())
 			return nil
 		}()
 		if err != nil {

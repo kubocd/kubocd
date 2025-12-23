@@ -188,15 +188,35 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 func (c *configStore) ObjectMap() map[string]interface{} {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	return map[string]interface{}{
-		"clusterRoles":             c.clusterRoles,
+	m := map[string]interface{}{
+		//"clusterRoles":             c.clusterRoles,
 		"packageRedirects":         c.packageRedirects,
 		"imageRedirects":           c.imageRedirects,
 		"defaultContexts":          c.defaultContexts,
 		"defaultNamespaceContexts": c.defaultNamespaceContexts,
 		"defaultOnFailureStrategy": c.DefaultOnFailureStrategy,
-		"onFailureStrategyByName":  c.OnFailureStrategyByName,
+		//"onFailureStrategyByName":  c.OnFailureStrategyByName,
+		"defaultHelmTimeout":     c.DefaultHelmTimeout.String(),
+		"defaultHelmInterval":    c.DefaultHelmInterval.String(),
+		"defaultPackageInterval": c.DefaultPackageInterval.String(),
+		"specPatch":              c.SpecPatch,
 	}
+	// ---------------------------------------------------------
+	onFailureStrategies := make([]map[string]interface{}, 0, len(c.OnFailureStrategyByName))
+	for name, strategy := range c.OnFailureStrategyByName {
+		item := make(map[string]interface{})
+		item["name"] = name
+		item["value"] = strategy
+		onFailureStrategies = append(onFailureStrategies, item)
+	}
+	m["onFailureStrategies"] = onFailureStrategies
+	// ---------------------------------------------------------
+	clusterRoles := make([]string, 0, len(c.clusterRoles))
+	for role, _ := range c.clusterRoles {
+		clusterRoles = append(clusterRoles, role)
+	}
+	m["clusterRoles"] = clusterRoles
+	return m
 }
 
 func (c *configStore) Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error {
