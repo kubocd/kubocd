@@ -6,16 +6,6 @@ metadata:
   name: conf01
   namespace: {{ .Release.Namespace }}
 spec:
-  packageRedirects:
-{{- toYaml .Values.config.packageRedirects | nindent 4 }}
-  imageRedirects:
-{{- toYaml .Values.config.imageRedirects | nindent 4 }}
-  clusterRoles:
-{{- toYaml .Values.config.clusterRoles | nindent 4 }}
-  defaultContexts:
-{{- toYaml .Values.config.defaultContexts | nindent 4 }}
-  defaultNamespaceContexts:
-{{- toYaml .Values.config.defaultNamespaceContexts | nindent 4 }}
-
+{{- toYaml .Values.config.content | nindent 2 }}
 {{ end }}
 

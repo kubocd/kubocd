@@ -128,7 +128,7 @@ type ConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	DefaultHelmInterval *metav1.Duration `json:"defaultHelmInterval,omitempty"`
 
-	// Default value for Release.spec.package.interval. Interval applyed to the OciRepository, to check against new package version
+	// Default value for Release.spec.package.interval. Interval applied to the OciRepository, to check against new package version
 	// Default: 30mn
 	// +kubebuilder:validation:Optional
 	DefaultPackageInterval *metav1.Duration `json:"defaultPackageInterval,omitempty"`

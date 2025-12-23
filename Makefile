@@ -147,7 +147,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 ##@ Build
 
 .PHONY: build
-build:  manifests generate fmt vet build-kubocd  ## Build kubocd binaries with dependencies
+build:  manifests generate fmt vet build-kubocd version ## Build kubocd binaries with dependencies
 
 .PHONY: build-kubocd
 build-kubocd: ## Build kubocd binary.

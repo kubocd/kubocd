@@ -34,51 +34,52 @@ contexts: []
 
 config:
   enabled: true
-  packageRedirects: []
-#    - oldPrefix: # TBD
-#      newPrefix: # TBD
-#      certSecretRef:
-#        name: # TBD
-#     # Other OciRepositorySpec elements
-  clusterRoles: []
-#    - storage
-  defaultContexts: []
-#    - name: cluster
-#      namespace: contexts
-  defaultNamespaceContexts: []
-  imageRedirects: []
+  content:
+    packageRedirects: []
+  #    - oldPrefix: # TBD
+  #      newPrefix: # TBD
+  #      certSecretRef:
+  #        name: # TBD
+  #     # Other OciRepositorySpec elements
+    clusterRoles: []
+  #    - storage
+    defaultContexts: []
+  #    - name: cluster
+  #      namespace: contexts
+    defaultNamespaceContexts: []
+    imageRedirects: []
 
-  specPath: {}
-  defaultPackageInterval: 30m0s
-  defaultHelmTimeout: 3m0s
-  defaultHelmInterval: 30m0s
-  defaultOnFailureStrategy: updateOnFailure
-  onFailureStrategies:
-    - name: stopOnFailure
-      values: {}
-    - name: reinstallOnFailure
-      values:
-        install:
-          strategy:
-            name: RemediateOnFailure
-          remediation:
-            retries: 10
-        upgrade:
-          strategy:
-            name: RemediateOnFailure
-          remediation:
-            retries: 10
+    specPatch: {}
+    defaultPackageInterval: 30m0s
+    defaultHelmTimeout: 3m0s
+    defaultHelmInterval: 30m0s
+    defaultOnFailureStrategy: updateOnFailure
+    onFailureStrategies:
+      - name: stopOnFailure
+        values: {}
+      - name: reinstallOnFailure
+        values:
+          install:
+            strategy:
+              name: RemediateOnFailure
+            remediation:
+              retries: 10
+          upgrade:
+            strategy:
+              name: RemediateOnFailure
+            remediation:
+              retries: 10
 
-    - name: updateOnFailure
-      values:
-        install:
-          strategy:
-            name: RetryOnFailure
-            retryInterval: 1m0s
-        upgrade:
-          strategy:
-            name: RetryOnFailure
-            retryInterval: 1m0s
+      - name: updateOnFailure
+        values:
+          install:
+            strategy:
+              name: RetryOnFailure
+              retryInterval: 1m0s
+          upgrade:
+            strategy:
+              name: RetryOnFailure
+              retryInterval: 1m0s
 
 
 # for example, to store contexts

@@ -57,6 +57,11 @@ type Module struct {
 			// The folder where is located 'Chart.yaml'
 			// required:true
 			Path string `json:"path"`
+			// We filter files to only include chart content, as defined by https://helm.sh/docs/v3/topics/charts
+			// Some helm charts require extra files to be included. (i.e argo-workflows community helm chart)
+			// This defines a list of prefix for files which should also be included. This starting from the `Path` referenced above
+			// and with a leading '/'.
+			ExtraFilePrefixes []string `json:"extraFilePrefixes,omitempty"`
 		} `json:"git,omitempty"`
 		Local *struct {
 			Path string `json:"path"`

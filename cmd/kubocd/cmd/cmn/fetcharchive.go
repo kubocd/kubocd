@@ -90,7 +90,7 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.Git != nil {
-				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir)
+				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir, module.Source.Git.ExtraFilePrefixes)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -136,7 +136,7 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 	return archives, status, nil
 }
 
-func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string, workDir string) (string, error) {
+func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string, workDir string, extraFilePrefixes []string) (string, error) {
 	// Prepare target archive folder
 	loc := path.Join(workDir, "git-workdir")
 	err := misc.SafeEnsureEmpty(loc)
@@ -200,7 +200,7 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 		if !d.IsDir() {
 			itemFileName := thePath[chartLocationLen:]
 			targetFileName := path.Join(moduleName, itemFileName)
-			if isChartItem(itemFileName) {
+			if isChartItem(itemFileName, extraFilePrefixes) {
 				//fmt.Printf("%s  -> %s (%s)\n", thePath, targetFileName, itemFileName)
 				slog.Debug("Store chart item", "item", itemFileName)
 				err := tgz.AddToArchive(tw, thePath, targetFileName)
@@ -229,12 +229,17 @@ var validChartItems = map[string]bool{
 }
 
 // Test if the file is an effective chart item (cf https://helm.sh/docs/v3/topics/charts)
-func isChartItem(fileName string) bool {
+func isChartItem(fileName string, extraFilePrefixes []string) bool {
 	if _, ok := validChartItems[fileName]; ok {
 		return true
 	}
 	if strings.HasPrefix(fileName, "/charts") || strings.HasPrefix(fileName, "/crds") || strings.HasPrefix(fileName, "/templates") {
 		return true
+	}
+	for _, prefix := range extraFilePrefixes {
+		if strings.HasPrefix(fileName, prefix) {
+			return true
+		}
 	}
 	return false
 }
