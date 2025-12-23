@@ -149,12 +149,14 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 		c.defaultNamespaceContexts = append(c.defaultNamespaceContexts, config.Spec.DefaultNamespaceContexts...)
 		if config.Spec.OnFailureStrategies != nil {
 			for _, strategy := range config.Spec.OnFailureStrategies {
-				v := make(map[string]interface{})
-				err := yaml.Unmarshal(strategy.Values.Raw, &v)
-				if err != nil {
-					return fmt.Errorf("OnFailureStrategy '%s' failed to unmarshal value: %v", strategy.Name, err)
+				if strategy.Strategy != nil {
+					v := make(map[string]interface{})
+					err := yaml.Unmarshal(strategy.Strategy.Raw, &v)
+					if err != nil {
+						return fmt.Errorf("OnFailureStrategy '%s' failed to unmarshal value: %v", strategy.Name, err)
+					}
+					c.OnFailureStrategyByName[strategy.Name] = v
 				}
-				c.OnFailureStrategyByName[strategy.Name] = v
 			}
 		}
 		if config.Spec.DefaultOnFailureStrategy != "" {
@@ -206,7 +208,7 @@ func (c *configStore) ObjectMap() map[string]interface{} {
 	for name, strategy := range c.OnFailureStrategyByName {
 		item := make(map[string]interface{})
 		item["name"] = name
-		item["value"] = strategy
+		item["strategy"] = strategy
 		onFailureStrategies = append(onFailureStrategies, item)
 	}
 	m["onFailureStrategies"] = onFailureStrategies

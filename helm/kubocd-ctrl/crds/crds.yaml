@@ -129,7 +129,7 @@ spec:
                   properties:
                     name:
                       type: string
-                    values:
+                    strategy:
                       x-kubernetes-preserve-unknown-fields: true
                   required:
                   - name

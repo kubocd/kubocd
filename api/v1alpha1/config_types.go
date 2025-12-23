@@ -72,7 +72,7 @@ type OnFailureStrategySpec struct {
 	Name string `json:"name"`
 
 	// +kubebuilder:validation:Optional
-	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+	Strategy *apiextensionsv1.JSON `json:"strategy,omitempty"`
 }
 
 // ConfigSpec defines the desired state of Config.

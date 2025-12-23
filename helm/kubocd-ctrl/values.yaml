@@ -56,9 +56,9 @@ config:
     defaultOnFailureStrategy: updateOnFailure
     onFailureStrategies:
       - name: stopOnFailure
-        values: {}
+        strategy: {}
       - name: reinstallOnFailure
-        values:
+        strategy:
           install:
             strategy:
               name: RemediateOnFailure
@@ -71,7 +71,7 @@ config:
               retries: 10
 
       - name: updateOnFailure
-        values:
+        strategy:
           install:
             strategy:
               name: RetryOnFailure
