@@ -91,7 +91,7 @@ var dumpOciCmd = &cobra.Command{
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	Example: `	Download locally KuboCD OCI helm chart
-	$  kubocd dump oci oci://quay.io/kubocd/charts/kubocd-wh:v0.2.3 --chart`,
+	$  kubocd dump oci oci://quay.io/kubocd/charts/kubocd-wh:v0.3.0 --chart`,
 	Run: func(command *cobra.Command, args []string) {
 
 		err := func() error {
