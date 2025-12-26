@@ -1,20 +1,15 @@
 # KuboCD
 
-Most applications that can be deployed on Kubernetes come with a Helm chart. Moreover, this Helm chart is generally
-highly flexible, designed to accommodate as many contexts as possible. This can make its configuration quite complex.
+## Why KuboCD?
 
-Furthermore, deploying an application on Kubernetes using an Helm Chart requires a deep understanding of the Kubernetes
-ecosystem. As a result, application deployment is typically the responsibility of platform administrators or platform engineers.
+Most Kubernetes-ready applications provide a Helm chart. These charts are typically designed to be highly flexible and accommodate a wide range of use cases, which often makes their configuration complex.
 
-And even for experienced administrators, the verbosity of Helm configurations, especially the repetition of variables,
-can quickly become tedious and error-prone. Therefore, industrializing these configurations is crucial to improve
-efficiency and reliability.
+Moreover, deploying an application using a Helm chart requires a deep understanding of the Kubernetes ecosystem. Consequently, application deployment often falls to platform administrators or platform engineers.
 
-KuboCD is a tool that enables Platform Engineers to package applications in a way that simplifies deployment for other
-technical users (such as Developers, AppOps, etc.) by abstracting most of the underlying infrastructure and environment complexities.
+Even for experienced administrators, the verbosity of Helm configurations—especially the repetition of variables—can be tedious and error-prone. Industrializing these configurations is crucial for improving efficiency and reliability.
 
-In addition to usual applications, KuboCD can also provision core system components (e.g., ingress controllers,
-load balancers, Kubernetes operators, etc.), enabling fully automated bootstrapping of a production-ready cluster
-from the ground up.
+KuboCD is a tool that empowers Platform Engineers to package applications in a way that simplifies deployment for other technical users (such as Developers and AppOps) by abstracting much of the underlying infrastructure and environment complexity.
 
-The documentation can be found [here](https://kubocd.github.io/kubocd-doc/)
+Beyond standard applications, KuboCD can provision core system components (e.g., ingress controllers, load balancers, Kubernetes operators), enabling the fully automated bootstrapping of a production-ready cluster from the ground up.
+
+The documentation can be found [here](https://www.kubocd.io)
