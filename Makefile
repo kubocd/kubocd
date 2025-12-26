@@ -12,14 +12,14 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-APP_VERSION ?= v0.3.0
+APP_VERSION ?= v0.3.1-snapshot
 DOCKER_TAG=${APP_VERSION}
 
 IMG ?= quay.io/kubocd/kubocd:${DOCKER_TAG}
 #IMG ?= localhost:5001/kubocd/kubocd:${DOCKER_TAG}
 #IMG ?= ghcr.io/sergealexandre/kubocd/kubocd:${DOCKER_TAG}
 
-HELM_VERSION ?= v0.3.0
+HELM_VERSION ?= v0.3.1-snapshot
 
 HELM_DOCKER_REPO := quay.io/kubocd/charts
 #HELM_DOCKER_REPO := ghcr.io/sergealexandre/kubocd/charts
