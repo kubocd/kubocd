@@ -21,3 +21,4 @@ Helm (`kubocd-ctrl` and `kubocd-wh`)
 
 - Add `nodeSelector` and `tolerations`, to control deployment location.
 - Add a `deployInControlPlane` shortcut, for cluster with standard layout.
+  And a `config.enabled` has been added. ([ref](https://www.kubocd.io/user-guide/170-context-and-config/#configuration-via-helm-chart))
