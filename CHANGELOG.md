@@ -1,3 +1,29 @@
+
+# v0.3.1
+
+Core
+
+- Empty entries are pruned from generated values object.
+  
+  ```
+  global:
+      stuff:
+        {{ if .Parameters.myVar }}
+        config:
+          foo: bar
+        {{ end }}
+  ```
+
+  result in empty string ("") if `.Parameters.myVar` is false 
+  
+  Previously, was:
+
+  ```
+  global:
+      stuff: null
+  ```
+  
+
 # v0.3.0
 
 Core
