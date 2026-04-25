@@ -23,6 +23,9 @@ Core
       stuff: null
   ```
   
+CLI:
+
+- On render command, the targetNamespace was not properly set in resulting 'manifests'. Fixed
 
 # v0.3.0
 
