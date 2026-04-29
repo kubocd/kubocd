@@ -38,7 +38,7 @@ spec:
     name: {{ include "kubocd.webhook.certificateSelfSignedIssuerName" . }}
 {{- else }}
     kind: ClusterIssuer
-    name: .Values.webhook.certificateClusterIssuer
+    name: {{ .Values.webhook.certificateClusterIssuer }}
 {{- end }}
   secretName: {{ include "kubocd.webhook.secretName" . }}
 
@@ -85,7 +85,7 @@ spec:
     name: {{ include "kubocd.webhook.metrics.certificateSelfSignedIssuerName" . }}
 {{- else }}
     kind: ClusterIssuer
-    name: .Values.metrics.certificateClusterIssuer
+    name: {{ .Values.webhook.metrics.certificateClusterIssuer }}
 {{- end }}
   secretName: {{ include "kubocd.webhook.metrics.secretName" . }}
 
