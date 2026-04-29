@@ -38,7 +38,7 @@ spec:
     name: {{ include "kubocd.webhook.certificateSelfSignedIssuerName" . }}
 {{- else }}
     kind: ClusterIssuer
-    name: .Values.webhook.certificateClusterIssuer
+    name: {{ .Values.webhook.certificateClusterIssuer }}
 {{- end }}
   secretName: {{ include "kubocd.webhook.secretName" . }}
 
