@@ -111,7 +111,10 @@ fi
 # 4. Document the local registry hosting inside the cluster
 # This tells tools like Flux/Helm where the OCI registry is located
 echo "Applying local registry hosting ConfigMap to kube-public..."
-cat <<EOF | retry kubectl apply --context "kind-${cluster_name}" -f -
+# Note: the manifest is materialized to a temp file before being applied via retry.
+# Piping a heredoc directly into 'retry kubectl apply -f -' consumes stdin on the
+# first attempt; subsequent retries would receive empty input and silently no-op.
+cat <<EOF > /tmp/local-registry-hosting.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -122,6 +125,8 @@ data:
     host: "localhost:${reg_port}"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
 EOF
+retry kubectl apply --context "kind-${cluster_name}" -f /tmp/local-registry-hosting.yaml
+rm -f /tmp/local-registry-hosting.yaml
 
 # 5. Configure containerd on each cluster node to route localhost:5001 to our local registry container
 echo "Configuring containerd registry routing on Kind nodes..."
@@ -149,7 +154,11 @@ fi
 
 # 7. Install KuboCD CRDs into the cluster
 echo "Installing KuboCD CRDs into the cluster..."
-go tool kustomize build config/crd | retry kubectl --context "kind-${cluster_name}" apply -f -
+# Note: same stdin-consumption rationale as step 4 — materialize the rendered
+# CRDs to a temp file so retries see consistent input on subsequent attempts.
+go tool kustomize build config/crd > /tmp/kubocd-crds.yaml
+retry kubectl --context "kind-${cluster_name}" apply -f /tmp/kubocd-crds.yaml
+rm -f /tmp/kubocd-crds.yaml
 
 # 8. Wait for core resources to be fully ready
 echo "Waiting for KuboCD CRDs to be established..."

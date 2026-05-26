@@ -24,7 +24,7 @@ All binaries are installed deterministically matching `.tool-versions` as the si
 - `helm 3.16.2`
 - `kind 0.27.0`
 - `flux 2.8.8`
-- `setup-envtest` (pinned to tag `@v0.22.4` for Go 1.25 compatibility)
+- `setup-envtest` (pinned to commit `f9589b9f` on the `release-0.23` branch for Go 1.25 compatibility; see `.devcontainer/Dockerfile` for the rationale — published v0.24.x tags require Go 1.26)
 
 ## Quick Start (Bootstrap)
 

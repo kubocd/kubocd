@@ -94,24 +94,26 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: verify-tool-versions
-verify-tool-versions: ## Verify that .tool-versions and go.mod are in sync.
+verify-tool-versions: ## Verify that .tool-versions and go.mod are in sync (MAJOR.MINOR comparison).
 	@if [ -f .tool-versions ]; then \
-		tool_go_ver=$$(awk '/^golang/ {split($$2, a, "."); print a[1]"."a[2]}' .tool-versions); \
-		go_mod_ver=$$(grep -E '^go [0-9]+\.[0-9]+' go.mod | awk '{print $$2}' | awk -F. '{print $$1"."$$2}'); \
-		if [ "$$tool_go_ver" != "$$go_mod_ver" ]; then \
-			echo "ERROR: Go version mismatch detected between .tool-versions and go.mod!"; \
-			echo "  .tool-versions: golang $$tool_go_ver"; \
-			echo "  go.mod: go $$go_mod_ver"; \
+		tool_go_full=$$(awk '/^golang/ {print $$2}' .tool-versions); \
+		tool_go_minor=$$(echo "$$tool_go_full" | awk -F. '{print $$1"."$$2}'); \
+		go_mod_minor=$$(grep -E '^go [0-9]+\.[0-9]+' go.mod | awk '{print $$2}' | awk -F. '{print $$1"."$$2}'); \
+		if [ "$$tool_go_minor" != "$$go_mod_minor" ]; then \
+			echo "ERROR: Go MAJOR.MINOR mismatch between .tool-versions and go.mod!"; \
+			echo "  .tool-versions: golang $$tool_go_full (MAJOR.MINOR = $$tool_go_minor)"; \
+			echo "  go.mod: go $$go_mod_minor"; \
 			exit 1; \
 		fi; \
-		tool_k8s_ver=$$(awk '/^kubectl/ {split($$2, a, "."); print a[1]"."a[2]}' .tool-versions); \
-		if [ "$$tool_k8s_ver" != "$(ENVTEST_K8S_VERSION)" ]; then \
-			echo "ERROR: Kubernetes version mismatch detected between .tool-versions and go.mod k8s.io/api!"; \
-			echo "  .tool-versions: kubectl $$tool_k8s_ver"; \
+		tool_k8s_full=$$(awk '/^kubectl/ {print $$2}' .tool-versions); \
+		tool_k8s_minor=$$(echo "$$tool_k8s_full" | awk -F. '{print $$1"."$$2}'); \
+		if [ "$$tool_k8s_minor" != "$(ENVTEST_K8S_VERSION)" ]; then \
+			echo "ERROR: Kubernetes MAJOR.MINOR mismatch between .tool-versions and go.mod k8s.io/api!"; \
+			echo "  .tool-versions: kubectl $$tool_k8s_full (MAJOR.MINOR = $$tool_k8s_minor)"; \
 			echo "  go.mod (k8s.io/api -> ENVTEST_K8S_VERSION): $(ENVTEST_K8S_VERSION)"; \
 			exit 1; \
 		fi; \
-		echo "Tool versions verified successfully: golang $$tool_go_ver, kubectl $$tool_k8s_ver"; \
+		echo "Tool versions verified successfully: golang $$tool_go_full, kubectl $$tool_k8s_full"; \
 	fi
 
 .PHONY: verify-envtest-version
@@ -370,19 +372,19 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT ?= go tool golangci-lint
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.5.0
-CONTROLLER_TOOLS_VERSION ?= v0.17.1
+# Note: Kustomize, Controller-gen, and Golangci-lint versions are pinned via the
+# `tool` directive in go.mod and invoked through `go tool ...` — no separate
+# version variables are needed here.
+#
+# setup-envtest is kept in $(LOCALBIN) as an exception: the only published tags
+# of its submodule (v0.24.x) require Go 1.26, while this project pins Go 1.25 in
+# .tool-versions. It is therefore installed dynamically on host demand (and
+# pre-cached globally inside the Devcontainer).
+#
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v1.63.4
-
-# Note: Kustomize, Controller-gen, and Golangci-lint are managed natively via Go 1.25 tools in go.mod.
-# setup-envtest is kept in $(LOCALBIN) as an exception because in controller-runtime v0.22.4,
-# its tools/setup-envtest submodule is not published as a standalone Go module on proxy.golang.org,
-# and managing it as a Go 1.24+ tool would force upgrading the project's entire toolchain.
-# It is therefore installed dynamically on host demands, and pre-cached globally inside the Devcontainer.
 
 
 .PHONY: setup-envtest
