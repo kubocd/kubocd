@@ -2,9 +2,13 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
+  # apiServerAddress is set to "0.0.0.0" instead of 127.0.0.1 to allow connection
+  # from the sibling Devcontainer container under Docker-outside-of-Docker (DooD) networking.
   apiServerAddress: "0.0.0.0"
 nodes:
 - role: control-plane
+  # Pin the Kubernetes cluster node version to match kubectl v1.34.0 in .tool-versions
+  image: kindest/node:v1.34.0
   containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry]

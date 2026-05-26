@@ -135,6 +135,46 @@ verify-envtest-version: verify-tool-versions ## Verify envtest version compatibi
 		esac; \
 	fi
 
+.PHONY: check-tools
+check-tools: ## Check if local tools match .tool-versions requirements.
+	@echo "Checking local development tools against .tool-versions..."
+	@failed=0; \
+	if [ -f .tool-versions ]; then \
+		go_req=$$(awk '/^golang/ {print $$2}' .tool-versions); \
+		go_cur=$$(go version 2>/dev/null | awk '{print $$3}' | sed 's/go//' || true); \
+		if [ -z "$$go_cur" ]; then echo "❌ Go is NOT installed! (Required: $$go_req)"; failed=1; \
+		elif [ "$$go_req" != "$$go_cur" ]; then echo "❌ Go version mismatch! (Required: $$go_req, Installed: $$go_cur)"; failed=1; \
+		else echo "✅ Go version matches ($$go_cur)"; fi; \
+		\
+		k8s_req=$$(awk '/^kubectl/ {print $$2}' .tool-versions); \
+		k8s_cur=$$(kubectl version --client 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true); \
+		if [ -z "$$k8s_cur" ]; then echo "❌ kubectl is NOT installed! (Required: $$k8s_req)"; failed=1; \
+		elif [ "$$k8s_req" != "$$k8s_cur" ]; then echo "❌ kubectl version mismatch! (Required: $$k8s_req, Installed: $$k8s_cur)"; failed=1; \
+		else echo "✅ kubectl version matches ($$k8s_cur)"; fi; \
+		\
+		helm_req=$$(awk '/^helm/ {print $$2}' .tool-versions); \
+		helm_cur=$$(helm version --template='{{.Version}}' 2>/dev/null | sed 's/^v//' || true); \
+		if [ -z "$$helm_cur" ]; then echo "❌ Helm is NOT installed! (Required: $$helm_req)"; failed=1; \
+		elif [ "$$helm_req" != "$$helm_cur" ]; then echo "❌ Helm version mismatch! (Required: $$helm_req, Installed: $$helm_cur)"; failed=1; \
+		else echo "✅ Helm version matches ($$helm_cur)"; fi; \
+		\
+		kind_req=$$(awk '/^kind/ {print $$2}' .tool-versions); \
+		kind_cur=$$(kind version 2>/dev/null | awk '{print $$2}' | sed 's/^v//' || true); \
+		if [ -z "$$kind_cur" ]; then echo "❌ Kind is NOT installed! (Required: $$kind_req)"; failed=1; \
+		elif [ "$$kind_req" != "$$kind_cur" ]; then echo "❌ Kind version mismatch! (Required: $$kind_req, Installed: $$kind_cur)"; failed=1; \
+		else echo "✅ Kind version matches ($$kind_cur)"; fi; \
+		\
+		flux_req=$$(awk '/^flux/ {print $$2}' .tool-versions); \
+		flux_cur=$$(flux version --client 2>/dev/null | awk '/flux/ {print $$2}' | sed 's/^v//' || true); \
+		if [ -z "$$flux_cur" ]; then echo "❌ Flux is NOT installed! (Required: $$flux_req)"; failed=1; \
+		elif [ "$$flux_req" != "$$flux_cur" ]; then echo "❌ Flux version mismatch! (Required: $$flux_req, Installed: $$flux_cur)"; failed=1; \
+		else echo "✅ Flux version matches ($$flux_cur)"; fi; \
+	else \
+		echo "❌ .tool-versions file not found!"; \
+		failed=1; \
+	fi; \
+	exit $$failed
+
 .PHONY: test
 test: manifests generate fmt vet verify-envtest-version ## Run tests.
 	@if [ -z "$$KUBEBUILDER_ASSETS" ]; then \
@@ -185,12 +225,14 @@ install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/con
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
+HELM_REPO_ADV_ADDR ?= localhost:9090
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	# Note: ENABLE_WEBHOOKS=false is required in local out-of-cluster mode because
 	# the API server cannot reach webhooks hosted on the developer machine without tunnels.
 	# We also pass default local values for MY_POD_NAMESPACE and helmRepoAdvAddr.
-	export ENABLE_WEBHOOKS=false; export MY_POD_NAMESPACE=default; go run ./cmd/kubocd/main.go controller --helmRepoAdvAddr=localhost:9090
+	export ENABLE_WEBHOOKS=false; export MY_POD_NAMESPACE=default; go run ./cmd/kubocd/main.go controller --helmRepoAdvAddr=$(HELM_REPO_ADV_ADDR)
 
 .PHONY: dev-up
 dev-up: ## Bring up local Kind cluster with OCI registry and bootstrap Flux

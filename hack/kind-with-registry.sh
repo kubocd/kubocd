@@ -26,21 +26,78 @@ reg_port='5001'
 cluster_name='kubocd'
 kind_config="hack/kind-config.yaml"
 
+# Helper: Retry function for network-dependent commands
+retry() {
+  local n=1
+  local max=3
+  local delay=5
+  while true; do
+    if "$@"; then
+      return 0
+    else
+      if (( n >= max )); then
+        echo "Error: Command '$*' failed after $n attempts." >&2
+        return 1
+      else
+        echo "Warning: Command '$*' failed. Retrying in $delay seconds (Attempt $n/$max)..." >&2
+        sleep $delay
+        ((n++))
+      fi
+    fi
+  done
+}
+
+# 0. Pre-flight checks
+echo "Running pre-flight environment checks..."
+
+# Check Docker daemon
+if ! docker info >/dev/null 2>&1; then
+  echo "Error: The Docker daemon is not running or not reachable. Please start Docker and try again." >&2
+  exit 1
+fi
+
+# Check required binaries in PATH
+for cmd in kind kubectl flux curl; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Error: Required tool '$cmd' is not installed in the PATH." >&2
+    exit 1
+  fi
+done
+echo "Pre-flight checks passed successfully!"
 
 # 1. Create OCI local registry container if it does not exist
 if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != "true" ]; then
   echo "Creating OCI local registry container: ${reg_name}..."
-  docker run \
+  # Pin the registry container image to a specific version for reproducibility
+  # Retry covers transient pull failures from Docker Hub
+  retry docker run \
     -d --restart=always -p "127.0.0.1:${reg_port}:5000" --network bridge --name "${reg_name}" \
-    registry:2
+    registry:2.8.3
 else
   echo "Registry container ${reg_name} is already running."
 fi
 
+# Active healthcheck: Wait until the local registry is responsive before proceeding
+echo "Waiting for OCI registry to be fully responsive..."
+reg_ready=false
+for i in {1..30}; do
+  if curl -fsSL "http://localhost:${reg_port}/v2/" >/dev/null 2>&1; then
+    reg_ready=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$reg_ready" = "false" ]; then
+  echo "Error: Local registry container started but did not respond on http://localhost:${reg_port} within 30 seconds." >&2
+  exit 1
+fi
+echo "OCI registry container is ready."
+
 # 2. Create Kind cluster using our custom containerd config patches if it does not exist
 if ! kind get clusters | grep -q "^${cluster_name}$"; then
   echo "Creating Kind cluster named '${cluster_name}'..."
-  kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 5m
+  retry kind create cluster --name "${cluster_name}" --config "${kind_config}" --wait 5m
 else
   echo "Kind cluster '${cluster_name}' already exists."
 fi
@@ -48,13 +105,13 @@ fi
 # 3. Connect the registry container to the Kind cluster network if not connected
 if [ "$(docker inspect -f '{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = "null" ]; then
   echo "Connecting registry ${reg_name} to the kind Docker network..."
-  docker network connect "kind" "${reg_name}"
+  retry docker network connect "kind" "${reg_name}"
 fi
 
 # 4. Document the local registry hosting inside the cluster
 # This tells tools like Flux/Helm where the OCI registry is located
 echo "Applying local registry hosting ConfigMap to kube-public..."
-cat <<EOF | kubectl apply --context "kind-${cluster_name}" -f -
+cat <<EOF | retry kubectl apply --context "kind-${cluster_name}" -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -85,14 +142,14 @@ done
 # 6. Bootstrap Flux inside the Kind cluster
 if ! kubectl --context "kind-${cluster_name}" get namespace flux-system >/dev/null 2>&1; then
   echo "Bootstrapping Flux (system controllers) into the cluster..."
-  flux install --context "kind-${cluster_name}"
+  retry flux install --context "kind-${cluster_name}"
 else
   echo "Flux is already installed in the cluster."
 fi
 
 # 7. Install KuboCD CRDs into the cluster
 echo "Installing KuboCD CRDs into the cluster..."
-go tool kustomize build config/crd | kubectl --context "kind-${cluster_name}" apply -f -
+go tool kustomize build config/crd | retry kubectl --context "kind-${cluster_name}" apply -f -
 
 # 8. Wait for core resources to be fully ready
 echo "Waiting for KuboCD CRDs to be established..."
@@ -102,7 +159,6 @@ for f in config/crd/bases/*.yaml; do
     kubectl --context "kind-${cluster_name}" wait --for=condition=Established --timeout=60s "crd/${crd_name}"
   fi
 done
-
 
 echo "Waiting for Flux controllers to be available..."
 kubectl --context "kind-${cluster_name}" -n flux-system wait \
@@ -115,4 +171,3 @@ kubectl --context "kind-${cluster_name}" -n flux-system wait \
 echo "Idempotent development cluster and OCI registry successfully initialized!"
 echo "Cluster context: kind-${cluster_name}"
 echo "Local Registry: localhost:${reg_port}"
-
