@@ -1,0 +1,5 @@
+golang 1.25.0
+kubectl 1.34.0
+helm 3.16.2
+kind 0.27.0
+flux 2.8.8

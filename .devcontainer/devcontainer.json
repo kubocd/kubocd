@@ -1,0 +1,31 @@
+{
+  "name": "KuboCD Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest",
+      "moby": false
+    }
+  },
+  "containerEnv": {
+    "KUBEBUILDER_ASSETS": "/usr/local/share/envtest/active",
+    "GOPATH": "/home/vscode/go"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "go mod download"
+}
+
