@@ -5,8 +5,7 @@
     "context": ".."
   },
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
-      "version": "latest",
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.0": {
       "moby": false
     }
   },
@@ -14,7 +13,21 @@
     "KUBEBUILDER_ASSETS": "/usr/local/share/envtest/active",
     "GOPATH": "/home/vscode/go"
   },
-
+  "mounts": [
+    // Persist Go modules cache across devcontainer rebuilds to speed up builds
+    "source=kubocd-gomodcache,target=/home/vscode/go/pkg/mod,type=volume",
+    // Persist Go build cache across devcontainer rebuilds to accelerate compilation
+    "source=kubocd-gobuildcache,target=/home/vscode/.cache/go-build,type=volume"
+  ],
+  "runArgs": [
+    // Run an init process (tini) inside the container to handle signal forwarding and reap zombies
+    "--init"
+  ],
+  "forwardPorts": [
+    5001, // Local OCI registry port
+    9090  // KuboCD Chart server port
+  ],
+  "shutdownAction": "stopContainer", // Free host machine resources when closing the workspace
   "customizations": {
     "vscode": {
       "extensions": [
@@ -26,6 +39,10 @@
     }
   },
   "remoteUser": "vscode",
-  "postCreateCommand": "go mod download"
+  // Fix ownership of named volumes mounted on top of /home/vscode subdirectories.
+  // Volumes start owned by root, overriding the Dockerfile chown — without this step,
+  // Go writes to /home/vscode/go/pkg/mod fail with "permission denied".
+  "onCreateCommand": "sudo chown -R vscode:vscode /home/vscode/go /home/vscode/.cache",
+  // Automate mock/manifest generation and download dependencies immediately on container startup
+  "postCreateCommand": "make manifests generate && go mod download"
 }
-

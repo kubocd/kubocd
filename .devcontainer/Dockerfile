@@ -1,8 +1,8 @@
 # .devcontainer/Dockerfile
 FROM mcr.microsoft.com/devcontainers/go:dev-1.25-bookworm
 
-# Copy tool-versions file to use as the single source of truth for tool versions
-COPY .tool-versions /tmp/.tool-versions
+# Freeze the Go toolchain to ensure absolute determinism matching Go v1.25.0
+ENV GOTOOLCHAIN=local
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,37 +12,81 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install kubectl
-RUN KUBECTL_VERSION=$(awk '/^kubectl/ {print $2}' /tmp/.tool-versions) \
-    && curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/$(dpkg --print-architecture)/kubectl" \
-    && chmod +x /usr/local/bin/kubectl
+# Note: We use '--mount=type=bind' in the RUN commands to mount .tool-versions ephemerally.
+# This prevents version definitions from bloating the image layers or leaving residual files in /tmp.
+# Dynamic architecture detection via 'dpkg --print-architecture' is used (standard in this Debian-based image).
 
-# Install Helm
-RUN HELM_VERSION=$(awk '/^helm/ {print $2}' /tmp/.tool-versions) \
-    && curl -fsSL -o /tmp/helm.tar.gz "https://get.helm.sh/helm-v${HELM_VERSION}-linux-$(dpkg --print-architecture).tar.gz" \
-    && tar -xzf /tmp/helm.tar.gz -C /tmp \
-    && mv "/tmp/linux-$(dpkg --print-architecture)/helm" /usr/local/bin/helm \
+# 1. Install kubectl and verify official SHA256 checksum
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    KUBECTL_VERSION=$(awk '/^kubectl/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" -o /tmp/kubectl.sha256 \
+    && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - \
+    && chmod +x /usr/local/bin/kubectl \
+    && rm -f /tmp/kubectl.sha256
+
+# 2. Install Helm and verify official SHA256 checksum
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    HELM_VERSION=$(awk '/^helm/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && cd /tmp \
+    && curl -fsSL -O "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+    && curl -fsSL -O "https://get.helm.sh/helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz.sha256sum" \
+    && sha256sum -c "helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz.sha256sum" \
+    && tar -xzf "helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz" \
+    && mv "linux-${ARCH}/helm" /usr/local/bin/helm \
     && chmod +x /usr/local/bin/helm \
-    && rm -rf /tmp/helm.tar.gz /tmp/linux-*
+    && rm -rf "helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz" "helm-v${HELM_VERSION}-linux-${ARCH}.tar.gz.sha256sum" "linux-${ARCH}"
 
-# Install Kind
-RUN KIND_VERSION=$(awk '/^kind/ {print $2}' /tmp/.tool-versions) \
-    && curl -Lo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-$(dpkg --print-architecture)" \
-    && chmod +x /usr/local/bin/kind
+# 3. Install Kind and verify official SHA256 checksum
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    KIND_VERSION=$(awk '/^kind/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && cd /tmp \
+    && curl -fsSL -O "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-${ARCH}" \
+    && curl -fsSL -O "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-${ARCH}.sha256sum" \
+    && sha256sum -c "kind-linux-${ARCH}.sha256sum" \
+    && mv "kind-linux-${ARCH}" /usr/local/bin/kind \
+    && chmod +x /usr/local/bin/kind \
+    && rm -f "kind-linux-${ARCH}.sha256sum"
 
-# Install Flux CLI
-RUN FLUX_VERSION=$(awk '/^flux/ {print $2}' /tmp/.tool-versions) \
-    && curl -s https://fluxcd.io/install.sh | bash -s -- "${FLUX_VERSION}"
+# 4. Install Flux CLI and verify official SHA256 checksum
+# Note: checksums.txt covers all platforms; we extract the line matching our local tarball
+# to guarantee a real verification (avoids the silent passthrough trap with --ignore-missing).
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    FLUX_VERSION=$(awk '/^flux/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && cd /tmp \
+    && curl -fsSL -O "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_${ARCH}.tar.gz" \
+    && curl -fsSL -O "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
+    && EXPECTED_SHA=$(grep "  flux_${FLUX_VERSION}_linux_${ARCH}.tar.gz$" "flux_${FLUX_VERSION}_checksums.txt") \
+    && [ -n "$EXPECTED_SHA" ] \
+    && echo "$EXPECTED_SHA" | sha256sum -c - \
+    && tar -xzf "flux_${FLUX_VERSION}_linux_${ARCH}.tar.gz" \
+    && mv flux /usr/local/bin/flux \
+    && chmod +x /usr/local/bin/flux \
+    && rm -rf "flux_${FLUX_VERSION}_linux_${ARCH}.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
 
-# Pre-cache envtest assets in /usr/local/share/envtest
-# Note: we use release-0.22 branch of setup-envtest which is fully compatible with Go 1.25
-RUN K8S_ENVTEST_VERSION=$(awk '/^kubectl/ {split($2, a, "."); print a[1]"."a[2]}' /tmp/.tool-versions) \
-    && GOBIN=/usr/local/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.22 \
+# 5. Pre-cache envtest assets in /usr/local/share/envtest
+# Note: setup-envtest is a submodule of controller-runtime with its own tags
+# (format: tools/setup-envtest/vX.Y.Z). The only published tags (v0.24.0, v0.24.1)
+# require Go 1.26.0, incompatible with our pinned Go 1.25 base image.
+# We pin instead to the HEAD commit of the release-0.23 branch (Go 1.25 required),
+# which yields an immutable Go pseudo-version while staying compatible.
+# To bump: run `git ls-remote https://github.com/kubernetes-sigs/controller-runtime release-0.23`
+# and update the SHA below (or move to a newer release branch matching the base Go version).
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    K8S_ENVTEST_VERSION=$(awk '/^kubectl/ {split($2, a, "."); print a[1]"."a[2]}' /tmp/.tool-versions) \
+    && GOBIN=/usr/local/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@f9589b9f2b9dddf8532b432bb8315f2820ab9971 \
     && mkdir -p /usr/local/share/envtest \
-    && /usr/local/bin/setup-envtest use "${K8S_ENVTEST_VERSION}" --bin-dir /usr/local/share/envtest \
-    && ln -s /usr/local/share/envtest/k8s/* /usr/local/share/envtest/active \
+    && ENVTEST_PATH=$(/usr/local/bin/setup-envtest use "${K8S_ENVTEST_VERSION}" --bin-dir /usr/local/share/envtest -p path | tail -n 1) \
+    && ln -s "${ENVTEST_PATH}" /usr/local/share/envtest/active \
     && chmod -R a+rx /usr/local/share/envtest
 
 # Ensure Go cache directories are fully owned and writable by the vscode user
-RUN mkdir -p /go/pkg /home/vscode/go/pkg \
-    && chown -R vscode:vscode /go /home/vscode/go
+RUN mkdir -p /go/pkg /home/vscode/go/pkg /home/vscode/.cache/go-build \
+    && chown -R vscode:vscode /go /home/vscode/go /home/vscode/.cache
+
+# Explicitly set the default user to vscode for all interactive shells and processes
+USER vscode
