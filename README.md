@@ -12,4 +12,12 @@ KuboCD is a tool that empowers Platform Engineers to package applications in a w
 
 Beyond standard applications, KuboCD can provision core system components (e.g., ingress controllers, load balancers, Kubernetes operators), enabling the fully automated bootstrapping of a production-ready cluster from the ground up.
 
-The documentation can be found [here](https://www.kubocd.io)
+## Documentation
+
+The documentation can be found at [kubocd.io](https://www.kubocd.io).
+
+## Development
+
+If you wish to contribute to KuboCD or set up a local development environment, please refer to the [Contributor Guide](CONTRIBUTING.md) to get started with the Devcontainer and the local Kind cluster.
+
+
