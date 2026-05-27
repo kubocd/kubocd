@@ -71,7 +71,9 @@ if [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true
   # Pin the registry container image to a specific version for reproducibility
   # Retry covers transient pull failures from Docker Hub
   retry docker run \
-    -d --restart=always -p "127.0.0.1:${reg_port}:5000" --network bridge --name "${reg_name}" \
+    -d --restart=always -p "127.0.0.1:${reg_port}:${reg_port}" --network bridge \
+    -e "REGISTRY_HTTP_ADDR=:${reg_port}" \
+    --name "${reg_name}" \
     registry:2.8.3
 else
   echo "Registry container ${reg_name} is already running."
@@ -80,8 +82,8 @@ fi
 # Active healthcheck: Wait until the local registry is responsive before proceeding
 echo "Waiting for OCI registry to be fully responsive..."
 reg_ready=false
-for i in {1..30}; do
-  if curl -fsSL "http://localhost:${reg_port}/v2/" >/dev/null 2>&1; then
+for i in $(seq 1 30); do
+  if docker exec "${reg_name}" wget -q --spider "http://localhost:${reg_port}/v2/" >/dev/null 2>&1; then
     reg_ready=true
     break
   fi
@@ -89,7 +91,7 @@ for i in {1..30}; do
 done
 
 if [ "$reg_ready" = "false" ]; then
-  echo "Error: Local registry container started but did not respond on http://localhost:${reg_port} within 30 seconds." >&2
+  echo "Error: Local registry container started but did not respond on its internal port ${reg_port} within 30 seconds." >&2
   exit 1
 fi
 echo "OCI registry container is ready."
@@ -101,6 +103,14 @@ if ! kind get clusters | grep -q "^${cluster_name}$"; then
 else
   echo "Kind cluster '${cluster_name}' already exists."
 fi
+
+# Patch kubeconfig: from the devcontainer, the apiserver port is reachable via host.docker.internal,
+# and the cert validates against the SAN '${cluster_name}-control-plane'.
+echo "Patching kubeconfig for devcontainer access..."
+api_port=$(docker port "${cluster_name}-control-plane" 6443/tcp | head -1 | awk -F: '{print $2}')
+kubectl config set-cluster "kind-${cluster_name}" \
+  --server="https://host.docker.internal:${api_port}" \
+  --tls-server-name="${cluster_name}-control-plane"
 
 # 3. Connect the registry container to the Kind cluster network if not connected
 if [ "$(docker inspect -f '{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = "null" ]; then
@@ -136,9 +146,9 @@ for node in $(kind get nodes --name "${cluster_name}"); do
   
   # Inject the hosts.toml mapping inside the node
   docker exec -i "${node}" sh -c "cat > /etc/containerd/certs.d/localhost:${reg_port}/hosts.toml" <<EOF
-server = "http://${reg_name}:5000"
+server = "http://${reg_name}:${reg_port}"
 
-[host."http://${reg_name}:5000"]
+[host."http://${reg_name}:${reg_port}"]
   capabilities = ["pull", "resolve"]
   skip_verify = true
 EOF
