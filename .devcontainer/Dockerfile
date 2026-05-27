@@ -68,7 +68,24 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && chmod +x /usr/local/bin/flux \
     && rm -rf "flux_${FLUX_VERSION}_linux_${ARCH}.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
 
-# 5. Pre-cache envtest assets in /usr/local/share/envtest
+# 5. Install Kustomize and verify official SHA256 checksum
+# Note: kustomize release tags are URL-encoded as 'kustomize%2FvX.Y.Z'.
+# checksums.txt covers all platforms; we extract the matching line (same pattern as Flux).
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    KUSTOMIZE_VERSION=$(awk '/^kustomize/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && cd /tmp \
+    && curl -fsSL -O "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz" \
+    && curl -fsSL -O "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/checksums.txt" \
+    && EXPECTED_SHA=$(grep "  kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz$" checksums.txt) \
+    && [ -n "$EXPECTED_SHA" ] \
+    && echo "$EXPECTED_SHA" | sha256sum -c - \
+    && tar -xzf "kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz" \
+    && mv kustomize /usr/local/bin/kustomize \
+    && chmod +x /usr/local/bin/kustomize \
+    && rm -rf "kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz" checksums.txt
+
+# 6. Pre-cache envtest assets in /usr/local/share/envtest
 # Note: setup-envtest is a submodule of controller-runtime with its own tags
 # (format: tools/setup-envtest/vX.Y.Z). The only published tags (v0.24.0, v0.24.1)
 # require Go 1.26.0, incompatible with our pinned Go 1.25 base image.

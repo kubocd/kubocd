@@ -2,10 +2,9 @@ module kubocd
 
 go 1.25.0
 
-// Force Go 1.23 standard library compatibility behaviors under Go 1.24+ 
+// Force Go 1.23 standard library compatibility behaviors under Go 1.24+
 // to prevent runtime regressions in imported Kubernetes and controller libraries.
 godebug default=go1.23
-
 
 // Replace digest lib to master to gather access to BLAKE3.
 // xref: https://github.com/opencontainers/go-digest/pull/66
@@ -361,8 +360,6 @@ require (
 	sigs.k8s.io/controller-tools v0.17.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.0 // indirect
-	sigs.k8s.io/kustomize/cmd/config v0.20.1 // indirect
-	sigs.k8s.io/kustomize/kustomize/v5 v5.7.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.1 // indirect
@@ -371,5 +368,4 @@ require (
 tool (
 	github.com/golangci/golangci-lint/cmd/golangci-lint
 	sigs.k8s.io/controller-tools/cmd/controller-gen
-	sigs.k8s.io/kustomize/kustomize/v5
 )

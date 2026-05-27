@@ -57,7 +57,7 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # Check required binaries in PATH
-for cmd in kind kubectl flux curl; do
+for cmd in kind kubectl flux kustomize curl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Error: Required tool '$cmd' is not installed in the PATH." >&2
     exit 1
@@ -166,7 +166,7 @@ fi
 echo "Installing KuboCD CRDs into the cluster..."
 # Note: same stdin-consumption rationale as step 4 — materialize the rendered
 # CRDs to a temp file so retries see consistent input on subsequent attempts.
-go tool kustomize build config/crd > /tmp/kubocd-crds.yaml
+kustomize build config/crd > /tmp/kubocd-crds.yaml
 retry kubectl --context "kind-${cluster_name}" apply -f /tmp/kubocd-crds.yaml
 rm -f /tmp/kubocd-crds.yaml
 

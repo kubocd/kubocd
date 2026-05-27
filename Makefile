@@ -181,27 +181,10 @@ check-tools: ## Check if local tools match .tool-versions requirements.
 test: manifests generate fmt vet verify-envtest-version ## Run tests.
 	@if [ -z "$$KUBEBUILDER_ASSETS" ]; then \
 		$(MAKE) setup-envtest; \
-		KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out; \
+		KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out; \
 	else \
-		KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out; \
+		KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS" go test ./... -coverprofile cover.out; \
 	fi
-
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# Prometheus and CertManager are installed by default; skip with:
-# - PROMETHEUS_INSTALL_SKIP=true
-# - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	@command -v kind >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
-		exit 1; \
-	}
-	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: ## Run golangci-lint linter
@@ -366,7 +349,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KUSTOMIZE ?= go tool kustomize
+KUSTOMIZE ?= kustomize
 CONTROLLER_GEN ?= go tool controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT ?= go tool golangci-lint
