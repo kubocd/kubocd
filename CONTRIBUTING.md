@@ -8,7 +8,7 @@ This guide details the setup and workflows for the local development environment
 
 The KuboCD development environment is based on:
 
-1. **Native Go Tooling (Go 1.24+)**: Go-based tools (`golangci-lint`, `controller-gen`, `kustomize`) are declared as module-level dependencies directly inside `go.mod`. Go downloads and runs the exact pinned version automatically via `go tool` commands. Inside the Devcontainer, you do not need to install any toolchains or system-wide binaries.
+1. **Native Go Tooling (Go 1.24+)**: Go-based tools (`golangci-lint`, `controller-gen`) are declared as module-level dependencies inside `go.mod` and invoked via `go tool`. `kustomize` is installed as a pinned binary from `.tool-versions` (its CLI does not build cleanly via `go tool` against the latest Kubernetes API graph). Inside the Devcontainer, you do not need to install any toolchains or system-wide binaries.
 
 2. **Docker-outside-of-Docker (DooD)**: The Devcontainer mounts the host's Docker socket (`/var/run/docker.sock`). This allows reusing host-level Docker resources, sharing image caches, and simplifies container communication.
 3. **Pre-cached Envtest Assets**: The Devcontainer pre-packages the Kubernetes control plane assets (`kube-apiserver`, `etcd`) in `/usr/local/share/envtest` and configures `KUBEBUILDER_ASSETS`. This avoids downloading Kubernetes binaries at runtime during test execution.
@@ -104,8 +104,8 @@ To test the controller running completely inside the Kind cluster (allowing full
 ## 4. Alternative: Native Host Development
 
 If you prefer to develop directly on your host machine instead of using the Devcontainer, you must satisfy the following prerequisites manually:
-1. **Toolchain**: Install **Go 1.25** on your host. Module-level tools (`golangci-lint`, `controller-gen`, `kustomize`) will still be managed automatically by the Go toolchain via `go tool` commands in the `Makefile`.
-2. **System CLIs**: Install `kubectl`, `helm`, `kind`, and `flux` globally on your host. The exact recommended versions are declared in the `.tool-versions` file at the root of the repository (which can be used to install them automatically using **asdf** or **mise**).
+1. **Toolchain**: Install **Go 1.25** on your host. Module-level tools (`golangci-lint`, `controller-gen`) will still be managed automatically by the Go toolchain via `go tool` commands in the `Makefile`.
+2. **System CLIs**: Install `kubectl`, `helm`, `kind`, `flux`, and `kustomize` globally on your host. The exact recommended versions are declared in the `.tool-versions` file at the root of the repository (which can be used to install them automatically using **asdf** or **mise**).
 3. **Envtest Cache**: Run `make setup-envtest` to dynamically fetch and cache the required Kubernetes control plane assets in your host's `bin/` directory before running `make test`.
 
 

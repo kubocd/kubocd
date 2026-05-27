@@ -86,13 +86,9 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && rm -rf "kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz" checksums.txt
 
 # 6. Pre-cache envtest assets in /usr/local/share/envtest
-# Note: setup-envtest is a submodule of controller-runtime with its own tags
-# (format: tools/setup-envtest/vX.Y.Z). The only published tags (v0.24.0, v0.24.1)
-# require Go 1.26.0, incompatible with our pinned Go 1.25 base image.
-# We pin instead to the HEAD commit of the release-0.23 branch (Go 1.25 required),
-# which yields an immutable Go pseudo-version while staying compatible.
-# To bump: run `git ls-remote https://github.com/kubernetes-sigs/controller-runtime release-0.23`
-# and update the SHA below (or move to a newer release branch matching the base Go version).
+# Pinned to a SHA on the release-0.23 branch (Go 1.25-compatible); published
+# v0.24.x tags require Go 1.26. To bump:
+#   git ls-remote https://github.com/kubernetes-sigs/controller-runtime release-0.23
 RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     K8S_ENVTEST_VERSION=$(awk '/^kubectl/ {split($2, a, "."); print a[1]"."a[2]}' /tmp/.tool-versions) \
     && GOBIN=/usr/local/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@f9589b9f2b9dddf8532b432bb8315f2820ab9971 \

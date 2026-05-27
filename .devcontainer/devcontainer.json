@@ -18,7 +18,8 @@
     "source=kubocd-gobuildcache,target=/home/vscode/.cache/go-build,type=volume"
   ],
   "runArgs": [
-    "--init"
+    "--init",
+    "--add-host=host.docker.internal:host-gateway"
   ],
   "shutdownAction": "stopContainer",
   "customizations": {

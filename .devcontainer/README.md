@@ -22,9 +22,12 @@ All binaries are installed deterministically matching `.tool-versions` as the si
 - `golang 1.25.0` (with frozen `GOTOOLCHAIN=local` to prevent unexpected silent upgrades)
 - `kubectl 1.34.0`
 - `helm 3.16.2`
-- `kind 0.27.0`
+- `kind 0.31.0`
 - `flux 2.8.8`
-- `setup-envtest` (pinned to commit `f9589b9f` on the `release-0.23` branch for Go 1.25 compatibility; see `.devcontainer/Dockerfile` for the rationale — published v0.24.x tags require Go 1.26)
+- `kustomize 5.8.1`
+- `setup-envtest` (pinned to commit `f9589b9f` on the `release-0.23` branch for Go 1.25 compatibility; published v0.24.x tags require Go 1.26)
+
+The Kind apiserver is reachable from inside the devcontainer via `host.docker.internal` — the kubeconfig is patched at `make dev-up` time (Docker Desktop natively, host-gateway alias on Linux via `runArgs`).
 
 ## Quick Start (Bootstrap)
 
