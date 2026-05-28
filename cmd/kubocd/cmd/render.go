@@ -362,7 +362,7 @@ var renderCmd = &cobra.Command{
 					if err != nil {
 						return fmt.Errorf("could not determine chart folder: %w", err)
 					}
-					cmd := exec.Command("helm", "template", "--debug", "-n", renderParams.namespace, controller.BuildHelmReleaseName(release.Name, module.Name), chartFolder, "--values", path.Join(out, "values.yaml"))
+					cmd := exec.Command("helm", "template", "--debug", "-n", release.Spec.TargetNamespace, controller.BuildHelmReleaseName(release.Name, module.Name), chartFolder, "--values", path.Join(out, "values.yaml"))
 					// Run the command and capture output
 					result, err := cmd.CombinedOutput()
 					if err != nil {

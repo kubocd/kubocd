@@ -1,3 +1,32 @@
+
+# v0.3.1
+
+Core
+
+- Empty entries are pruned from generated values object.
+  
+  ```
+  global:
+      stuff:
+        {{ if .Parameters.myVar }}
+        config:
+          foo: bar
+        {{ end }}
+  ```
+
+  result in empty string ("") if `.Parameters.myVar` is false 
+  
+  Previously, was:
+
+  ```
+  global:
+      stuff: null
+  ```
+  
+CLI:
+
+- On render command, the targetNamespace was not properly set in resulting 'manifests'. Fixed
+
 # v0.3.0
 
 Core
@@ -21,4 +50,5 @@ Helm (`kubocd-ctrl` and `kubocd-wh`)
 
 - Add `nodeSelector` and `tolerations`, to control deployment location.
 - Add a `deployInControlPlane` shortcut, for cluster with standard layout.
+- Change in `values.yaml` file layout: Configuration is now in `config.content` sub-element. 
   And a `config.enabled` has been added. ([ref](https://www.kubocd.io/user-guide/170-context-and-config/#configuration-via-helm-chart))

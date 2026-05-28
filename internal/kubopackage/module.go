@@ -283,6 +283,10 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 		return nil, fmt.Errorf("could not render 'onFailureStrategy' template: %w", err)
 	}
 
+	// Remove empty values on some rendered stuff
+	mr.Values = misc.Prune(mr.Values)
+	mr.SpecPatch = misc.Prune(mr.SpecPatch)
+
 	//fmt.Printf("****** config:\n%s\n", misc.Map2Yaml(mr.Config))
 	//fmt.Printf("****** values:\n%s\n", misc.Map2Yaml(mr.Values))
 	//fmt.Printf("****** namespace:\n%s\n", misc.Map2Yaml(mr.Namespace))
