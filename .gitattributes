@@ -1,0 +1,11 @@
+# Force LF line endings for shell scripts to prevent container execution failures on Windows hosts
+*.sh text eol=lf
+
+# Configure git diff format for Go files
+*.go text diff=golang
+
+# Treat lockfiles as binary or exclude them from noisy diffs where appropriate
+devcontainer-lock.json -diff
+
+# Exclude vendor directory from diffs and stats
+/vendor/** -diff
