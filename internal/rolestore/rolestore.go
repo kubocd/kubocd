@@ -17,10 +17,11 @@ limitations under the License.
 package rolestore
 
 import (
-	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 	"kubocd/internal/configstore"
 	"sync"
+
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type RoleStore interface {

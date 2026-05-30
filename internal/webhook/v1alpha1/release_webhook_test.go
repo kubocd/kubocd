@@ -17,9 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	kubocdv1alpha1 "kubocd/api/v1alpha1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	// TODO (user): Add any additional imports if needed
 )
 

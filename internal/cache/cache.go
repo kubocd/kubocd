@@ -17,10 +17,11 @@ limitations under the License.
 package cache
 
 import (
-	"github.com/go-logr/logr"
 	"kubocd/internal/misc"
 	"sync"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
 type Entry interface {

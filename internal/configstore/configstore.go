@@ -214,7 +214,7 @@ func (c *configStore) ObjectMap() map[string]interface{} {
 	m["onFailureStrategies"] = onFailureStrategies
 	// ---------------------------------------------------------
 	clusterRoles := make([]string, 0, len(c.clusterRoles))
-	for role, _ := range c.clusterRoles {
+	for role := range c.clusterRoles {
 		clusterRoles = append(clusterRoles, role)
 	}
 	m["clusterRoles"] = clusterRoles
