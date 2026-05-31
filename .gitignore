@@ -30,3 +30,6 @@ go.work
 
 .DS_Store
 
+# Local dev environment overrides (template: dev.env.example)
+/dev.env
+

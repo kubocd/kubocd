@@ -1,0 +1,6 @@
+# Markdown prose is hard-wrapped at 80 columns so the raw source stays readable
+# in terminals, diffs, and editors without soft-wrap. Tables and fenced code
+# blocks are left intact by Prettier.
+# Apply with: npx prettier --write "**/*.md"
+proseWrap: always
+printWidth: 80

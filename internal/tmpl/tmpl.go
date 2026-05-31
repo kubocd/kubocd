@@ -19,13 +19,14 @@ package tmpl
 import (
 	"bytes"
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"kubocd/internal/misc"
-	"sigs.k8s.io/yaml"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
 
 type Tmpl interface {

@@ -18,8 +18,9 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"kubocd/internal/global"
+
+	"github.com/spf13/cobra"
 )
 
 var versionParams struct {

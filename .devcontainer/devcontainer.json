@@ -1,0 +1,41 @@
+{
+  "name": "KuboCD Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.0": {
+      "moby": false
+    }
+  },
+  "containerEnv": {
+    "KUBEBUILDER_ASSETS": "/usr/local/share/envtest/active",
+    "GOPATH": "/home/vscode/go",
+    "GOCACHE": "/home/vscode/.cache/go-build"
+  },
+  "mounts": [
+    "source=kubocd-gomodcache,target=/home/vscode/go/pkg/mod,type=volume",
+    "source=kubocd-gobuildcache,target=/home/vscode/.cache/go-build,type=volume"
+  ],
+  "runArgs": [
+    "--init",
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+  "shutdownAction": "stopContainer",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  // Run as root — kind's control plane fails to come up in a non-root
+  // devcontainer over Docker-outside-of-Docker (kubelet can't set up the QOS
+  // cgroup hierarchy). See https://github.com/kubernetes-sigs/kind/issues/3196
+  "remoteUser": "root",
+  "postCreateCommand": "make manifests generate && go mod download && pre-commit install && { grep -qF '/workspaces/kubocd/dev.env' ~/.bashrc 2>/dev/null || printf '\\n# Load KuboCD dev.env overrides (no-op if absent)\\nif [ -f /workspaces/kubocd/dev.env ]; then set -a; . /workspaces/kubocd/dev.env; set +a; fi\\n' >> ~/.bashrc; }"
+}

@@ -19,13 +19,14 @@ package misc
 import (
 	"errors"
 	"fmt"
-	"github.com/bombsimon/logrusr/v4"
-	"github.com/go-logr/logr"
-	"github.com/sirupsen/logrus"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/bombsimon/logrusr/v4"
+	"github.com/go-logr/logr"
+	"github.com/sirupsen/logrus"
 )
 
 type LogConfig struct {

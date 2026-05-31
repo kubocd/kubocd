@@ -1,0 +1,27 @@
+# Pre-commit hooks for KuboCD.
+#
+# Markdown is hard-wrapped at 80 columns via Prettier (config in
+# .prettierrc.yaml) so the raw source stays readable. This is a local hook
+# (language: system): it runs whatever `prettier` is on PATH, so pre-commit does
+# not manage its own Node environment — fast and offline.
+#
+# The hook runs wherever you commit; it only needs `prettier` and `pre-commit`
+# on PATH:
+#   - Devcontainer: both are pre-installed, and `pre-commit install` is run
+#     automatically by the postCreateCommand.
+#   - Host: install them from .tool-versions (`mise install`) or manually
+#     (`brew install pre-commit prettier`), then run `pre-commit install` once.
+#     See CONTRIBUTING.md.
+#
+# `.git/hooks/` is shared with the Devcontainer (bind mount), so a Devcontainer
+# rebuild re-points the generated hook at the container's `pre-commit`. Harmless
+# on the host as long as `pre-commit` is on the host PATH — the shim falls back
+# to it (which is exactly why the host needs it installed).
+repos:
+  - repo: local
+    hooks:
+      - id: prettier-markdown
+        name: prettier (wrap markdown at 80)
+        entry: prettier --write
+        language: system
+        files: \.md$
