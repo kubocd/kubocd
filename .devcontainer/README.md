@@ -30,23 +30,17 @@ Persistent named Docker volumes cache Go modules and build output:
 
 ## Pre-cached Tools & Verification
 
-All versions are pinned to `.tool-versions` as the single source of truth.
-kubectl, Helm, Kind, Flux, Kustomize and Node.js are downloaded and verified
-against their official SHA256 checksums at build time; Go comes from the base
-image, and Prettier/pre-commit are version-pinned npm/pip installs.
+All tool versions are pinned in [`.tool-versions`](../.tool-versions) as the
+single source of truth — see that file for the exact versions. At build time:
 
-- `golang 1.25.x` — from the base image (`go:dev-1.25-bookworm`); the patch
-  floats to the latest 1.25 release, frozen at runtime by `GOTOOLCHAIN=local`
-- `kubectl 1.34.0`
-- `helm 3.16.2`
-- `kind 0.31.0`
-- `flux 2.8.8`
-- `kustomize 5.8.1`
-- `nodejs 24.16.0` (runtime for Prettier)
-- `prettier 3.8.3` (npm; Markdown wrapping via the pre-commit hook)
-- `pre-commit 4.6.0` (pip)
-- `setup-envtest` (pinned to commit `f9589b9f` on the `release-0.23` branch for
-  Go 1.25 compatibility; published v0.24.x tags require Go 1.26)
+- **kubectl, Helm, Kind, Flux, Kustomize, k9s and Node.js** are downloaded and
+  verified against their official SHA256 checksums.
+- **Go** comes from the base image (`go:dev-1.25-bookworm`); its patch floats to
+  the latest 1.25 release, frozen at runtime by `GOTOOLCHAIN=local`.
+- **Prettier** (npm) and **pre-commit** (pip) are version-pinned installs.
+- **setup-envtest** assets are pre-cached, pinned to a commit on the
+  `release-0.23` branch for Go 1.25 compatibility (published v0.24.x tags
+  require Go 1.26).
 
 The Kind apiserver is reachable from inside the devcontainer via
 `host.docker.internal` — the kubeconfig is patched at `make dev-up` time (Docker
