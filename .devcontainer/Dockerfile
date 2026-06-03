@@ -85,7 +85,23 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && chmod +x /usr/local/bin/kustomize \
     && rm -rf "kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz" checksums.txt
 
-# 6. Install Node.js and verify official SHA256 checksum
+# 6. Install k9s and verify official SHA256 checksum
+# checksums.sha256 covers all platforms; we extract the matching line (same pattern as Flux).
+RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
+    K9S_VERSION=$(awk '/^k9s/ {print $2}' /tmp/.tool-versions) \
+    && ARCH=$(dpkg --print-architecture) \
+    && cd /tmp \
+    && curl -fsSL -O "https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/k9s_Linux_${ARCH}.tar.gz" \
+    && curl -fsSL -O "https://github.com/derailed/k9s/releases/download/v${K9S_VERSION}/checksums.sha256" \
+    && EXPECTED_SHA=$(grep "  k9s_Linux_${ARCH}.tar.gz$" checksums.sha256) \
+    && [ -n "$EXPECTED_SHA" ] \
+    && echo "$EXPECTED_SHA" | sha256sum -c - \
+    && tar -xzf "k9s_Linux_${ARCH}.tar.gz" k9s \
+    && mv k9s /usr/local/bin/k9s \
+    && chmod +x /usr/local/bin/k9s \
+    && rm -rf "k9s_Linux_${ARCH}.tar.gz" checksums.sha256
+
+# 7. Install Node.js and verify official SHA256 checksum
 # Tarball install (not the base image's nvm) so node/npm/npx land in /usr/local/bin,
 # on PATH for every user including root. Required by Prettier (Markdown formatting).
 RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
@@ -103,14 +119,14 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && rm -rf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" SHASUMS256.txt \
     && node --version && npm --version
 
-# 7. Install Prettier globally (used by the pre-commit Markdown hook)
+# 8. Install Prettier globally (used by the pre-commit Markdown hook)
 RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     PRETTIER_VERSION=$(awk '/^prettier/ {print $2}' /tmp/.tool-versions) \
     && npm install -g "prettier@${PRETTIER_VERSION}" \
     && npm cache clean --force \
     && prettier --version
 
-# 8. Install pre-commit in an isolated virtualenv (avoids PEP 668 system-package conflicts)
+# 9. Install pre-commit in an isolated virtualenv (avoids PEP 668 system-package conflicts)
 RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     PRECOMMIT_VERSION=$(awk '/^pre-commit/ {print $2}' /tmp/.tool-versions) \
     && apt-get update && apt-get install -y --no-install-recommends python3-venv \
@@ -120,7 +136,7 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && ln -sf /opt/precommit/bin/pre-commit /usr/local/bin/pre-commit \
     && pre-commit --version
 
-# 9. Pre-cache envtest assets in /usr/local/share/envtest
+# 10. Pre-cache envtest assets in /usr/local/share/envtest
 # Pinned to a SHA on the release-0.23 branch (Go 1.25-compatible); published
 # v0.24.x tags require Go 1.26. To bump:
 #   git ls-remote https://github.com/kubernetes-sigs/controller-runtime release-0.23
