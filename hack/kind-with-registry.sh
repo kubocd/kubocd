@@ -137,6 +137,13 @@ else
   echo "Kind cluster '${cluster_name}' already exists."
 fi
 
+# Refresh the kubeconfig context. 'kind create cluster' writes the 'kind-<name>'
+# context only on creation, so a pre-existing cluster — or a kubeconfig that lost
+# its contexts — would leave nothing for the '--context kind-<name>' flags below
+# to resolve. 'kind export kubeconfig' is idempotent; the patch just after
+# repoints the server to host.docker.internal.
+kind export kubeconfig --name "${cluster_name}"
+
 # Patch kubeconfig: from the devcontainer, the apiserver port is reachable via host.docker.internal,
 # and the cert validates against the SAN '${cluster_name}-control-plane'.
 echo "Patching kubeconfig for devcontainer access..."
