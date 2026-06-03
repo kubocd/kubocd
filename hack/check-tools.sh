@@ -1,56 +1,57 @@
 #!/usr/bin/env bash
-# Check that locally installed dev tools match the versions pinned in
-# .tool-versions. Prints a per-tool report and exits non-zero if any tool is
-# missing or mismatched. No 'set -e': probing absent tools is expected.
+# Check locally installed dev tools against the versions pinned in .tool-versions.
+# A tool is reported only when something is off:
+#   - missing          -> error   (script exits non-zero)
+#   - version mismatch -> warning (non-fatal; lower or higher both warn)
+#   - exact match      -> silent
+# No 'set -e': probing absent tools is expected.
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 if [ ! -f "${TOOL_VERSIONS_FILE}" ]; then
-    echo "❌ .tool-versions file not found!"
+    echo "❌ .tool-versions file not found!" >&2
     exit 1
 fi
 
-echo "Checking local development tools against .tool-versions..."
 failed=0
 
-# check_tool <label> <required> <installed>
-check_tool() {
-    local label="$1" req="$2" cur="$3"
-    if [ -z "$cur" ]; then
-        echo "❌ ${label} is NOT installed! (Required: ${req})"
-        return 1
-    elif [ "$req" != "$cur" ]; then
-        echo "❌ ${label} version mismatch! (Required: ${req}, Installed: ${cur})"
-        return 1
+semver() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1; }
+minor() { awk -F. '{ print $1"."$2 }'; }
+
+# report <label> <pinned> <installed>
+#   empty <installed> => not installed.
+report() {
+    local label="$1" pinned="$2" installed="$3"
+    [ -z "$pinned" ] && return 0 # not pinned in .tool-versions; nothing to check
+    if [ -z "$installed" ]; then
+        echo "❌ ${label}: not installed (pinned ${pinned})" >&2
+        failed=1
+    elif [ "$pinned" != "$installed" ]; then
+        echo "⚠️  ${label}: ${installed} installed, ${pinned} pinned" >&2
     fi
-    echo "✅ ${label} version matches (${cur})"
-    return 0
+    # exact match -> no output
 }
 
-major_minor() { echo "$1" | awk -F. '{ print $1"."$2 }'; }
-
-# Go: check MAJOR.MINOR only (patch version floats with base image)
-tool_go_full="$(tool_version golang)"
-tool_go_minor="$(major_minor "$tool_go_full")"
-installed_go="$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//')"
-installed_go_minor="$(major_minor "$installed_go")"
-
-if [ -z "$installed_go" ]; then
-    echo "❌ Go is NOT installed! (Required: ${tool_go_minor} from .tool-versions)"
-    failed=1
-elif [ "$tool_go_minor" != "$installed_go_minor" ]; then
-    echo "❌ Go MAJOR.MINOR mismatch! (Required: ${tool_go_minor}, Installed: ${installed_go_minor}; full versions: .tool-versions=${tool_go_full}, installed=${installed_go})"
-    failed=1
-else
-    echo "✅ Go MAJOR.MINOR matches (${tool_go_minor}; full versions: .tool-versions=${tool_go_full}, installed=${installed_go})"
+# Go is special: compare MAJOR.MINOR only (the patch floats with the base image).
+go_minor="$(tool_version golang | minor)"
+go_installed="$(go version 2>/dev/null | awk '{print $3}' | sed 's/go//')"
+if [ -n "$go_minor" ]; then
+    if [ -z "$go_installed" ]; then
+        echo "❌ go: not installed (pinned ${go_minor}.x)" >&2
+        failed=1
+    elif [ "$go_minor" != "$(printf '%s' "$go_installed" | minor)" ]; then
+        echo "⚠️  go: ${go_installed} installed, ${go_minor}.x pinned" >&2
+    fi
 fi
-check_tool "kubectl" "$(tool_version kubectl)" \
-    "$(kubectl version --client 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" || failed=1
-check_tool "Helm" "$(tool_version helm)" \
-    "$(helm version --template='{{.Version}}' 2>/dev/null | sed 's/^v//')" || failed=1
-check_tool "Kind" "$(tool_version kind)" \
-    "$(kind version 2>/dev/null | awk '{print $2}' | sed 's/^v//')" || failed=1
-check_tool "Flux" "$(tool_version flux)" \
-    "$(flux version --client 2>/dev/null | awk '/flux/ {print $2}' | sed 's/^v//')" || failed=1
+
+report kubectl "$(tool_version kubectl)" "$(kubectl version --client 2>/dev/null | semver)"
+report helm "$(tool_version helm)" "$(helm version --template='{{.Version}}' 2>/dev/null | semver)"
+report kind "$(tool_version kind)" "$(kind version 2>/dev/null | semver)"
+report flux "$(tool_version flux)" "$(flux version --client 2>/dev/null | semver)"
+report kustomize "$(tool_version kustomize)" "$(kustomize version 2>/dev/null | semver)"
+report k9s "$(tool_version k9s)" "$(k9s version 2>/dev/null | semver)"
+report nodejs "$(tool_version nodejs)" "$(node --version 2>/dev/null | semver)"
+report prettier "$(tool_version prettier)" "$(prettier --version 2>/dev/null | semver)"
+report pre-commit "$(tool_version pre-commit)" "$(pre-commit --version 2>/dev/null | semver)"
 
 exit "$failed"
