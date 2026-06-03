@@ -151,30 +151,10 @@ if [ "$(docker inspect -f '{{json .NetworkSettings.Networks.kind}}' "${reg_name}
   retry docker network connect "kind" "${reg_name}"
 fi
 
-# 4. Document the local registry hosting inside the cluster
-# This tells tools like Flux/Helm where the OCI registry is located
-echo "Applying local registry hosting ConfigMap to kube-public..."
-# Note: the manifest is materialized to a temp file before being applied via retry.
-# Piping a heredoc directly into 'retry kubectl apply -f -' consumes stdin on the
-# first attempt; subsequent retries would receive empty input and silently no-op.
-cat <<EOF > /tmp/local-registry-hosting.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: local-registry-hosting
-  namespace: kube-public
-data:
-  localRegistryHosting.v1: |
-    host: "localhost:${reg_port}"
-    help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
-EOF
-retry kubectl apply --context "kind-${cluster_name}" -f /tmp/local-registry-hosting.yaml
-rm -f /tmp/local-registry-hosting.yaml
-
-# 5. Configure containerd on each cluster node to route localhost:5001 to our local registry container
+# 4. Configure containerd on each cluster node to route localhost:${reg_port} to our local registry container
 echo "Configuring containerd registry routing on Kind nodes..."
 for node in $(kind get nodes --name "${cluster_name}"); do
-  # Create standard containerd directory for localhost:5001 certs/routing
+  # Create standard containerd directory for localhost:${reg_port} certs/routing
   docker exec "${node}" mkdir -p "/etc/containerd/certs.d/localhost:${reg_port}"
   
   # Inject the hosts.toml mapping inside the node
@@ -187,7 +167,7 @@ server = "http://${reg_name}:${reg_port}"
 EOF
 done
 
-# 6. Bootstrap Flux inside the Kind cluster
+# 5. Bootstrap Flux inside the Kind cluster
 if ! kubectl --context "kind-${cluster_name}" get namespace flux-system >/dev/null 2>&1; then
   echo "Bootstrapping Flux (system controllers) into the cluster..."
   retry flux install --context "kind-${cluster_name}"
@@ -195,23 +175,7 @@ else
   echo "Flux is already installed in the cluster."
 fi
 
-# 7. Install KuboCD CRDs into the cluster
-echo "Installing KuboCD CRDs into the cluster..."
-# Note: same stdin-consumption rationale as step 4 — materialize the rendered
-# CRDs to a temp file so retries see consistent input on subsequent attempts.
-kustomize build config/crd > /tmp/kubocd-crds.yaml
-retry kubectl --context "kind-${cluster_name}" apply -f /tmp/kubocd-crds.yaml
-rm -f /tmp/kubocd-crds.yaml
-
-# 8. Wait for core resources to be fully ready
-echo "Waiting for KuboCD CRDs to be established..."
-for f in config/crd/bases/*.yaml; do
-  crd_name=$(awk '/^metadata:/ {in_meta=1} /^spec:/ {in_meta=0} in_meta && /^[[:space:]]+name:/ {print $2; exit}' "$f")
-  if [ -n "$crd_name" ]; then
-    kubectl --context "kind-${cluster_name}" wait --for=condition=Established --timeout=60s "crd/${crd_name}"
-  fi
-done
-
+# 6. Wait for Flux controllers to be available
 echo "Waiting for Flux controllers to be available..."
 kubectl --context "kind-${cluster_name}" -n flux-system wait \
   deploy/helm-controller \
