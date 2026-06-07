@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build · vet · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # `version_.go` (defines global.Version / global.BuildTs) is generated and
+      # git-ignored, so a fresh checkout must regenerate it before anything compiles.
+      - name: Generate version stamp
+        run: make version
+
+      - name: Tool versions in sync (.tool-versions ↔ go.mod)
+        run: make verify-tool-versions
+
+      - name: Generated code is up to date
+        run: |
+          make manifests generate
+          git diff --exit-code || {
+            echo "::error::Generated code is stale — run 'make manifests generate' and commit."
+            exit 1
+          }
+
+      - name: Formatting (gofmt)
+        run: |
+          make fmt
+          git diff --exit-code || {
+            echo "::error::Unformatted code — run 'make fmt' and commit."
+            exit 1
+          }
+
+      - name: go vet
+        run: make vet
+
+      - name: Tests (envtest)
+        run: make test
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f cover.out ]; then
+            {
+              echo "### Coverage"
+              echo '```'
+              go tool cover -func=cover.out | tail -1
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build
+        run: make build-kubocd
+
+  lint:
+    name: lint (changed code)
+    # PRs only: lint just the diff (only-new-issues) so pre-existing findings do not
+    # block, while all new code must be clean. Pushes to main are already covered by
+    # the PR that introduced them. The existing-debt cleanup is tracked separately.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Generated + git-ignored; the package must compile for golangci-lint to typecheck.
+      - name: Generate version stamp
+        run: make version
+
+      # Use the go.mod-pinned golangci-lint, compiled with this repo's Go toolchain.
+      # (The prebuilt action binary is built with an older Go and rejects a newer
+      # target Go version.) Lint only the lines changed in this PR so the pre-existing
+      # findings do not block; new code must be clean.
+      - name: Lint changed code
+        run: go tool golangci-lint run --new-from-rev="${{ github.event.pull_request.base.sha }}"
