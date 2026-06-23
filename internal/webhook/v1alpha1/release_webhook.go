@@ -23,15 +23,13 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // SetupReleaseWebhookWithManager registers the webhook for Release in the manager.
 func SetupReleaseWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&kubocdv1alpha1.Release{}).
+	return ctrl.NewWebhookManagedBy(mgr, &kubocdv1alpha1.Release{}).
 		WithValidator(&ReleaseCustomValidator{
 			logger: mgr.GetLogger().WithName("release-webhook-validator"),
 		}).
@@ -55,15 +53,10 @@ type ReleaseCustomDefaulter struct {
 	logger logr.Logger
 }
 
-var _ webhook.CustomDefaulter = &ReleaseCustomDefaulter{}
+var _ admission.Defaulter[*kubocdv1alpha1.Release] = &ReleaseCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind Release.
-func (d *ReleaseCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	release, ok := obj.(*kubocdv1alpha1.Release)
-
-	if !ok {
-		return fmt.Errorf("expected an Release object but got %T", obj)
-	}
+// Default implements admission.Defaulter so a webhook will be registered for the Kind Release.
+func (d *ReleaseCustomDefaulter) Default(ctx context.Context, release *kubocdv1alpha1.Release) error {
 	d.logger.Info("Defaulting for Release", "name", release.GetName())
 
 	// TODO(user): fill in your defaulting logic.
@@ -86,14 +79,10 @@ type ReleaseCustomValidator struct {
 	logger logr.Logger
 }
 
-var _ webhook.CustomValidator = &ReleaseCustomValidator{}
+var _ admission.Validator[*kubocdv1alpha1.Release] = &ReleaseCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type Release.
-func (v *ReleaseCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	release, ok := obj.(*kubocdv1alpha1.Release)
-	if !ok {
-		return nil, fmt.Errorf("expected a Release object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type Release.
+func (v *ReleaseCustomValidator) ValidateCreate(ctx context.Context, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
 	v.logger.Info("Validation for Release upon creation", "name", release.GetName())
 
 	// TODO(user): fill in your validation logic upon object creation.
@@ -101,12 +90,8 @@ func (v *ReleaseCustomValidator) ValidateCreate(ctx context.Context, obj runtime
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type Release.
-func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	release, ok := newObj.(*kubocdv1alpha1.Release)
-	if !ok {
-		return nil, fmt.Errorf("expected a Release object for the newObj but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type Release.
+func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
 	v.logger.Info("Validation for Release upon update", "name", release.GetName())
 
 	// TODO(user): fill in your validation logic upon object update.
@@ -114,12 +99,8 @@ func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, new
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type Release.
-func (v *ReleaseCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	release, ok := obj.(*kubocdv1alpha1.Release)
-	if !ok {
-		return nil, fmt.Errorf("expected a Release object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type Release.
+func (v *ReleaseCustomValidator) ValidateDelete(ctx context.Context, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
 	v.logger.Info("Validation for Release upon deletion", "name", release.GetName())
 
 	if release.Status.Protected {
