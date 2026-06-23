@@ -23,15 +23,13 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // SetupContextWebhookWithManager registers the webhook for Context in the manager.
 func SetupContextWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&kubocdv1alpha1.Context{}).
+	return ctrl.NewWebhookManagedBy(mgr, &kubocdv1alpha1.Context{}).
 		WithValidator(&ContextCustomValidator{
 			logger: mgr.GetLogger().WithName("context-webhook-validator"),
 		}).
@@ -55,15 +53,10 @@ type ContextCustomDefaulter struct {
 	logger logr.Logger
 }
 
-var _ webhook.CustomDefaulter = &ContextCustomDefaulter{}
+var _ admission.Defaulter[*kubocdv1alpha1.Context] = &ContextCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind Context.
-func (d *ContextCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	context, ok := obj.(*kubocdv1alpha1.Context)
-
-	if !ok {
-		return fmt.Errorf("expected an Context object but got %T", obj)
-	}
+// Default implements admission.Defaulter so a webhook will be registered for the Kind Context.
+func (d *ContextCustomDefaulter) Default(ctx context.Context, context *kubocdv1alpha1.Context) error {
 	d.logger.Info("Defaulting for Context", "name", context.GetName())
 
 	// TODO(user): fill in your defaulting logic.
@@ -86,14 +79,10 @@ type ContextCustomValidator struct {
 	logger logr.Logger
 }
 
-var _ webhook.CustomValidator = &ContextCustomValidator{}
+var _ admission.Validator[*kubocdv1alpha1.Context] = &ContextCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type Context.
-func (v *ContextCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	kcontext, ok := obj.(*kubocdv1alpha1.Context)
-	if !ok {
-		return nil, fmt.Errorf("expected a Context object but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type Context.
+func (v *ContextCustomValidator) ValidateCreate(ctx context.Context, kcontext *kubocdv1alpha1.Context) (admission.Warnings, error) {
 	v.logger.Info("Validation for Context upon creation", "name", kcontext.GetName())
 
 	// TODO(user): fill in your validation logic upon object creation.
@@ -101,12 +90,8 @@ func (v *ContextCustomValidator) ValidateCreate(ctx context.Context, obj runtime
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type Context.
-func (v *ContextCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	kcontext, ok := newObj.(*kubocdv1alpha1.Context)
-	if !ok {
-		return nil, fmt.Errorf("expected a Context object for the newObj but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type Context.
+func (v *ContextCustomValidator) ValidateUpdate(ctx context.Context, oldObj, kcontext *kubocdv1alpha1.Context) (admission.Warnings, error) {
 	v.logger.Info("Validation for Context upon update", "name", kcontext.GetName())
 
 	// TODO(user): fill in your validation logic upon object update.
@@ -114,12 +99,8 @@ func (v *ContextCustomValidator) ValidateUpdate(ctx context.Context, oldObj, new
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type Context.
-func (v *ContextCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	kcontext, ok := obj.(*kubocdv1alpha1.Context)
-	if !ok {
-		return nil, fmt.Errorf("expected a Context object but got %T", obj)
-	}
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type Context.
+func (v *ContextCustomValidator) ValidateDelete(ctx context.Context, kcontext *kubocdv1alpha1.Context) (admission.Warnings, error) {
 	v.logger.Info("Validation for Context upon deletion", "name", kcontext.GetName())
 
 	if kcontext.Spec.Protected {
