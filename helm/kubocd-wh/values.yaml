@@ -6,7 +6,8 @@ baseNameOverride:
 # Image is same for controller and webhook
 image:
   pullSecrets: []
-  repository: quay.io/kubocd/kubocd
+  # -- Override the image repository. Default is .Chart.Annotations.kubotal_image_repository (See Chart.yaml)
+  repository:
   # -- Overrides the image tag whose default is the chart appVersion.
   tag:
   pullPolicy: IfNotPresent
