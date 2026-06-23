@@ -3,4 +3,4 @@
 # blocks are left intact by Prettier.
 # Apply with: npx prettier --write "**/*.md"
 proseWrap: always
-printWidth: 80
+printWidth: 120
