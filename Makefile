@@ -231,24 +231,16 @@ docker-push: check-registry ## Push docker image with the manager.
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
 # - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
 # - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+# - be able to push the image to your registry
 # Note: Cross-platform buildx pushing does not natively support the local HTTP registry (localhost:5001)
 # because the buildx container driver runs on an isolated network and requires TLS/trusted registry configs.
 # Use standard docker-build (which runs on the host network daemon) for local development testing.
-
-#PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
-docker-buildx: check-registry display version ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
-	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name kubocd-builder
-	$(CONTAINER_TOOL) buildx use kubocd-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag  $(IMG_REPO):$(APP_VERSION) -f Dockerfile.cross .
+docker-buildx: check-registry display  ## Build and push docker image with cross-platform support
+	- $(CONTAINER_TOOL) buildx create --name kubocd-builder --driver=docker-container
+	- $(CONTAINER_TOOL) buildx build --builder kubocd-builder --push --platform=$(PLATFORMS) --tag $(IMG_REPO):$(APP_VERSION) -f Dockerfile .
 	- $(CONTAINER_TOOL) buildx rm kubocd-builder
-	rm Dockerfile.cross
-
 
 
 .PHONY: build-installer
