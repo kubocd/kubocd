@@ -32,6 +32,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ldflags:
+      - -X kubocd/internal/global.Version={{ .Env.APP_VERSION }}
+      - -X kubocd/internal/global.BuildTs={{ .Env.BUILD_TS }}
 
 release:
   prerelease: "true"
