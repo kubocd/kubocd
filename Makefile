@@ -12,18 +12,29 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-# Per-developer overrides (git-ignored, optional). The leading '-' makes a
-# missing file a silent no-op, so this never breaks. The same values are sourced
+
+# Image and chart registry — Must be set via dev.env or from environment.
+# Intentionally empty in this makefile, as we want user to set REGISTRY
+# explicitly. Targets that need it depend on `check-registry`, which fails with
+# a clear message when it is unset.
+# Main official repository is quay.io/kubocd
+REGISTRY ?= ""
+
+
+# Per-developer overrides (git-ignored, optional).
+# The leading '-' makes a missing file a silent no-op, so this never breaks.
+# If you use the registry set with 'make dev-up', the same values are sourced
 # by the hack/ scripts; see dev.env.example.
 -include dev.env
 
-APP_VERSION ?= v0.3.1-snapshot
-DOCKER_TAG=${APP_VERSION}
 
-REGISTRY ?= quay.io/kubocd
-IMG ?= $(REGISTRY)/kubocd:${DOCKER_TAG}
+# The product VERSIONS below are intentionally NOT overridable from dev.env or from environment.
+# They are code-bound and git-controlled (see the ':=' assignment type).
 
-HELM_VERSION ?= v0.3.1-snapshot
+APP_VERSION := v0.3.1-snapshot
+HELM_VERSION := v0.3.1-snapshot
+
+IMG_REPO := $(REGISTRY)/exec/kubocd
 
 HELM_DOCKER_REPO := $(REGISTRY)/charts
 
@@ -75,6 +86,28 @@ CONTAINER_TOOL ?= docker
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+
+
+##@ Build
+
+.PHONY: check-registry
+check-registry: ## Fail with a clear message if REGISTRY is not set
+	@if [ -z "$(strip $(REGISTRY))" ]; then \
+		echo "ERROR: REGISTRY is not set."; \
+		echo "Set it in dev.env, export it in your environment, or pass it on the command line, e.g.:"; \
+		echo "    make $(or $(MAKECMDGOALS),<target>) REGISTRY=quay.io/my-organization"; \
+		exit 1; \
+	fi
+
+.PHONY: display
+display:  ## Display current config values
+	@echo "---------"
+	@echo "REGISTRY: $(REGISTRY)"
+	@echo "APP_VERSION: $(APP_VERSION)"
+	@echo "HELM_VERSION: $(HELM_VERSION)"
+	@echo "---------"
+
 
 ##@ Development
 
@@ -164,7 +197,7 @@ dev-down: ## Tear down local Kind cluster and OCI registry
 ##@ Build
 
 .PHONY: build
-build:  manifests generate fmt vet build-kubocd version ## Build kubocd binaries with dependencies
+build:  display manifests generate fmt vet build-kubocd version ## Build kubocd binaries with dependencies
 
 .PHONY: build-kubocd
 build-kubocd: ## Build kubocd binary.
@@ -172,28 +205,27 @@ build-kubocd: ## Build kubocd binary.
 
 
 .PHONY: cli-release
-cli-release:		## Upload a release of kubocd cli client
+cli-release: display  ## Upload a release of kubocd cli client
 	goreleaser release --clean --skip validate
 
-
 .PHONY: cli-build
-cli-build:		## Build locally a release of kubocd cli client
+cli-build:	display ## Build locally a release of kubocd cli client
 	goreleaser build --clean --skip validate
 
 
 .PHONY: docker
-docker: version docker-build docker-push  ## Build controller docker image and push
+docker: version display docker-build docker-push  ## Build controller docker image and push
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: version ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+docker-build: check-registry version ## Build docker image with the manager.
+	$(CONTAINER_TOOL) build -t  $(IMG_REPO):$(APP_VERSION) .
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push ${IMG}
+docker-push: check-registry ## Push docker image with the manager.
+	$(CONTAINER_TOOL) push  $(IMG_REPO):$(APP_VERSION)
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -208,12 +240,12 @@ docker-push: ## Push docker image with the manager.
 #PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
-docker-buildx: version ## Build and push docker image for the manager for cross-platform support
+docker-buildx: check-registry display version ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name kubocd-builder
 	$(CONTAINER_TOOL) buildx use kubocd-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag  $(IMG_REPO):$(APP_VERSION) -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm kubocd-builder
 	rm Dockerfile.cross
 
@@ -222,7 +254,7 @@ docker-buildx: version ## Build and push docker image for the manager for cross-
 .PHONY: build-installer
 build-installer: manifests generate ## Generate a consolidated YAML with CRDs and deployment.
 	mkdir -p dist
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG_REPO):$(APP_VERSION)
 	$(KUSTOMIZE) build config/default > config/_dist_/install.yaml
 
 ##@ Helm
@@ -239,11 +271,13 @@ version: $(HELM_VERSION)
 sources:
   - https://github.com/kubocd/kubocd
 appVersion: $(APP_VERSION)
+annotations:
+  kubotal_image_repository: $(IMG_REPO)
 endef
 export CHART_CTRL_YAML
 
 .PHONY: chart-ctrl-yaml
-chart-ctrl-yaml: ## Generate the helm/kubocd-ctrl/Chart.yaml
+chart-ctrl-yaml: check-registry ## Generate the helm/kubocd-ctrl/Chart.yaml
 	echo "$$CHART_CTRL_YAML" >./helm/kubocd-ctrl/Chart.yaml
 
 .PHONY: chart-ctrl
@@ -259,11 +293,13 @@ version: $(HELM_VERSION)
 sources:
   - https://github.com/kubocd/kubocd
 appVersion: $(APP_VERSION)
+annotations:
+  kubotal_image_repository: $(IMG_REPO)
 endef
 export CHART_WH_YAML
 
 .PHONY: chart-wh-yaml
-chart-wh-yaml: ## Generate the helm/kubocd-wh/Chart.yaml
+chart-wh-yaml: check-registry ## Generate the helm/kubocd-wh/Chart.yaml
 	echo "$$CHART_WH_YAML" >./helm/kubocd-wh/Chart.yaml
 
 .PHONY: chart-wh
@@ -271,7 +307,7 @@ chart-wh: chart-wh-yaml crds ## Build and push webhook helm chart
 	cd ./helm && helm package -d ./../tmp kubocd-wh && helm push ./../tmp/kubocd-wh-${HELM_VERSION}.tgz oci://${HELM_DOCKER_REPO}
 
 .PHONY: charts
-charts: chart-ctrl chart-wh ## Build and push both charts
+charts: display chart-ctrl chart-wh ## Build and push both charts
 
 ##@ Dependencies
 
