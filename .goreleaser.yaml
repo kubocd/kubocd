@@ -38,12 +38,15 @@ builds:
 
 release:
   prerelease: "true"
+  # Re-running on an existing tag would otherwise fail because the assets
+  # already exist. `replace` deletes the existing assets and re-uploads them.
+  mode: replace
 
 archives:
   - id: kubocd
     formats:
       - binary
-    builds:
+    ids:
       - kubocd
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-

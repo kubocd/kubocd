@@ -1,0 +1,103 @@
+name: build-artifact
+
+# Build and push the multi-arch image on every push to this branch.
+# Delegates the actual work to `make docker-buildx`, which builds for
+# $(PLATFORMS) and pushes to $(REGISTRY)/exec/kindex.
+on:
+  push:
+    branches:
+      - build/make-refactor
+  # Allow manual runs from the Actions tab / `gh workflow run`.
+  workflow_dispatch:
+
+# Image/chart registry. Overridable repo-wide via the `REGISTRY` variable
+# (Settings > Secrets and variables > Actions > Variables);
+env:
+  REGISTRY: ${{ vars.REGISTRY }}
+
+permissions:
+  contents: write
+
+jobs:
+  build-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0          # goreleaser needs tags + full history
+
+      # ubuntu-latest already ships make, go and docker; this only adds the
+      # bits `make docker-buildx` needs for cross-platform builds.
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Cross-platform emulation for the linux/arm64 + linux/amd64 build.
+      # `make docker-buildx` creates its own `kubocd-builder`, so no
+      # setup-buildx-action step is needed here.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          install-only: true       # install the binary, don't run it
+
+
+      # Authenticate to Docker Hub so the BuildKit/QEMU base images
+      # (moby/buildkit, etc.) pull reliably instead of hitting anonymous
+      # rate limits / timeouts. Skipped automatically if the var is unset.
+      - name: Log in to Docker Hub
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Derive the registry host (e.g. quay.io) from REGISTRY for the login.
+      - name: Resolve registry host
+        id: reg
+        run: echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.reg.outputs.host }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+
+      # We reuse the same tag across runs. Force-move it to the current commit
+      # so goreleaser releases the just-pushed code (it releases the tagged
+      # commit, not branch HEAD). The tag is derived from APP_VERSION in the
+      # Makefile to avoid drift.
+      - name: Move tag to current commit
+        run: |
+          APP_VERSION=$(grep -m1 '^APP_VERSION' Makefile | awk '{print $3}')
+          git tag -f "$APP_VERSION"
+          git push -f origin "refs/tags/$APP_VERSION"
+
+      # We reuse the same tag across runs, so delete any previous release
+      # first. `|| true` keeps the first run (no release yet) from failing.
+      # The tag is derived from APP_VERSION in the Makefile to avoid drift.
+      - name: Delete previous release
+        run: |
+          APP_VERSION=$(grep -m1 '^APP_VERSION' Makefile | awk '{print $3}')
+          gh release delete "$APP_VERSION" --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: make cli-release
+        run: make cli-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: make charts
+        run: make charts REGISTRY="${REGISTRY}"
+
+      - name: make docker-buildx
+        run: make docker-buildx REGISTRY="${REGISTRY}"
+
