@@ -1,17 +1,19 @@
 name: build-artifact
 
-# Build and push the multi-arch image on every push to this branch.
+# Build and push the multi-arch image on every push to main.
 # Delegates the actual work to `make docker-buildx`, which builds for
-# $(PLATFORMS) and pushes to $(REGISTRY)/exec/kindex.
+# $(PLATFORMS) and pushes to $(REGISTRY)/exec/kubocd.
 on:
   push:
     branches:
-      - build/make-refactor
+      - main
   # Allow manual runs from the Actions tab / `gh workflow run`.
   workflow_dispatch:
 
-# Image/chart registry. Overridable repo-wide via the `REGISTRY` variable
-# (Settings > Secrets and variables > Actions > Variables);
+# Required repo configuration (Settings > Secrets and variables > Actions):
+#   - Variable REGISTRY            e.g. quay.io/kubocd   (becomes $(REGISTRY))
+#   - Secrets  REGISTRY_USERNAME, REGISTRY_PASSWORD      (push to that registry)
+#   - Optional Variable DOCKERHUB_USERNAME + Secret DOCKERHUB_TOKEN (base-image pulls)
 env:
   REGISTRY: ${{ vars.REGISTRY }}
 
@@ -43,7 +45,7 @@ jobs:
       - name: Install goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
+          version: v2.16.0          # pinned (was `latest`) to avoid silent drift
           install-only: true       # install the binary, don't run it
 
 
