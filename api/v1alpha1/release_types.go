@@ -161,13 +161,30 @@ const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
 const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
+const ReleasePhaseWaitOutputConnections = ReleasePhase("WAIT_OCNX")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
+const ReleasePhaseWaitInputConnections = ReleasePhase("WAIT_ICNX")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
 type HelmReleaseState struct {
 	Ready  metav1.ConditionStatus `json:"ready"`
 	Status string                 `json:"status,omitempty"`
+}
+
+type InputConnectionReference struct {
+	Kind      Kind   `json:"kind"` // Connection or ClusterConnection
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+// ReleaseOutputConnection describe the state of a managed (output) connection or clusterConnection, inside Release status
+type ReleaseOutputConnection struct {
+	Kind      Kind            `json:"kind"`
+	Name      string          `json:"name"`
+	Namespace string          `json:"namespace"`
+	Phase     ConnectionPhase `json:"phase"`
+	Message   string          `json:"message,omitempty"`
 }
 
 // ReleaseStatus defines the observed state of Release.
@@ -206,7 +223,7 @@ type ReleaseStatus struct {
 	// PrintProtected is a copy of Protected, with a Y/n flag. To be used in display
 	PrintProtected string `json:"printProtected"`
 
-	// HelmReleaseState describe the observed state of child HelmReleases by name
+	// HelmReleaseStates describe the observed state of child HelmReleases by name
 	// +kubebuilder:validation:Optional
 	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates"`
 
@@ -214,13 +231,28 @@ type ReleaseStatus struct {
 	// as printcolumn
 	ReadyReleases string `json:"readyReleases"`
 
+	// OutputConnectionStates describe the observed state of child connection by name
+	// +kubebuilder:validation:Optional
+	OutputConnectionByName map[string]ReleaseOutputConnection `json:"outputConnectionByName"`
+
+	// ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+	// as printcolumn
+	ReadyOutputConnections string `json:"readyOutputConnections"`
+
 	// The result of the package template and release value
 	Dependencies []string `json:"dependencies"`
 
 	// The result of the package template and release value
 	Roles []string `json:"roles"`
 
-	MissingDependency string `json:"missingDependency"`
+	// Human friendly last error message
+	Message string `json:"message,omitempty"`
+
+	// List of our input connections. Used for handling dependencies
+	WatchedInputConnections []InputConnectionReference `json:"watchedInputConnections"`
+
+	// Array by input#. The selected connection for each input
+	EffectiveInputConnections []InputConnectionReference `json:"effectiveInputConnections"`
 }
 
 // +kubebuilder:object:root=true
@@ -229,8 +261,9 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.package.tag`
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
-// +kubebuilder:printcolumn:name="Wait",type=string,JSONPath=`.status.missingDependency`
+// +kubebuilder:printcolumn:name="Rel.",type=string,JSONPath=`.status.readyReleases`
+// +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyOutputConnections`
+// +kubebuilder:printcolumn:name="Error",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`

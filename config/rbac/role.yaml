@@ -7,8 +7,11 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - clusterconnections
   - configs
+  - connections
   - contexts
+  - interfaces
   - releases
   verbs:
   - create
@@ -21,16 +24,22 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - clusterconnections/finalizers
   - configs/finalizers
+  - connections/finalizers
   - contexts/finalizers
+  - interfaces/finalizers
   - releases/finalizers
   verbs:
   - update
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - clusterconnections/status
   - configs/status
+  - connections/status
   - contexts/status
+  - interfaces/status
   - releases/status
   verbs:
   - get

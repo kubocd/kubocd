@@ -42,6 +42,9 @@ type KcdTemplateDuration string
 // May be a string or a []string
 type KcdTemplateStringList interface{}
 
+// KcdTemplateInt A template where expected result is an integer
+type KcdTemplateInt string
+
 // ------------------------------------------------
 
 type PackageSchema struct {
@@ -84,6 +87,10 @@ type Package struct {
 	// A template snippet which will be added at the beginning of all templates
 	// Intended to be used to compute some global values
 	TemplateHeader string `json:"templateHeader,omitempty"`
+	// List of inputs referencing connections.
+	Inputs []Input `json:"inputs,omitempty"`
+	// List of outputs, to generate connections
+	Outputs []Output `json:"outputs,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -182,6 +189,18 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
+	for idx := range pck.Inputs {
+		err = pck.Inputs[idx].groom(pck)
+		if err != nil {
+			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
+		}
+	}
+	for idx := range pck.Outputs {
+		err = pck.Outputs[idx].groom(pck)
+		if err != nil {
+			return fmt.Errorf("error on 'output[%d]': %w", idx, err)
+		}
+	}
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -191,6 +210,7 @@ type packageTemplates struct {
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
 	description  tmpl.Tmpl
+	//inputs       []tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release e of a package.
@@ -203,6 +223,8 @@ type Rendered struct {
 	Dependencies         []string
 	ModuleRenderedByName map[string]*ModuleRendered
 	Description          string
+	Outputs              []*OutputRendered
+	Inputs               []InputRendered // Warning: Lifecycle is different. Computed in advance
 }
 
 func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
@@ -241,7 +263,7 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	for _, module := range pck.Modules {
 		rendered, ok := r.ModuleRenderedByName[module.Name]
 		if !ok {
-			panic(fmt.Sprintf("missng module of name %s", module.Name)) // Should not occur
+			panic(fmt.Sprintf("missing module of name %s", module.Name)) // Should not occur
 		}
 		for _, dep := range rendered.DependsOn {
 			_, ok = r.ModuleRenderedByName[dep]
@@ -250,5 +272,54 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 			}
 		}
 	}
+	// ---------------------------- Render outputs
+	r.Outputs = make([]*OutputRendered, len(pck.Outputs))
+	for idx, output := range pck.Outputs {
+		or, err := output.Render(model)
+		if err != nil {
+			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
+		}
+		r.Outputs[idx] = or
+	}
+	// --------------- Must ensure output name are uniques
+	dupDetect := make(map[string]struct{})
+	for _, output := range r.Outputs {
+		if _, ok := dupDetect[output.Name]; ok {
+			return nil, fmt.Errorf("duplicate output name '%s'", output.Name)
+		}
+		dupDetect[output.Name] = struct{}{}
+	}
 	return r, nil
 }
+
+func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]InputRendered, error) {
+	result := make([]InputRendered, len(pck.Inputs))
+	for idx, input := range pck.Inputs {
+		ir, err := input.Render(model, defaultNamespace)
+		if err != nil {
+			return nil, fmt.Errorf("could not render 'inputs[%d]': %w", idx, err)
+		}
+		result[idx] = *ir
+	}
+	return result, nil
+}
+
+//func (pck *Package) RenderOutputs(model map[string]interface{}) ([]OutputRendered, error) {
+//	result := make([]OutputRendered, len(pck.Outputs))
+//	for idx, output := range pck.Outputs {
+//		or, err := output.Render(model)
+//		if err != nil {
+//			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
+//		}
+//		result[idx] = *or
+//	}
+//	// Must ensure name are uniques
+//	dupDetect := make(map[string]struct{})
+//	for _, outp := range result {
+//		if _, ok := dupDetect[outp.Name]; ok {
+//			return nil, fmt.Errorf("duplicate output name '%s'", outp.Name)
+//		}
+//		dupDetect[outp.Name] = struct{}{}
+//	}
+//	return result, nil
+//}

@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	kapi "kubocd/api/v1alpha1"
@@ -34,12 +35,16 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var renderParams struct {
@@ -69,7 +74,7 @@ var renderCmd = &cobra.Command{
 	Example: `	Preview a Release.
 	$ render releases/podinfo2-ctx.yaml
 
-	Preview a Release using an alternate package manifest. 
+	Preview a Release using an alternate package manifest.
 	$ kubocd render releases/podinfo1.yaml packages/podinfo-p01.yaml`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ------------------------------------------- Setup working folder
@@ -275,13 +280,40 @@ var renderCmd = &cobra.Command{
 				return err
 			}
 			cmn.Dump(output, "parameters.yaml", parameters)
-			// -------------------------------------------------------------------- Render all values
+
+			// -------------------------------------------------------------------- Build model without input
 			model := controller.BuildModel(kcontext, parameters, release, configStore)
+
+			// -------------------------------------------------------------------- Render inputs
+			inputsRendered, err := pkgContainer.Package.RenderInputs(model, release.Namespace)
+			if err != nil {
+				return err
+			}
+			cmn.Dump(output, "inputs.yaml", inputsRendered)
+			// -------------------------------------------------------------------- Enrich model with inputs
+			helper := &buildInputModelHelper{
+				Client: k8sClient,
+			}
+
+			buildInputModelResult, err := controller.BuildInputModel(context.Background(), helper, inputsRendered)
+			if err != nil {
+				return err
+			}
+			cmn.Dump(output, "watchedInputConnections.yaml", buildInputModelResult.WatchedInputConnections)
+			if len(buildInputModelResult.Messages) > 0 {
+				return fmt.Errorf("missing connection(s):\n  %s", strings.Join(buildInputModelResult.Messages, "\n  "))
+			}
+			model["Inputs"] = buildInputModelResult.InputModel
+			model["InputLists"] = buildInputModelResult.InputListModel
+			// -------------------------------------------------------------------- Render all values
+
 			cmn.Dump(output, "model.yaml", model)
 			rendered, err := pkgContainer.Package.Render(model)
 			if err != nil {
 				return fmt.Errorf("could not render package: %w", err)
 			}
+			rendered.Inputs = inputsRendered // Just for the dump.
+			cmn.Dump(output, "rendered.yaml", rendered)
 			// --------------------------------------------------------------------- Handle roles/dependencies
 			roles := misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
 			dependencies := misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
@@ -373,6 +405,60 @@ var renderCmd = &cobra.Command{
 					cmn.DumpTxt(out, "manifests.yaml", string(result))
 				}
 			}
+			// --------------------------------------------------------------------- Generate output connections
+			for _, outputRendered := range rendered.Outputs {
+				if !outputRendered.Disabled {
+					if outputRendered.Kind == kapi.KindClusterConnection {
+						connection := &kapi.ClusterConnection{
+							TypeMeta: metav1.TypeMeta{
+								APIVersion: kapi.GroupVersion.String(),
+								Kind:       string(kapi.KindClusterConnection),
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Name: controller.BuildClusterConnectionName(release.Name, release.Namespace, outputRendered.Name),
+							},
+						}
+						connection.Spec.Disabled = false // Always false for managed connections
+						valuesTxt, err := json.Marshal(outputRendered.Values)
+						if err != nil {
+							return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+						}
+						connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+						connection.Spec.Interface = outputRendered.Interface
+						connection.Spec.Description = outputRendered.Description
+						connection.Spec.Priority = outputRendered.Priority
+						connection.Spec.ParentRelease = &kapi.ParentReleaseRef{
+							Name:      release.Name,
+							Namespace: release.Namespace,
+						}
+
+						cmn.DumpAppend(output, "outputClusterConnections.yaml", connection)
+					} else {
+						connection := &kapi.Connection{
+							TypeMeta: metav1.TypeMeta{
+								APIVersion: kapi.GroupVersion.String(),
+								Kind:       string(kapi.KindConnection),
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace: release.Namespace,
+								Name:      controller.BuildConnectionName(release.Name, outputRendered.Name),
+							},
+						}
+						connection.Spec.Disabled = false // Always false for managed connections
+						valuesTxt, err := json.Marshal(outputRendered.Values)
+						if err != nil {
+							return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+						}
+						connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+						connection.Spec.Interface = outputRendered.Interface
+						connection.Spec.Description = outputRendered.Description
+						connection.Spec.Priority = outputRendered.Priority
+
+						cmn.DumpAppend(output, "outputConnections.yaml", connection)
+					}
+				}
+			}
+
 			// ---------------------------------------------------------------------- display relevant context
 			fmt.Printf("Contexts: %s\n", misc.FlattenNamespacedNames(contextList))
 			return nil
@@ -403,6 +489,81 @@ func DigFolderForFile(inFolder string, lookedUpFile string) (string, error) {
 	})
 	if err != nil {
 		return "", err
+	}
+	return result, nil
+}
+
+type buildInputModelHelper struct {
+	client.Client
+}
+
+var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
+
+func (h *buildInputModelHelper) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kapi.Connection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all connections
+	// in the namespace and filter on the interface
+	connections := kapi.ConnectionList{}
+	err := h.List(ctx, &connections, &client.ListOptions{Namespace: namespace})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): unable to list connections: %w", err), false, "")
+	}
+	result := make([]kapi.Connection, 0, len(connections.Items))
+	for _, connection := range connections.Items {
+		if connection.Spec.Interface == iface {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
+
+func (h *buildInputModelHelper) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kapi.ClusterConnection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all clusterConnections
+	// filter on the interface
+	clusterConnections := kapi.ClusterConnectionList{}
+	err := h.List(ctx, &clusterConnections, &client.ListOptions{})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): unable to list clusterConnections: %w", err), false, "")
+	}
+	result := make([]kapi.ClusterConnection, 0, len(clusterConnections.Items))
+	for _, connection := range clusterConnections.Items {
+		if connection.Spec.Interface == iface {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
+
+func (h *buildInputModelHelper) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.Connection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all connections
+	// in the release namespace and filter on the controller owner reference name.
+	connections := kapi.ConnectionList{}
+	err := h.List(ctx, &connections, &client.ListOptions{Namespace: release.Namespace})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindOutputConnectionFromRelease(): unable to list connections: %w", err), false, "")
+	}
+	result := make([]kapi.Connection, 0, len(connections.Items))
+	for _, connection := range connections.Items {
+		owner := metav1.GetControllerOf(&connection)
+		if owner != nil && owner.Name == release.Name {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
+
+func (h *buildInputModelHelper) FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.ClusterConnection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all clusterConnections
+	// in the release namespace and filter on the controller owner reference name.
+	clusterConnections := kapi.ClusterConnectionList{}
+	err := h.List(ctx, &clusterConnections, &client.ListOptions{})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindOutputClusterConnectionsFromRelease(): unable to list clusterConnections: %w", err), false, "")
+	}
+	result := make([]kapi.ClusterConnection, 0, len(clusterConnections.Items))
+	for _, connection := range clusterConnections.Items {
+		if connection.Spec.ParentRelease != nil && connection.Spec.ParentRelease.Name == release.Name && connection.Spec.ParentRelease.Namespace == release.Namespace {
+			result = append(result, connection)
+		}
 	}
 	return result, nil
 }

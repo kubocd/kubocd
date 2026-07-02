@@ -28,10 +28,13 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.readyReleases
-      name: Ready
+      name: Rel.
       type: string
-    - jsonPath: .status.missingDependency
-      name: Wait
+    - jsonPath: .status.readyOutputConnections
+      name: Cnct.
+      type: string
+    - jsonPath: .status.message
+      name: Error
       type: string
     - jsonPath: .status.printProtected
       name: PRT
@@ -372,6 +375,22 @@ spec:
                 items:
                   type: string
                 type: array
+              effectiveInputConnections:
+                description: Array by input#. The selected connection for each input
+                items:
+                  properties:
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  - namespace
+                  type: object
+                type: array
               helmReleaseStates:
                 additionalProperties:
                   description: HelmReleaseState describe the observed state of a child
@@ -384,11 +403,38 @@ spec:
                   required:
                   - ready
                   type: object
-                description: HelmReleaseState describe the observed state of child
+                description: HelmReleaseStates describe the observed state of child
                   HelmReleases by name
                 type: object
-              missingDependency:
+              message:
+                description: Human friendly last error message
                 type: string
+              outputConnectionByName:
+                additionalProperties:
+                  description: ReleaseOutputConnection describe the state of a managed
+                    (output) connection or clusterConnection, inside Release status
+                  properties:
+                    kind:
+                      type: string
+                    message:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    phase:
+                      description: ConnectionPhase is used both for Connection and
+                        ClusterConnection
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  - namespace
+                  - phase
+                  type: object
+                description: OutputConnectionStates describe the observed state of
+                  child connection by name
+                type: object
               parameters:
                 description: Parameters is the resulting parameters set, if requested
                   in debug options
@@ -414,6 +460,11 @@ spec:
                   Protected result of Release.spec.protected defaulted to package.spec.protected
                   It is the value checked by the webhook
                 type: boolean
+              readyOutputConnections:
+                description: |-
+                  ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               readyReleases:
                 description: |-
                   ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
@@ -431,14 +482,32 @@ spec:
                   Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
                   Key could 'html', 'text', some language id, etc...
                 type: object
+              watchedInputConnections:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    kind:
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  - namespace
+                  type: object
+                type: array
             required:
             - dependencies
-            - missingDependency
+            - effectiveInputConnections
             - phase
             - printProtected
             - protected
+            - readyOutputConnections
             - readyReleases
             - roles
+            - watchedInputConnections
             type: object
         type: object
     served: true

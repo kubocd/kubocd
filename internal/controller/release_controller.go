@@ -1,4 +1,5 @@
 /*
+Copyright 2025 Kubotal
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,24 +26,24 @@ import (
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
-	"kubocd/internal/tmpl"
 	"os"
 	"path"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	k8serror "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
@@ -63,23 +64,29 @@ type ReleaseReconciler struct {
 	statusErrorCount int
 }
 
+var _ reconcile.Reconciler = &ReleaseReconciler{}
+var _ BuildInputModelHelper = &ReleaseReconciler{}
+
 // Just a container to avoid messy parameters passing
 type releaseOperation struct {
-	request                     ctrl.Request
-	ctx                         context.Context
-	logger                      logr.Logger
-	release                     *kv1alpha1.Release
-	pckContainer                *kubopackage.PckContainer
-	ociRepositoryName           string
-	helmRepositoryName          string
-	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values
-	helmReleaseNameByModuleName map[string]string
-	roles                       []string
-	dependencies                []string
+	request                        ctrl.Request
+	ctx                            context.Context
+	logger                         logr.Logger
+	release                        *kv1alpha1.Release
+	pckContainer                   *kubopackage.PckContainer
+	ociRepositoryName              string
+	helmRepositoryName             string
+	helmReleaseStates              map[string]kv1alpha1.HelmReleaseState        // To collect values for user display
+	outputConnectionByName         map[string]kv1alpha1.ReleaseOutputConnection // To collect values for user display and index by connection. Host both Connection and ClusterConnection
+	outputConnectionK8sName        map[string]struct{}                          // To prevent orphan deletion
+	outputClusterConnectionK8sName map[string]struct{}                          // To prevent orphan deletion
+	helmReleaseNameByModuleName    map[string]string
+	roles                          []string
+	dependencies                   []string
 }
 
 // ReconcileError is a specialized error. Will allow to:
-// - Specify if error is recoverable or not (fatal)
+// - Specify if error is recoverable or not (fatal). If fatal, there will be no retry (return ctrlResult, nil)
 // - Specify we want to generate a Warning event.
 type ReconcileError interface {
 	Error() string
@@ -104,6 +111,7 @@ func (e reconcileErrorImpl) GetEventReason() string {
 	return e.eventReason
 }
 
+// Behave like a standard error
 func (e reconcileErrorImpl) Error() string {
 	return e.error.Error()
 }
@@ -112,6 +120,9 @@ func (e reconcileErrorImpl) GetBaseError() error {
 	return e.error
 }
 
+// NewReconcileError Generate a specialized error.
+// - fatal: Error is on our own. No need to retry
+// - eventReason != "" -> Generate an event
 func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError {
 	return &reconcileErrorImpl{
 		error:       err,
@@ -130,10 +141,10 @@ func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	logger.V(1).Info("vv--------------vv")
+	logger.V(0).Info("vv--------------vv")
 	result, err := r.reconcile2(ctx, req, logger)
 	//logger.V(1).Info("^^--------------^^", "result", result, "error", err)
-	logger.V(1).Info("^^--------------^^", "result", result)
+	logger.V(0).Info("^^--------------^^", "result", result)
 	return result, err
 }
 
@@ -176,6 +187,20 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			// Just log, without any other action
 			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
 		}
+		// Remove outputClusterConnection
+		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
+		if err != nil {
+			// Just log, without any other action
+			op.logger.Error(err, "Failed to list child output ClusterConnection")
+		} else {
+			for _, clusterConnection := range clusterConnections {
+				err := r.Delete(ctx, &clusterConnection)
+				if err != nil {
+					// Just log, without any other action
+					op.logger.Error(err, "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
+				}
+			}
+		}
 		// Deletion OK
 		controllerutil.RemoveFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Remove finalizer)")
@@ -194,6 +219,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if release.Status.Roles == nil {
 		release.Status.Roles = make([]string, 0)
+	}
+	if release.Status.WatchedInputConnections == nil {
+		release.Status.WatchedInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
+	}
+	if release.Status.EffectiveInputConnections == nil {
+		release.Status.EffectiveInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
 	}
 
 	// Not under deletion. Add a finalizer if not already set
@@ -218,7 +249,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, "Wait OCI repository", false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content, if not in cache
@@ -264,7 +295,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, "Wait Helm Repository", false)
 	}
 
 	// ---------------------------------------------------------- Retrieve package from cache, or load it
@@ -364,8 +395,46 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			}
 		}
 	}
-	// -------------------------------------------------------------------- Render all values
+	// -------------------------------------------------------------------- Build model without input
 	model := BuildModel(theContext, parameters, release, r.ConfigStore)
+
+	// -------------------------------------------------------------------- Render inputs
+	inputs, err := op.pckContainer.Package.RenderInputs(model, release.Namespace)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
+	}
+	// -------------------------------------------------------------------- Enrich model with inputs
+	buildInputModelResult, err := BuildInputModel(op.ctx, r, inputs)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, false, "Inputs"), forceUpdate)
+	}
+	if !reflect.DeepEqual(buildInputModelResult.WatchedInputConnections, release.Status.WatchedInputConnections) {
+		release.Status.WatchedInputConnections = buildInputModelResult.WatchedInputConnections
+		forceUpdate = true
+	}
+	if !reflect.DeepEqual(buildInputModelResult.EffectiveInputConnections, release.Status.EffectiveInputConnections) {
+		release.Status.EffectiveInputConnections = buildInputModelResult.EffectiveInputConnections
+		forceUpdate = true
+	}
+	if len(buildInputModelResult.Messages) > 0 {
+		for _, message := range buildInputModelResult.Messages {
+			r.Event(op.release, "Warning", "MissingConnections", message)
+		}
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputConnections, strings.Join(buildInputModelResult.Messages, " - "), forceUpdate)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if r.RequeueAfter > 0 {
+			// It is a Requeue due to update status error
+			return r, nil
+		}
+		return ctrl.Result{
+			RequeueAfter: time.Second * 5,
+		}, nil
+	}
+	model["Inputs"] = buildInputModelResult.InputModel
+	model["InputLists"] = buildInputModelResult.InputListModel
+	// -------------------------------------------------------------------- Render all values
 	rendered, err := op.pckContainer.Package.Render(model)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
@@ -407,13 +476,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back after 5s
 	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
-	if missing != op.release.Status.MissingDependency {
-		op.release.Status.MissingDependency = missing
-		forceUpdate = true
-	}
 	if missing != "" {
-		r.Event(op.release, "Normal", "MissingDependency", fmt.Sprintf("Waiting for the role '%s' to be ready", missing))
-		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, forceUpdate)
+		message := fmt.Sprintf("Waiting for the role '%s' to be ready", missing)
+		r.Event(op.release, "Normal", "MissingDependency", message)
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, message, forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -432,144 +498,152 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		for _, module := range op.pckContainer.Package.Modules {
 			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
 			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
+			//fmt.Printf("********** helmReleaseName: %s: %v\n", helmReleaseName, op.helmReleaseStates[helmReleaseName])
 			if reconcileError != nil {
 				return r.reportError(op, reconcileError, forceUpdate)
 			}
 		}
 	}
-	// -------------------------------------------------------- Adjust status
+	// -------------------------------------------------------- Adjust helmReleases status
 	// And store helmReleases status
-	readyReleases, allReady := computeReadyReleases(op)
+	readyReleases, allReady := computeReadyHelmReleases(op)
 	if readyReleases != op.release.Status.ReadyReleases {
 		op.release.Status.ReadyReleases = readyReleases
 		forceUpdate = true
 	}
+
+	var message string
+
+	// Events generation and update setting are performed only if not already done
 	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
 		op.release.Status.HelmReleaseStates = op.helmReleaseStates
 		forceUpdate = true
+		for k, v := range op.helmReleaseStates {
+			if v.Status != "" {
+				r.Event(op.release, misc.Ternary(v.Ready == "True", "Normal", "Warning"), fmt.Sprintf("HelmRelease:%s", k), v.Status)
+			}
+		}
 	}
-	var phase kv1alpha1.ReleasePhase
+
+	// Another loop to set the user error message in every reconciliation (idempotency)
+	for k, v := range op.helmReleaseStates {
+		if v.Status != "" && message == "" {
+			message = fmt.Sprintf("HelmRelease %s: %s", k, v.Status)
+		}
+	}
+
 	if op.release.Spec.Suspended {
-		phase = kv1alpha1.ReleasePhaseSuspended
-	} else {
-		if allReady {
-			phase = kv1alpha1.ReleasePhaseReady
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseSuspended, message, forceUpdate)
+	}
+	if !allReady {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmReleases, message, forceUpdate)
+	}
+
+	// --------------------------------------------------------------------------- We can now manage output connection
+	/*
+		NB: Output connection are updated only when helmRelease are OK. This will ensure
+		- Output connection will be created only when the provider is ready.
+		- If, later, one or several Helm releases are in error (failing update, ...), then existing connection are left untouched.
+		  This is coherent with the fact the helmRelease update preserve the running, older, pods, so the service is still alive.
+		  So the consumer services should not be notified in this case. So, don't touch connections.
+	*/
+	op.outputConnectionByName = make(map[string]kv1alpha1.ReleaseOutputConnection)
+	op.outputConnectionK8sName = make(map[string]struct{})
+	op.outputClusterConnectionK8sName = make(map[string]struct{})
+	for _, outputRendered := range rendered.Outputs {
+		var reconcileError ReconcileError
+		if outputRendered.Kind == kv1alpha1.KindClusterConnection {
+			clusterConnectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
+			_, reconcileError = r.handleOutputClusterConnection(op, clusterConnectionName, outputRendered)
 		} else {
-			phase = kv1alpha1.ReleasePhaseWaitHelmReleases
+			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
+			_, reconcileError = r.handleOutputConnection(op, connectionName, outputRendered)
 		}
-	}
-	return r.updateStatus(op, phase, forceUpdate)
-}
-
-func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{}, configStore configstore.ConfigStore, pckContainer *kubopackage.PckContainer) (map[string]interface{}, error) {
-
-	var parametersStr string
-	if release.Spec.Parameters == nil || release.Spec.Parameters.Raw == nil || len(release.Spec.Parameters.Raw) == 0 {
-		parametersStr = "{}"
-		//return pckContainer.DefaultParameters, nil
-	} else {
-		parametersStr = string(release.Spec.Parameters.Raw)
-	}
-
-	var err error
-	if strings.Contains(parametersStr, "\\n") && parametersStr[0:1] != "{" { // If there is some '\n' and this is not json.
-		parametersStr, err = strconv.Unquote(parametersStr)
-		if err != nil {
-			return nil, fmt.Errorf("could not unquote parameter value: %w", err)
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError, forceUpdate)
 		}
 	}
 
-	parametersTmpl, err := tmpl.NewFromAny("", parametersStr, "")
-	if err != nil {
-		return nil, fmt.Errorf("could not create template from parameters: %w", err)
-	}
-	pModel := BuildModel(kcontext, nil, release, configStore)
-
-	parameters, txt, err := parametersTmpl.RenderToMap(pModel)
-	if err != nil {
-		return nil, fmt.Errorf("could not render parameters template: %w (%s)", err, txt)
+	// ----------------------------------------------------------- adjust Connection status
+	// And store outputConnection status
+	readyOutputConnections, allOutputConnectionReady := computeReadyConnection(op)
+	if readyOutputConnections != op.release.Status.ReadyOutputConnections {
+		op.release.Status.ReadyOutputConnections = readyOutputConnections
+		forceUpdate = true
 	}
 
-	parameters = misc.MergeMaps(pckContainer.DefaultParameters, parameters)
-	err = pckContainer.ValidateParameters(parameters)
-	if err != nil {
-		return nil, fmt.Errorf("could not validate parameters: %w", err)
+	// Events generation and update setting are performed only if not already done
+	if !reflect.DeepEqual(op.outputConnectionByName, op.release.Status.OutputConnectionByName) {
+		op.release.Status.OutputConnectionByName = op.outputConnectionByName
+		forceUpdate = true
+		for k, v := range op.outputConnectionByName {
+			if v.Phase != "" {
+				eventMessage := fmt.Sprintf("Connection '%s' ready", k)
+				if v.Phase != kv1alpha1.ConnectionPhaseReady {
+					eventMessage = v.Message
+				}
+				r.Event(op.release, misc.Ternary(v.Phase == kv1alpha1.ConnectionPhaseReady, "Normal", "Warning"), fmt.Sprintf("connection:%s", k), eventMessage)
+			}
+		}
 	}
-	return parameters, nil
+
+	// Another loop to set the user error message in every reconciliation (idempotency)
+	for k, v := range op.outputConnectionByName {
+		if v.Phase != "" && v.Phase != kv1alpha1.ConnectionPhaseReady && message == "" {
+			message = fmt.Sprintf("Connection '%s': %s", k, v.Message)
+		}
+	}
+
+	// phase is kv1alpha1.ReleasePhaseReady
+	if !allOutputConnectionReady {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOutputConnections, message, forceUpdate)
+	}
+	// ---------------------------------------------------------- Find orphan connection, and delete them
+	//
+	outputConnections, err := r.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	for _, connection := range outputConnections {
+		_, ok := op.outputConnectionK8sName[connection.Name]
+		if !ok {
+			// Connection with ownerReference on ourselves, but not managed. Delete it
+			logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
+			err := r.Delete(ctx, &connection)
+			if err != nil {
+				logger.Error(err, "unable to delete connection", "connection", connection.Name)
+			}
+		}
+	}
+	// ---------------------------------------------------------- Find orphan clusterConnection, and delete them
+	//
+	outputClusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	for _, clusterConnection := range outputClusterConnections {
+		_, ok := op.outputClusterConnectionK8sName[clusterConnection.Name]
+		if !ok {
+			// Connection with ownerReference on ourselves, but not managed. Delete it
+			logger.V(0).Info("Deleting orphan clusterConnection", "name", clusterConnection.Name)
+			err := r.Delete(ctx, &clusterConnection)
+			if err != nil {
+				logger.Error(err, "unable to delete clusterConnection", "clusterConnection", clusterConnection.Name)
+			}
+		}
+	}
+	// Final return
+	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)
 }
 
-func BuildHelmReleaseName(releaseName, moduleName string) string {
-	if moduleName == "noname" {
-		return releaseName
-	}
-	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
-}
-
-func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
+func computeReadyConnection(op *releaseOperation) (string, bool) {
 	cnt := 0
-	for _, releaseState := range op.helmReleaseStates {
-		if releaseState.Ready == metav1.ConditionTrue {
+	for _, outputConnectionState := range op.outputConnectionByName {
+		if outputConnectionState.Phase == kv1alpha1.ConnectionPhaseReady {
 			cnt++
 		}
 	}
-	return fmt.Sprintf("%d/%d", cnt, len(op.helmReleaseStates)), cnt == len(op.helmReleaseStates)
-}
-
-// ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
-func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, store configstore.ConfigStore, defaultContext map[string]interface{}) (map[string]interface{}, []kv1alpha1.NamespacedName, ReconcileError) {
-
-	optionalContexts := make(map[kv1alpha1.NamespacedName]bool)
-
-	contextList := make([]kv1alpha1.NamespacedName, 0, 3)
-	if !release.Spec.SkipDefaultContext {
-		contextList = append(contextList, store.GetDefaultContexts()...)
-		for _, nsContextName := range store.GetDefaultNamespaceContexts() {
-			nsContext := kv1alpha1.NamespacedName{
-				Namespace: release.GetNamespace(),
-				Name:      nsContextName,
-			}
-			contextList = append(contextList, nsContext)
-			optionalContexts[nsContext] = true
-		}
-	}
-	contextList = append(contextList, release.Spec.Contexts...)
-	effectiveContextList := make([]kv1alpha1.NamespacedName, 0, len(contextList))
-	resultContext := defaultContext
-	for _, contextRef := range contextList {
-		contextObj := &kv1alpha1.Context{}
-		err := k8sClient.Get(ctx, contextRef.ToObjectKey(), contextObj)
-		if err != nil {
-			if k8serror.IsNotFound(err) {
-				if optionalContexts[contextRef] {
-					continue // This specific context may not exist. This is not an error
-				} else {
-					return nil, nil, NewReconcileError(fmt.Errorf("context '%s' not found", contextRef.String()), true, "ContextNotFound")
-				}
-			} else {
-				return nil, nil, NewReconcileError(err, false, "ContextRetrieval")
-			}
-		}
-		if contextObj.Status.Phase != kv1alpha1.ContextPhaseReady {
-			return nil, nil, NewReconcileError(fmt.Errorf("context '%s' is in error", contextRef.String()), true, "ContextRetrieval")
-		}
-		// OK. Merge our info on top
-		ctx := contextObj.Status.Context
-		if ctx == nil {
-			ctx = contextObj.Spec.Context
-		}
-		resultContext, err = Merge(resultContext, ctx)
-		if err != nil {
-			return nil, nil, NewReconcileError(fmt.Errorf("unable to merge context: %w", err), true, "ContextMerge")
-		}
-		effectiveContextList = append(effectiveContextList, contextRef)
-	}
-	return resultContext, effectiveContextList, nil
+	return fmt.Sprintf("%d/%d", cnt, len(op.outputConnectionByName)), cnt == len(op.outputConnectionByName)
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
 func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError, forceUpdate bool) (ctrl.Result, error) {
-	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, forceUpdate)
+	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, rErr.Error(), forceUpdate)
 	if err2 != nil {
 		return ctrl.Result{}, rErr // Will retry
 	}
@@ -579,94 +653,102 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	if rErr.IsFatal() {
 		op.logger.Error(rErr, "Wait for this to be fixed")
 		return ctrlResult, nil
-	} else {
-		return ctrl.Result{}, rErr
 	}
+	return ctrl.Result{}, rErr
 }
 
-func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) (ctrl.Result, error) {
+func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, message string, force bool) (ctrl.Result, error) {
 	if phase == kv1alpha1.ReleasePhaseReady {
 		r.RoleStore.RegisterRelease(op.request.NamespacedName, op.roles)
 	} else {
 		r.RoleStore.UnRegisterRelease(op.request.NamespacedName)
 	}
-	if op.release.Status.Phase == phase && !force {
-		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
-		//fmt.Printf("  .  .  .   .   .   .   : %s\n", phase)
+	if op.release.Status.Phase == phase && op.release.Status.Message == message && !force {
+		op.logger.V(1).Info("Release phase and message are already up-to-date", "phase", phase, "message", message)
 		return ctrl.Result{}, nil
 	}
-	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
+	op.logger.V(1).Info("Updating status", "newPhase", phase, "oldPhase", op.release.Status.Phase, "newMessage", message, "oldMessage", op.release.Status.Message, "force", force)
 	op.release.Status.Phase = phase
+	op.release.Status.Message = message
 	err := r.Status().Update(op.ctx, op.release)
 	if err != nil {
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
 		if r.statusErrorCount > 0 {
 			return ctrl.Result{}, err
-		} else {
-			r.statusErrorCount++
-			op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
-			return ctrl.Result{RequeueAfter: time.Millisecond * 200}, nil
 		}
-	} else {
-		//fmt.Printf("-----------------------: %s\n", phase)
-		r.statusErrorCount = 0
-		return ctrl.Result{}, err
+		r.statusErrorCount++
+		op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
+		return ctrl.Result{RequeueAfter: time.Millisecond * 200}, nil
 	}
+	//fmt.Printf("-----------------------: %s\n", phase)
+	r.statusErrorCount = 0
+	return ctrl.Result{}, err
 }
 
-func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, repoName string, logger logr.Logger) map[string]metav1.ConditionStatus {
-	statusByType := make(map[string]metav1.ConditionStatus)
-	if len(conditions) < 2 {
-		logger.V(1).Info("Not enough conditions found yet", repoKind, repoName)
+const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
+
+func (r *ReleaseReconciler) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError) {
+	connections := kv1alpha1.ConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.Name),
+		Namespace:     release.Namespace,
 	}
-	for _, condition := range conditions {
-		logger.V(1).Info("condition", "type", condition.Type, "status", condition.Status, repoKind, repoName)
-		statusByType[condition.Type] = condition.Status
+	err := r.List(ctx, &connections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindOutputConnectionFromRelease(): Unable to find release bindings: %w", err), false, "")
+		}
+		return []kv1alpha1.Connection{}, nil
 	}
-	return statusByType
+	return connections.Items, nil
 }
 
-// GroomRelease is aimed to be called by this reconciler, but also by the render CLI command
-func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, configStore configstore.ConfigStore) {
-	if release.Spec.TargetNamespace == "" {
-		release.Spec.TargetNamespace = release.Namespace
+const ReleaseIndexOnOutputClusterConnection = "ReleaseIndexOnOutputClusterConnection"
+
+func (r *ReleaseReconciler) FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.ClusterConnection, ReconcileError) {
+	clusterConnections := kv1alpha1.ClusterConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputClusterConnection, fmt.Sprintf("%s:%s", release.Namespace, release.Name)),
 	}
-	//if release.Spec.Timeout == nil {
-	//	dht := metav1.Duration{Duration: store.GetDefaultHelmTimeout()}
-	//	release.Spec.Timeout = &dht
-	//}
-	if release.Spec.Contexts == nil {
-		release.Spec.Contexts = make([]kv1alpha1.NamespacedName, 0)
-	}
-	if release.Spec.Roles == nil {
-		release.Spec.Roles = make([]string, 0)
-	}
-	if release.Spec.Dependencies == nil {
-		release.Spec.Dependencies = make([]string, 0)
-	}
-	if release.Spec.Debug == nil {
-		release.Spec.Debug = &kv1alpha1.ReleaseDebug{}
-	}
-	if misc.IsZero(release.Spec.Package.Interval) {
-		release.Spec.Package.Interval = metav1.Duration{
-			Duration: configStore.GetDefaultPackageInterval(),
+	err := r.List(ctx, &clusterConnections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindOutputClusterConnectionsFromRelease(): Unable to find release bindings: %w", err), false, "")
 		}
+		return []kv1alpha1.ClusterConnection{}, nil
 	}
-	for i := range release.Spec.Contexts {
-		kctx := &release.Spec.Contexts[i]
-		if kctx.Namespace == "" {
-			logger.V(1).Info("Set namespace for context", "contextName", kctx.Name, "contextNamespace", release.ObjectMeta.Namespace)
-			kctx.Namespace = release.ObjectMeta.Namespace
-		}
-	}
+	return clusterConnections.Items, nil
 }
 
-func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release, store configstore.ConfigStore) map[string]interface{} {
-	model := map[string]interface{}{
-		"Context":         context,
-		"Parameters":      parameters,
-		"Release":         misc.ObjectToMap(release),
-		"ImageRedirector": store,
+const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
+
+func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError) {
+	connections := &kv1alpha1.ConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnConnection, iface),
+		Namespace:     namespace,
 	}
-	return model
+	err := r.List(ctx, connections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+		}
+	}
+	return connections.Items, nil
+}
+
+const InterfaceIndexOnClusterConnection = "interfaceIndexOnClusterConnection"
+
+func (r *ReleaseReconciler) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kv1alpha1.ClusterConnection, ReconcileError) {
+	clusterConnections := &kv1alpha1.ClusterConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnClusterConnection, iface),
+	}
+	err := r.List(ctx, clusterConnections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+		}
+	}
+	return clusterConnections.Items, nil
 }

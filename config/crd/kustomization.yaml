@@ -5,6 +5,9 @@ resources:
 - bases/kubocd.kubotal.io_releases.yaml
 - bases/kubocd.kubotal.io_contexts.yaml
 - bases/kubocd.kubotal.io_configs.yaml
+- bases/kubocd.kubotal.io_connections.yaml
+- bases/kubocd.kubotal.io_clusterconnections.yaml
+- bases/kubocd.kubotal.io_interfaces.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
