@@ -232,6 +232,77 @@ var controllerCmd = &cobra.Command{
 		}
 		roleStore := rolestore.New(theConfigStore, controllerRootLog.WithName("roleStore"))
 
+		// -------------------------------------------------------------------------------------- Interface controller setup
+
+		interfaceReconciler := &controller.InterfaceReconciler{
+			Client:        mgr.GetClient(),
+			EventRecorder: mgr.GetEventRecorderFor("interface"),
+			Logger:        controllerRootLog.WithName("interfaceReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Interface{}).
+			Named("kubocd-interface-controller").
+			Complete(interfaceReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "interface")
+			os.Exit(1)
+		}
+
+		// -------------------------------------------------------------------------------------- Connection controller setup
+
+		// Create an index to retrieve a Connection from an Interface in an efficient way
+		// index connection by interface
+		const interfaceIndexOnConnection = "interfaceIndexOnConnection"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, interfaceIndexOnConnection, func(rawObj client.Object) []string {
+			connection := rawObj.(*kubocdv1alpha1.Connection)
+			return []string{connection.Spec.Interface}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
+			os.Exit(1)
+		}
+
+		findConnectionFromInterface := func(ctx context.Context, iface client.Object) []reconcile.Request {
+			connections := kubocdv1alpha1.ConnectionList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(interfaceIndexOnConnection, iface.GetName()),
+			}
+			err := mgr.GetClient().List(context.Background(), &connections, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					controllerRootLog.Error(err, "findConnectionFromInterface(): Unable to find interface bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range connections.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
+		connectionReconciler := &controller.ConnectionReconciler{
+			Client:        mgr.GetClient(),
+			EventRecorder: mgr.GetEventRecorderFor("interface"),
+			Logger:        controllerRootLog.WithName("connectionReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Connection{}).
+			Named("kubocd-connection-controller").
+			Watches(&kubocdv1alpha1.Interface{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromInterface)).
+			Complete(connectionReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "connection")
+			os.Exit(1)
+		}
+
 		// -------------------------------------------------------------------------------------- Config controller setup
 		configReconciler := &controller.ConfigReconciler{
 			Client:         mgr.GetClient(),

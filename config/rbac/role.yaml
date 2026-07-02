@@ -8,7 +8,9 @@ rules:
   - kubocd.kubotal.io
   resources:
   - configs
+  - connections
   - contexts
+  - interfaces
   - releases
   verbs:
   - create
@@ -22,7 +24,9 @@ rules:
   - kubocd.kubotal.io
   resources:
   - configs/finalizers
+  - connections/finalizers
   - contexts/finalizers
+  - interfaces/finalizers
   - releases/finalizers
   verbs:
   - update
@@ -30,7 +34,9 @@ rules:
   - kubocd.kubotal.io
   resources:
   - configs/status
+  - connections/status
   - contexts/status
+  - interfaces/status
   - releases/status
   verbs:
   - get

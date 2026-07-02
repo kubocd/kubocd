@@ -1,0 +1,98 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: connections.kubocd.kubotal.io
+spec:
+  group: kubocd.kubotal.io
+  names:
+    kind: Connection
+    listKind: ConnectionList
+    plural: connections
+    shortNames:
+    - cnx
+    singular: connection
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.interface
+      name: Interface
+      type: string
+    - jsonPath: .spec.description
+      name: Description
+      type: string
+    - jsonPath: .spec.priority
+      name: Pri.
+      type: integer
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    - jsonPath: .status.message
+      name: Message
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              description:
+                description: A human oriented description
+                type: string
+              disabled:
+                description: |-
+                  Allow temporary suspension of this connection
+                  Default: false
+                type: boolean
+              interface:
+                description: Define the service type and allow validation of rendered
+                  'values'
+                type: string
+              priority:
+                default: 100
+                type: integer
+              values:
+                description: Must comply to the schema defined by interface
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - interface
+            type: object
+          status:
+            properties:
+              interfaceGeneration:
+                description: |-
+                  InterfaceGeneration is the .metadata.generation of the interface this
+                  connection was last checked against.
+                format: int64
+                type: integer
+              message:
+                type: string
+              phase:
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
