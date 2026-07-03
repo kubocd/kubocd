@@ -42,8 +42,11 @@ jobs:
       - name: go vet
         run: make vet
 
+      # `make test-only` skips the manifests/generate/fmt/vet prerequisites — they
+      # already ran as dedicated gates above; re-running them here would waste time
+      # and could re-dirty the tree after the `git diff` checks.
       - name: Tests (envtest)
-        run: make test
+        run: make test-only
 
       - name: Coverage summary
         if: always()

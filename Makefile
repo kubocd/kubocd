@@ -141,7 +141,10 @@ check-tools: ## Check if local tools match .tool-versions requirements.
 	@bash hack/check-tools.sh
 
 .PHONY: test
-test: manifests generate fmt vet verify-envtest-version ## Run tests.
+test: manifests generate fmt vet verify-envtest-version test-only ## Run tests (with codegen/fmt/vet prerequisites).
+
+.PHONY: test-only
+test-only: ## Run tests only — no codegen/fmt/vet prerequisites (CI runs those as dedicated gates).
 	@if [ -z "$$KUBEBUILDER_ASSETS" ]; then \
 		$(MAKE) setup-envtest; \
 		KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out; \
