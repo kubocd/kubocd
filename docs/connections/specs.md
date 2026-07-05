@@ -149,7 +149,7 @@ input:
       fullName: <template_string> # k8s connection name. Mainly for unmanaged connection
       release: <template_string>   # The release managing this connection.
       outputName: <template_string> # Used if the release manage several connection with the same interface
-      type: <template_string> # Connection or ClusterConnection
+      kind: <template_string> # Connection or ClusterConnection
     alias: <template_string> # optional. Default to interface
 
 ```

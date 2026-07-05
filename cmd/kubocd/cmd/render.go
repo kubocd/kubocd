@@ -69,7 +69,7 @@ var renderCmd = &cobra.Command{
 	Example: `	Preview a Release.
 	$ render releases/podinfo2-ctx.yaml
 
-	Preview a Release using an alternate package manifest. 
+	Preview a Release using an alternate package manifest.
 	$ kubocd render releases/podinfo1.yaml packages/podinfo-p01.yaml`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// ------------------------------------------- Setup working folder
@@ -275,8 +275,24 @@ var renderCmd = &cobra.Command{
 				return err
 			}
 			cmn.Dump(output, "parameters.yaml", parameters)
-			// -------------------------------------------------------------------- Render all values
+
+			// -------------------------------------------------------------------- Build model without input
 			model := controller.BuildModel(kcontext, parameters, release, configStore)
+
+			// -------------------------------------------------------------------- Render inputs
+			inputs, err := pkgContainer.Package.RenderInputs(model)
+			if err != nil {
+				return err
+			}
+			cmn.Dump(output, "inputs.yaml", inputs)
+			// -------------------------------------------------------------------- Enrich model with inputs
+			inputModel, err := controller.BuildInputModel(k8sClient, inputs, release.Namespace)
+			if err != nil {
+				return err
+			}
+			model["Inputs"] = inputModel
+			// -------------------------------------------------------------------- Render all values
+
 			cmn.Dump(output, "model.yaml", model)
 			rendered, err := pkgContainer.Package.Render(model)
 			if err != nil {

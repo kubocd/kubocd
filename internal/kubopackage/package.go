@@ -84,6 +84,8 @@ type Package struct {
 	// A template snippet which will be added at the beginning of all templates
 	// Intended to be used to compute some global values
 	TemplateHeader string `json:"templateHeader,omitempty"`
+	// List of inputs referencing connections.
+	Inputs []Input `json:"inputs,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -182,6 +184,12 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
+	for idx, _ := range pck.Inputs {
+		err = pck.Inputs[idx].groom(pck)
+		if err != nil {
+			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
+		}
+	}
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -191,6 +199,7 @@ type packageTemplates struct {
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
 	description  tmpl.Tmpl
+	inputs       []tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release e of a package.
@@ -241,7 +250,7 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	for _, module := range pck.Modules {
 		rendered, ok := r.ModuleRenderedByName[module.Name]
 		if !ok {
-			panic(fmt.Sprintf("missng module of name %s", module.Name)) // Should not occur
+			panic(fmt.Sprintf("missing module of name %s", module.Name)) // Should not occur
 		}
 		for _, dep := range rendered.DependsOn {
 			_, ok = r.ModuleRenderedByName[dep]
@@ -251,4 +260,16 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 	}
 	return r, nil
+}
+
+func (pck *Package) RenderInputs(model map[string]interface{}) ([]InputRendered, error) {
+	result := make([]InputRendered, len(pck.Inputs))
+	for idx, input := range pck.Inputs {
+		ir, err := input.Render(model)
+		if err != nil {
+			return nil, fmt.Errorf("could not render 'inputs[%d]': %w", idx, err)
+		}
+		result[idx] = *ir
+	}
+	return result, nil
 }
