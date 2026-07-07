@@ -194,6 +194,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if release.Status.Roles == nil {
 		release.Status.Roles = make([]string, 0)
 	}
+	if release.Status.InputConnections == nil {
+		release.Status.InputConnections = make([]kv1alpha1.ReleaseInputConnection, 0)
+	}
 
 	// Not under deletion. Add a finalizer if not already set
 	if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
@@ -372,9 +375,34 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
 	}
 	// -------------------------------------------------------------------- Enrich model with inputs
-	inputModel, err := BuildInputModel(r, inputs, release.Namespace)
+	inputModel, inputConnections, missingInputs, err := BuildInputModel(r, inputs, release.Namespace)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, false, "Inputs"), forceUpdate)
+	}
+	if !reflect.DeepEqual(inputConnections, release.Status.InputConnections) {
+		release.Status.InputConnections = inputConnections
+		forceUpdate = true
+	}
+	// Use missingDependency field as:
+	// - If we land here, it should be empty
+	// - In  +kubebuilder:printcolumn, there is no way to concat value or have expression.
+	if missingInputs != release.Status.MissingDependency {
+		release.Status.MissingDependency = missingInputs
+		forceUpdate = true
+	}
+	if missingInputs != "" {
+		r.Event(op.release, "Normal", "MissingInput", fmt.Sprintf("Waiting for the connection(s) '%s' to be ready", missingInputs))
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputs, forceUpdate)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if r.RequeueAfter > 0 {
+			// It is a Requeue due to update status error
+			return r, nil
+		}
+		return ctrl.Result{
+			RequeueAfter: time.Second * 5,
+		}, nil
 	}
 	model["Inputs"] = inputModel
 	// -------------------------------------------------------------------- Render all values
@@ -444,6 +472,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		for _, module := range op.pckContainer.Package.Modules {
 			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
 			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
+			//fmt.Printf("********** helmReleaseName: %s: %v\n", helmReleaseName, op.helmReleaseStates[helmReleaseName])
 			if reconcileError != nil {
 				return r.reportError(op, reconcileError, forceUpdate)
 			}
@@ -456,9 +485,17 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.ReadyReleases = readyReleases
 		forceUpdate = true
 	}
+
 	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
 		op.release.Status.HelmReleaseStates = op.helmReleaseStates
 		forceUpdate = true
+		for k, v := range op.helmReleaseStates {
+			//fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
+			if v.Status != "" {
+				fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
+				r.Event(op.release, misc.Ternary(v.Ready == "True", "Normal", "Warning"), fmt.Sprintf("HelmRelease:%s", k), v.Status)
+			}
+		}
 	}
 	var phase kv1alpha1.ReleasePhase
 	if op.release.Spec.Suspended {

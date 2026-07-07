@@ -322,6 +322,47 @@ var controllerCmd = &cobra.Command{
 		}
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
+		// Create an index to retrieve a Release from a connection in an efficient way
+		// index release by contexts
+		const connectionIndexOnRelease = "connectionIndexOnRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, connectionIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			connections := make([]string, len(release.Status.InputConnections))
+			for idx, connection := range release.Status.InputConnections {
+				connections[idx] = fmt.Sprintf("%s:%s", connection.Namespace, connection.Name)
+			}
+			//fmt.Printf("**********************GetFieldIndexer(release:%s) -> %v\n", release.Name, connections)
+			return connections
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
+			os.Exit(1)
+		}
+
+		findReleaseFromConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
+			releases := kubocdv1alpha1.ReleaseList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(connectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
+			}
+			err := mgr.GetClient().List(context.Background(), &releases, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					controllerRootLog.Error(err, "findReleaseFromConnection(): Unable to find Connection bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range releases.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
 		// Create an index to retrieve a Release from a context in an efficient way
 		// index release by contexts
 		const contextIndexOnRelease = "contextIndexOnRelease"
@@ -421,6 +462,7 @@ var controllerCmd = &cobra.Command{
 			Owns(&fluxv2.HelmRelease{}).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
 			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
+			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConnection)).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")

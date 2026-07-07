@@ -162,12 +162,18 @@ const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
 const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
+const ReleasePhaseWaitInputs = ReleasePhase("WAIT_INPT")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
 type HelmReleaseState struct {
 	Ready  metav1.ConditionStatus `json:"ready"`
 	Status string                 `json:"status,omitempty"`
+}
+
+type ReleaseInputConnection struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
 }
 
 // ReleaseStatus defines the observed state of Release.
@@ -220,7 +226,11 @@ type ReleaseStatus struct {
 	// The result of the package template and release value
 	Roles []string `json:"roles"`
 
+	// Human friendly list of missing dependencies
 	MissingDependency string `json:"missingDependency"`
+
+	// List of our input connections. Used for handling dependencies
+	InputConnections []ReleaseInputConnection `json:"inputConnections"`
 }
 
 // +kubebuilder:object:root=true

@@ -387,7 +387,21 @@ spec:
                 description: HelmReleaseState describe the observed state of child
                   HelmReleases by name
                 type: object
+              inputConnections:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
               missingDependency:
+                description: Human friendly list of missing dependencies
                 type: string
               parameters:
                 description: Parameters is the resulting parameters set, if requested
@@ -433,6 +447,7 @@ spec:
                 type: object
             required:
             - dependencies
+            - inputConnections
             - missingDependency
             - phase
             - printProtected

@@ -286,9 +286,13 @@ var renderCmd = &cobra.Command{
 			}
 			cmn.Dump(output, "inputs.yaml", inputs)
 			// -------------------------------------------------------------------- Enrich model with inputs
-			inputModel, err := controller.BuildInputModel(k8sClient, inputs, release.Namespace)
+			inputModel, inputConnections, missingInputs, err := controller.BuildInputModel(k8sClient, inputs, release.Namespace)
 			if err != nil {
 				return err
+			}
+			cmn.Dump(output, "inputConnections.yaml", inputConnections)
+			if missingInputs != "" {
+				return fmt.Errorf("missing inputs: %s", missingInputs)
 			}
 			model["Inputs"] = inputModel
 			// -------------------------------------------------------------------- Render all values

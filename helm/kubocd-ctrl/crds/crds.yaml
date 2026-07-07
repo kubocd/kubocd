@@ -1046,6 +1046,19 @@ spec:
                   ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
+              releaseInputs:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
               roles:
                 description: The result of the package template and release value
                 items:
@@ -1065,6 +1078,7 @@ spec:
             - printProtected
             - protected
             - readyReleases
+            - releaseInputs
             - roles
             type: object
         type: object
