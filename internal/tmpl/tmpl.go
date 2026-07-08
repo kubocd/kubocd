@@ -34,6 +34,7 @@ type Tmpl interface {
 	RenderToSingleLine(model map[string]interface{}) (string, error)
 	RenderToMap(model map[string]interface{}) (map[string]interface{}, string, error)
 	RenderToBool(model map[string]interface{}) (bool, string, error)
+	RenderToInt(model map[string]interface{}) (int, string, error)
 	RenderToStringList(model map[string]interface{}) ([]string, string, error)
 	SetDelimiters(d1, d2 string)
 	RenderToDuration(model map[string]interface{}) (metav1.Duration, string, error)
@@ -144,6 +145,19 @@ func (tt *tmpl) RenderToBool(model map[string]interface{}) (bool, string, error)
 		return false, txt, err
 	}
 	return b, txt, nil
+}
+
+func (tt *tmpl) RenderToInt(model map[string]interface{}) (int, string, error) {
+	txt, err := tt.RenderToText(model)
+	if err != nil {
+		return 0, txt, err
+	}
+	txt = strings.TrimSpace(txt)
+	i, err := strconv.Atoi(txt)
+	if err != nil {
+		return 0, txt, err
+	}
+	return i, txt, nil
 }
 
 func (tt *tmpl) RenderToDuration(model map[string]interface{}) (metav1.Duration, string, error) {

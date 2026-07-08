@@ -21,6 +21,11 @@ import (
 	"kubocd/internal/tmpl"
 )
 
+type Kind string
+
+const KindConnection = Kind("Connection")
+const KindClusterConnection = Kind("ClusterConnection")
+
 type Input struct {
 	// required:true
 	Interface KcdTemplateString `json:"interface"`
@@ -56,12 +61,6 @@ type inputTemplates struct {
 }
 
 func (i *Input) groom(pck *Package) error {
-	if i.Interface == "" {
-		return fmt.Errorf("'interface' is a required parameters")
-	}
-	if i.Connection.Name != "" && i.Connection.Release != "" {
-		return fmt.Errorf("'connection' and 'release' can't be defined at the same time")
-	}
 	// ---------------- Now, handle templates
 	i.templates = &inputTemplates{}
 	var err error
@@ -98,21 +97,21 @@ func (i *Input) groom(pck *Package) error {
 
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type InputRendered struct {
-	Iface      string `json:"iface"`
+	Interface  string `json:"interface"`
 	Alias      string `json:"alias,omitempty"`
 	Connection struct {
 		Namespace  string `json:"namespace,omitempty"`
 		Name       string `json:"name,omitempty"`
 		Release    string `json:"release,omitempty"`
 		OutputName string `json:"outputName,omitempty"`
-		Kind       string `json:"kind,omitempty"`
+		Kind       Kind   `json:"kind,omitempty"`
 	} `json:"connection,omitempty"`
 }
 
-func (i *Input) Render(model map[string]interface{}) (*InputRendered, error) {
+func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*InputRendered, error) {
 	ir := &InputRendered{}
 	var err error
-	ir.Iface, err = i.templates.iface.RenderToSingleLine(model)
+	ir.Interface, err = i.templates.iface.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'interface' parameter: %w", err)
 	}
@@ -136,9 +135,31 @@ func (i *Input) Render(model map[string]interface{}) (*InputRendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'connection.outputName' parameter: %w", err)
 	}
-	ir.Connection.Kind, err = i.templates.connection.kind.RenderToSingleLine(model)
+	k, err := i.templates.connection.kind.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'connection.kind' parameter: %w", err)
+	}
+	ir.Connection.Kind = Kind(k)
+	if ir.Connection.Kind == "" {
+		ir.Connection.Kind = KindConnection
+	}
+	if ir.Connection.Kind != KindConnection && ir.Connection.Kind != KindClusterConnection {
+		return nil, fmt.Errorf("'connection.kind' should be either 'Connection' or 'ClusterConnection'")
+	}
+	if ir.Connection.Kind == KindClusterConnection && ir.Connection.Namespace != "" {
+		return nil, fmt.Errorf("'connection.namespace' should be be empty if kink=ClusterConnection")
+	}
+	if ir.Interface == "" {
+		return nil, fmt.Errorf("'interface' is a required parameters")
+	}
+	if ir.Connection.Name != "" && ir.Connection.Release != "" {
+		return nil, fmt.Errorf("'connection' and 'release' can't be defined at the same time")
+	}
+	if ir.Alias == "" {
+		ir.Alias = ir.Interface
+	}
+	if ir.Connection.Namespace == "" {
+		ir.Connection.Namespace = defaultNamespace
 	}
 	return ir, nil
 }

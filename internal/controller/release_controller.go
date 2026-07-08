@@ -44,6 +44,7 @@ import (
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
 const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
+const ConnectionNameFormat = "kcd-%s-%s"
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -370,12 +371,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	model := BuildModel(theContext, parameters, release, r.ConfigStore)
 
 	// -------------------------------------------------------------------- Render inputs
-	inputs, err := op.pckContainer.Package.RenderInputs(model)
+	inputs, err := op.pckContainer.Package.RenderInputs(model, release.Namespace)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
 	}
 	// -------------------------------------------------------------------- Enrich model with inputs
-	inputModel, inputConnections, missingInputs, err := BuildInputModel(r, inputs, release.Namespace)
+	inputModel, inputConnections, missingConnections, err := BuildInputModel(r, inputs)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, false, "Inputs"), forceUpdate)
 	}
@@ -386,12 +387,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// Use missingDependency field as:
 	// - If we land here, it should be empty
 	// - In  +kubebuilder:printcolumn, there is no way to concat value or have expression.
-	if missingInputs != release.Status.MissingDependency {
-		release.Status.MissingDependency = missingInputs
+	if missingConnections != release.Status.MissingDependency {
+		release.Status.MissingDependency = missingConnections
 		forceUpdate = true
 	}
-	if missingInputs != "" {
-		r.Event(op.release, "Normal", "MissingInput", fmt.Sprintf("Waiting for the connection(s) '%s' to be ready", missingInputs))
+	if missingConnections != "" {
+		r.Event(op.release, "Normal", "MissingConnections", fmt.Sprintf("Waiting for the connection(s) '%s' to be ready", missingConnections))
 		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputs, forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -406,7 +407,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	model["Inputs"] = inputModel
 	// -------------------------------------------------------------------- Render all values
-	rendered, err := op.pckContainer.Package.Render(model)
+	rendered, err := op.pckContainer.Package.Render(model, release.Namespace)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
 	}
@@ -507,6 +508,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			phase = kv1alpha1.ReleasePhaseWaitHelmReleases
 		}
 	}
+
+	/*
+		NB: Output connection are updated only when helmRelease are OK. This will ensure
+		- Output connection will be created only when the provider is ready.
+		- If, later, one or several Helm releases are in error (failing update, ...), then existing connection are left untouched.
+		  This is coherent with the fact the helmRelease update preserve the running, older, pods, so the service is still alive.
+		  So the consumer services should not be notified in this case. So, don't touch connections.
+	*/
+
 	return r.updateStatus(op, phase, forceUpdate)
 }
 

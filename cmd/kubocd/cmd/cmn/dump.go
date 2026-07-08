@@ -42,6 +42,26 @@ func Dump(output string, fileName string, ap interface{}) {
 		fmt.Print(out)
 	}
 }
+
+func DumpAppend(output string, fileName string, ap interface{}) {
+	out := fmt.Sprintf("---\n%s\n", misc.Any2Yaml(ap))
+
+	target := path.Join(output, fileName)
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+		os.Exit(1)
+	}
+	_, err = f.Write([]byte(out))
+	if err1 := f.Close(); err1 != nil && err == nil {
+		err = err1
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
+		os.Exit(1)
+	}
+}
+
 func DumpTxt(output string, fileName string, txt string) {
 	var out string
 	if fileName != "" {

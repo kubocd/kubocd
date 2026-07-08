@@ -454,6 +454,9 @@ var controllerCmd = &cobra.Command{
 			RoleStore:       roleStore,
 		}
 
+		// There is 2 watches for Connections resource
+		// - The one on Owns(...), watching output connections.
+		// - The one on Watches(...) watching input connections.
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.Release{}).
 			Named("kubocd-release").

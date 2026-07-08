@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	kapi "kubocd/api/v1alpha1"
@@ -39,6 +40,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -280,28 +282,30 @@ var renderCmd = &cobra.Command{
 			model := controller.BuildModel(kcontext, parameters, release, configStore)
 
 			// -------------------------------------------------------------------- Render inputs
-			inputs, err := pkgContainer.Package.RenderInputs(model)
+			inputsRendered, err := pkgContainer.Package.RenderInputs(model, release.Namespace)
 			if err != nil {
 				return err
 			}
-			cmn.Dump(output, "inputs.yaml", inputs)
+			cmn.Dump(output, "inputs.yaml", inputsRendered)
 			// -------------------------------------------------------------------- Enrich model with inputs
-			inputModel, inputConnections, missingInputs, err := controller.BuildInputModel(k8sClient, inputs, release.Namespace)
+			inputModel, inputConnections, missingConnections, err := controller.BuildInputModel(k8sClient, inputsRendered)
 			if err != nil {
 				return err
 			}
 			cmn.Dump(output, "inputConnections.yaml", inputConnections)
-			if missingInputs != "" {
-				return fmt.Errorf("missing inputs: %s", missingInputs)
+			if missingConnections != "" {
+				return fmt.Errorf("missing connection(s): %s", missingConnections)
 			}
 			model["Inputs"] = inputModel
 			// -------------------------------------------------------------------- Render all values
 
 			cmn.Dump(output, "model.yaml", model)
-			rendered, err := pkgContainer.Package.Render(model)
+			rendered, err := pkgContainer.Package.Render(model, release.Namespace)
 			if err != nil {
 				return fmt.Errorf("could not render package: %w", err)
 			}
+			rendered.Inputs = inputsRendered // Just for the dump.
+			cmn.Dump(output, "rendered.yaml", rendered)
 			// --------------------------------------------------------------------- Handle roles/dependencies
 			roles := misc.RemoveDuplicates(append(rendered.Roles, release.Spec.Roles...))
 			dependencies := misc.RemoveDuplicates(append(rendered.Dependencies, release.Spec.Dependencies...))
@@ -393,6 +397,32 @@ var renderCmd = &cobra.Command{
 					cmn.DumpTxt(out, "manifests.yaml", string(result))
 				}
 			}
+			// --------------------------------------------------------------------- Generate output connections
+			for idx, outputRendered := range rendered.Outputs {
+				if outputRendered.Enabled {
+					connection := &kapi.Connection{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: kapi.GroupVersion.String(),
+							Kind:       kapi.ConnectionKind,
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: outputRendered.Namespace,
+							Name:      BuildConnectionName(release.Name, outputRendered.Name),
+						},
+					}
+					connection.Spec.Disabled = false // Always false for managed connections
+					valuesTxt, err := json.Marshal(outputRendered.Values)
+					if err != nil {
+						return fmt.Errorf("output#%d: could not encode values: %w", idx, err)
+					}
+					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+					connection.Spec.Interface = outputRendered.Interface
+					connection.Spec.Description = outputRendered.Description
+					connection.Spec.Priority = outputRendered.Priority
+
+					cmn.DumpAppend(output, "outputConnections.yaml", connection)
+				}
+			}
 			// ---------------------------------------------------------------------- display relevant context
 			fmt.Printf("Contexts: %s\n", misc.FlattenNamespacedNames(contextList))
 			return nil
@@ -403,6 +433,10 @@ var renderCmd = &cobra.Command{
 			os.Exit(1)
 		}
 	},
+}
+
+func BuildConnectionName(releaseName, outputName string) string {
+	return fmt.Sprintf(controller.ConnectionNameFormat, releaseName, outputName)
 }
 
 //type WalkDirFunc func(path string, d DirEntry, err error) error

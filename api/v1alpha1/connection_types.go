@@ -36,6 +36,8 @@ type ConnectionSpec struct {
 	Values *apiextensionsv1.JSON `json:"values,omitempty"`
 
 	// Allow temporary suspension of this connection
+	// NB: This is only relevant for unmanaged connection.
+	// For managed one, always false, or object is deleted.
 	// Default: false
 	Disabled bool `json:"disabled,omitempty"`
 
@@ -50,7 +52,9 @@ const ConnectionPhaseReady = ConnectionPhase("READY")
 const ConnectionPhaseError = ConnectionPhase("ERROR")
 const ConnectionPhaseDisabled = ConnectionPhase("DISABLED")
 
-//const ConnectionPhasePending = ConnectionPhase("PENDING")
+// const ConnectionPhasePending = ConnectionPhase("PENDING")
+
+const ConnectionKind = "Connection"
 
 type ConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`

@@ -124,9 +124,9 @@ output:
   - name: <string>  # Required
     interface: <string> # required
     displayName: <template_string> # Optional. Default to .name
-    namespaces: <template_[]string>  # Optional. Default to [<instance_namespace>]
+    namespace: <template_string>  # Optional. Default to <instance_namespace>
     priority: <template_int> # Optional. Default 100
-    type: <string> # Optional. Default: 'Connection'. May be 'Connection' ou 'ClusterConnection'
+    kind: <template_string> # Optional. Default: 'Connection'. May be 'Connection' ou 'ClusterConnection'
     description: <template_string> # Optional
     enabled: <templte_bool> # default true
     values: <template_map[string]interface{}>
