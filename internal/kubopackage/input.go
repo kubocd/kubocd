@@ -35,7 +35,7 @@ type Input struct {
 	Connection struct {
 		// Default to release namespace
 		Namespace KcdTemplateString `json:"namespace,omitempty"`
-		// k8s connection name. Mainly for unmanaged connection
+		// k8s connection name. For unmanaged connection
 		Name KcdTemplateString `json:"name,omitempty"`
 		// The release managing this connection.
 		Release KcdTemplateString `json:"release,omitempty"`

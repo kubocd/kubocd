@@ -23,8 +23,6 @@ import (
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
-
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // KcdTemplateMap A template where expected result is a map[string]interface{}.
@@ -286,11 +284,10 @@ func (pck *Package) Render(model map[string]interface{}, defaultNamespace string
 	// --------------- Must ensure output name are uniques
 	dupDetect := make(map[string]struct{})
 	for _, output := range r.Outputs {
-		nsName := types.NamespacedName{Namespace: output.Namespace, Name: output.Name}.String()
-		if _, ok := dupDetect[nsName]; ok {
-			return nil, fmt.Errorf("duplicate output name '%s'", nsName)
+		if _, ok := dupDetect[output.Name]; ok {
+			return nil, fmt.Errorf("duplicate output name '%s'", output.Name)
 		}
-		dupDetect[nsName] = struct{}{}
+		dupDetect[output.Name] = struct{}{}
 	}
 	return r, nil
 }

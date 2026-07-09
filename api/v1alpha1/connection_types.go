@@ -21,7 +21,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type NamespacedObjectReference struct {
+	// +kubebuilder:validation:Required
+	Namespace string `json:"namespace"`
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+}
+
 type ConnectionSpec struct {
+
+	// For Managed Connections
+	// +kubebuilder:validation:Optional
+	ParentRelease *NamespacedObjectReference `json:"parentRelease,omitempty"`
 
 	// Define the service type and allow validation of rendered 'values'
 	// +kubebuilder:validation:Required

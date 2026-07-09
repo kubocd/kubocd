@@ -76,23 +76,6 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	return parameters, nil
 }
 
-func BuildHelmReleaseName(releaseName, moduleName string) string {
-	if moduleName == "noname" {
-		return releaseName
-	}
-	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
-}
-
-func computeReadyReleases(op *releaseOperation) (str string, allReady bool) {
-	cnt := 0
-	for _, releaseState := range op.helmReleaseStates {
-		if releaseState.Ready == metav1.ConditionTrue {
-			cnt++
-		}
-	}
-	return fmt.Sprintf("%d/%d", cnt, len(op.helmReleaseStates)), cnt == len(op.helmReleaseStates)
-}
-
 // ComputeContext is aimed to be called by this reconciler, but also by the render CLI command
 func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1alpha1.Release, store configstore.ConfigStore, defaultContext map[string]interface{}) (map[string]interface{}, []kv1alpha1.NamespacedName, ReconcileError) {
 

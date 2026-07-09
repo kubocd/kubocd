@@ -298,3 +298,20 @@ func patchHelmRelease(r *ReleaseReconciler, op *releaseOperation, helmRelease *f
 	// Check if the generation changed to determine if an update occurred
 	return originalGeneration != helmRelease.Generation, nil
 }
+
+func BuildHelmReleaseName(releaseName, moduleName string) string {
+	if moduleName == "noname" {
+		return releaseName
+	}
+	return fmt.Sprintf(HelmReleaseNameFormat, releaseName, moduleName)
+}
+
+func computeReadyHelmReleases(op *releaseOperation) (str string, allReady bool) {
+	cnt := 0
+	for _, releaseState := range op.helmReleaseStates {
+		if releaseState.Ready == metav1.ConditionTrue {
+			cnt++
+		}
+	}
+	return fmt.Sprintf("%d/%d", cnt, len(op.helmReleaseStates)), cnt == len(op.helmReleaseStates)
+}

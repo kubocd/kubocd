@@ -400,27 +400,34 @@ var renderCmd = &cobra.Command{
 			// --------------------------------------------------------------------- Generate output connections
 			for idx, outputRendered := range rendered.Outputs {
 				if outputRendered.Enabled {
-					connection := &kapi.Connection{
-						TypeMeta: metav1.TypeMeta{
-							APIVersion: kapi.GroupVersion.String(),
-							Kind:       kapi.ConnectionKind,
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace: outputRendered.Namespace,
-							Name:      BuildConnectionName(release.Name, outputRendered.Name),
-						},
-					}
-					connection.Spec.Disabled = false // Always false for managed connections
-					valuesTxt, err := json.Marshal(outputRendered.Values)
-					if err != nil {
-						return fmt.Errorf("output#%d: could not encode values: %w", idx, err)
-					}
-					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-					connection.Spec.Interface = outputRendered.Interface
-					connection.Spec.Description = outputRendered.Description
-					connection.Spec.Priority = outputRendered.Priority
+					for _, ns := range outputRendered.Namespaces {
+						connection := &kapi.Connection{
+							TypeMeta: metav1.TypeMeta{
+								APIVersion: kapi.GroupVersion.String(),
+								Kind:       kapi.ConnectionKind,
+							},
+							ObjectMeta: metav1.ObjectMeta{
+								Namespace: ns,
+								Name:      controller.BuildConnectionName(release.Name, outputRendered.Name),
+							},
+						}
+						connection.Spec.Disabled = false // Always false for managed connections
+						valuesTxt, err := json.Marshal(outputRendered.Values)
+						if err != nil {
+							return fmt.Errorf("output#%d: could not encode values: %w", idx, err)
+						}
+						connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+						connection.Spec.Interface = outputRendered.Interface
+						connection.Spec.Description = outputRendered.Description
+						connection.Spec.Priority = outputRendered.Priority
+						connection.Spec.ParentRelease = &kapi.NamespacedObjectReference{
+							Namespace: release.Namespace,
+							Name:      release.Name,
+						}
 
-					cmn.DumpAppend(output, "outputConnections.yaml", connection)
+						cmn.DumpAppend(output, "outputConnections.yaml", connection)
+
+					}
 				}
 			}
 			// ---------------------------------------------------------------------- display relevant context
@@ -433,10 +440,6 @@ var renderCmd = &cobra.Command{
 			os.Exit(1)
 		}
 	},
-}
-
-func BuildConnectionName(releaseName, outputName string) string {
-	return fmt.Sprintf(controller.ConnectionNameFormat, releaseName, outputName)
 }
 
 //type WalkDirFunc func(path string, d DirEntry, err error) error

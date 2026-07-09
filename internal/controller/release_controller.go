@@ -481,7 +481,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// -------------------------------------------------------- Adjust status
 	// And store helmReleases status
-	readyReleases, allReady := computeReadyReleases(op)
+	readyReleases, allReady := computeReadyHelmReleases(op)
 	if readyReleases != op.release.Status.ReadyReleases {
 		op.release.Status.ReadyReleases = readyReleases
 		forceUpdate = true
@@ -516,6 +516,18 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		  This is coherent with the fact the helmRelease update preserve the running, older, pods, so the service is still alive.
 		  So the consumer services should not be notified in this case. So, don't touch connections.
 	*/
+	if phase == kv1alpha1.ReleasePhaseReady {
+		// We can now manage output connection
+		for _, output := range rendered.Outputs {
+			if output.Enabled {
+				reconcileError := r.handleOutputConnection(output)
+				if reconcileError != nil {
+					return r.reportError(op, reconcileError, forceUpdate)
+				}
+			}
+		}
+
+	}
 
 	return r.updateStatus(op, phase, forceUpdate)
 }
@@ -533,9 +545,8 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	if rErr.IsFatal() {
 		op.logger.Error(rErr, "Wait for this to be fixed")
 		return ctrlResult, nil
-	} else {
-		return ctrl.Result{}, rErr
 	}
+	return ctrl.Result{}, rErr
 }
 
 func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) (ctrl.Result, error) {
@@ -546,7 +557,6 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	}
 	if op.release.Status.Phase == phase && !force {
 		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
-		//fmt.Printf("  .  .  .   .   .   .   : %s\n", phase)
 		return ctrl.Result{}, nil
 	}
 	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
@@ -556,14 +566,12 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
 		if r.statusErrorCount > 0 {
 			return ctrl.Result{}, err
-		} else {
-			r.statusErrorCount++
-			op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
-			return ctrl.Result{RequeueAfter: time.Millisecond * 200}, nil
 		}
-	} else {
-		//fmt.Printf("-----------------------: %s\n", phase)
-		r.statusErrorCount = 0
-		return ctrl.Result{}, err
+		r.statusErrorCount++
+		op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
+		return ctrl.Result{RequeueAfter: time.Millisecond * 200}, nil
 	}
+	//fmt.Printf("-----------------------: %s\n", phase)
+	r.statusErrorCount = 0
+	return ctrl.Result{}, err
 }

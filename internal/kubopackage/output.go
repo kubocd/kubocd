@@ -29,7 +29,7 @@ type Output struct {
 	// optional. Default to Name. For a potential front end
 	DisplayName KcdTemplateString `json:"displayName,omitempty"`
 	// Optional. Default to Release namespace
-	Namespace KcdTemplateString `json:"namespace,omitempty"`
+	Namespaces KcdTemplateStringList `json:"namespaces,omitempty"`
 	// Optional. Default to 100
 	Priority KcdTemplateInt `json:"priority,omitempty"`
 	// Optional. Default to Connection. Connection or ClusterConnection
@@ -48,7 +48,7 @@ type outputTemplates struct {
 	iface       tmpl.Tmpl
 	name        tmpl.Tmpl
 	displayName tmpl.Tmpl
-	namespace   tmpl.Tmpl
+	namespaces  tmpl.Tmpl
 	priority    tmpl.Tmpl
 	kind        tmpl.Tmpl
 	description tmpl.Tmpl
@@ -81,7 +81,7 @@ func (o *Output) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'displayName' parameter: %w", err)
 	}
-	o.templates.namespace, err = tmpl.New("", string(o.Namespace), pck.TemplateHeader)
+	o.templates.namespaces, err = tmpl.NewFromAny("", o.Namespaces, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'namespace' parameter: %w", err)
 	}
@@ -113,7 +113,7 @@ type OutputRendered struct {
 	Name        string                 `json:"name"`
 	Interface   string                 `json:"interface"`
 	DisplayName string                 `json:"displayName,omitempty"`
-	Namespace   string                 `json:"namespace,omitempty"`
+	Namespaces  []string               `json:"namespaces,omitempty"`
 	Priority    int                    `json:"priority,omitempty"`
 	Kind        Kind                   `json:"kind,omitempty"`
 	Description string                 `json:"description,omitempty"`
@@ -136,7 +136,7 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'displayName' parameter: %w", err)
 	}
-	or.Namespace, err = o.templates.namespace.RenderToSingleLine(model)
+	or.Namespaces, _, err = o.templates.namespaces.RenderToStringList(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'namespace' parameter: %w", err)
 	}
@@ -167,8 +167,8 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if or.Kind != KindConnection && or.Kind != KindClusterConnection {
 		return nil, fmt.Errorf("'kind' should be either 'Connection' or 'ClusterConnection'")
 	}
-	if or.Kind == KindClusterConnection && or.Namespace != "" {
-		return nil, fmt.Errorf("'namespace' should be be empty if kind=ClusterConnection")
+	if or.Kind == KindClusterConnection && (or.Namespaces != nil || len(or.Namespaces) == 0) {
+		return nil, fmt.Errorf("'namespaces' should be be empty if kind=ClusterConnection")
 	}
 	if or.Interface == "" {
 		return nil, fmt.Errorf("'interface' is a required parameters")
@@ -179,8 +179,8 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if or.DisplayName == "" {
 		or.DisplayName = or.Name
 	}
-	if or.Namespace == "" {
-		or.Namespace = defaultNamespace
+	if or.Namespaces == nil || len(or.Namespaces) == 0 {
+		or.Namespaces = []string{defaultNamespace}
 	}
 	return or, nil
 }

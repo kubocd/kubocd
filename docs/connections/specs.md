@@ -13,13 +13,13 @@
   - [output](#output)
   - [input](#input)
   - [NamespacedInterface](#namespacedinterface)
-  - [Usage](#usage)
+- [Usage](#usage)
   - [Connection Binding](#connection-binding)
-  - [Namespaces, RBAC et multitenancy](#namespaces-rbac-et-multitenancy)
   - [Connections managées vs autonomes](#connections-manag%C3%A9es-vs-autonomes)
   - [Connection validation](#connection-validation)
   - [DisplayName](#displayname)
   - [Outillage](#outillage)
+  - [Namespaces, RBAC et multitenancy](#namespaces-rbac-et-multitenancy)
 - [Examples](#examples)
   - [Exemple 1: Traefik](#exemple-1-traefik)
   - [Example 2 : Connexion SGBD](#example-2--connexion-sgbd)
@@ -124,9 +124,7 @@ output:
   - name: <string>  # Required
     interface: <string> # required
     displayName: <template_string> # Optional. Default to .name
-    namespace: <template_string>  # Optional. Default to <instance_namespace>
     priority: <template_int> # Optional. Default 100
-    kind: <template_string> # Optional. Default: 'Connection'. May be 'Connection' ou 'ClusterConnection'
     description: <template_string> # Optional
     enabled: <templte_bool> # default true
     values: <template_map[string]interface{}>
@@ -146,7 +144,7 @@ input:
   - interface: <template_string> # required
     connection:
       namespace: <template_string> # Default to release namespace
-      fullName: <template_string> # k8s connection name. Mainly for unmanaged connection
+      k8sName: <template_string> # k8s connection name. Mainly for unmanaged connection
       release: <template_string>   # The release managing this connection.
       outputName: <template_string> # Used if the release manage several connection with the same interface
       kind: <template_string> # Connection or ClusterConnection
@@ -170,7 +168,7 @@ output:
       namepace: <string>  # Default to referering Connection namespace
 ```
 
-### Usage
+## Usage
 
 ### Connection Binding
 
@@ -193,24 +191,6 @@ obligatoire.
 
 Pour des cas plus sophistiqués, le data model intègre aussi une entrée '.InputList.<alias>' qui comprend la liste de
 toutes les Connections éligibles. Voir les examples.
-
-### Namespaces, RBAC et multitenancy
-
-Le multi-tenancy implique que les déploiements d'Instances soient effectués avec un ServiceAccount spécifique.
-
-Un projet A porte des données et veut les rendre accessibles au projet B et C, mais pas aux autres projets:
-
-2 Solutions:
-
-- Le projet A génère des Connections dans les namespaces B et C. Ce qui implique que les namespaces B et C intègrent un
-  ClusterRole permettant la création de Connections et lié au ServiceAccount de déploiement du projet A
-
-- Le projet A génère sa Connection dans son namespace. Et aussi un ClusterRole permettant l'accès à cette connection (on
-  pourra utiliser l'attribut 'resourceName'). Il faudra ensuite définir des binding sur les ServiceAccount des
-  applications B et C
-
-Il est aussi possible d'utiliser une ClusterConnection, mais au prix d'une perte de contrôle par le projet A de ses
-accès.
 
 ### Connections managées vs autonomes
 
@@ -258,6 +238,19 @@ habilitations, dupliquant RBAC.
 
 La seconde solution, parce qu'elle s'appuie directement sur RBAC K8S parait à la fois plus simple et plus sure. (Elle
 implique du partage de code entre CLI et controlleur, comme KuboCD)
+
+### Gestion des secrets
+
+Toute connection non publique doit est protégée par un mécanisme authentication.
+
+Une pratique courante est que le provider d'un service génère les crédentials d'acces et les publie soit dans un secret
+local, soit dans un vault.
+
+La Connection associée à ce service n'intègrera donc pas directement les credential, mais une référence ceux-ci (Secret
+name ou vault path).
+
+Dans le cas d'un secret, celui ci est généré dans le namespace du service. Son accès depuis les autres namespaces sera
+donc contrôlé par le RBAC de k8s
 
 ## Examples
 
@@ -728,6 +721,87 @@ input:
 
 ```
 
-## Still TODO
+## Namespaces, RBAC et multitenancy
 
-SECRET MANAGEMENT
+Le multi-tenancy implique que les déploiements d'Instances soient effectués avec un ServiceAccount spécifique.
+
+Un projet A porte des données et veut les rendre accessibles au projet B et C, mais pas aux autres projets:
+
+2 Solutions:
+
+A)
+
+- Le projet A génère des Connections dans les namespaces B et C. Ce qui implique que les namespaces B et C intègrent un
+  ClusterRole permettant la création de Connections et lié au ServiceAccount de déploiement du projet A
+
+B)
+
+- Le projet A génère sa Connection dans son namespace. Et aussi un ClusterRole permettant l'accès à cette connection (on
+  pourra utiliser l'attribut 'resourceName'). Il faudra ensuite définir des binding sur les ServiceAccount des
+  applications B et C
+
+Il est aussi possible d'utiliser une ClusterConnection, mais au prix d'une perte de contrôle par le projet A de ses
+accès.
+
+Concernant l'implémentation dans KuboCD, la solution B est simple: Il 'suffit' d'avoir un champ 'namespace' dans chaque
+'input'
+
+Par contre, l'implémentation de la solution A peut être plus complexe.
+
+Une première approche consiste à avoir dans chaque 'output' une liste de namespaces. Et que le déploiement de la Release
+crée les Connections dans chacun de ces Namespace.
+
+Cette approche présente les inconvénient suivants:
+
+- Le mécanisme 'OwnerReference' n'est pas 'cross namespace'. Il ne pourrait donc pas etres utilisé pour la relation
+  Release <-> Connections. Il devra etres réimplementé.
+- Si on souhaite autoriser l'accès depuis nouveau namespace à un service existant, il faut redéployer la Release. Même
+  si les mécanismes KuboCD/HelmRelease feront qu'il n'y aura pas de restart du service, cela n'est pas très 'clean'
+- Si la connection intègre une référence à un secret, celui-ci ne sera pas répliqué naturellement.
+
+Un autre approche serait que le Connections soit généré dans le NS du service. Et que l'on n'ai un mécanisme de
+replication des connections, avec une gestion strict des droits
+
+Ceci aurait l'avantage de dé-coreller la gestion du service lui-même de la gestion de ses accès.
+
+Il pourrait être envisageable d'inclure dans la Connection une convention lui permettant de spécifier les objets
+'annexes' a répliquer en parallèle. Typiquement les secrets associés.
+
+### ClusterConnection
+
+Maintenant, un autre cas de figure: On souhaite déployer un service accessible depuis n'importe quel namespace. Le
+problème est que les paramètres d'accès à ce service seront stocké dans un objet Connection, crée dans le namespace du
+service.
+
+Outre une base de donnée contenant des données complétement ouverte, un autre cas d'usage de cette approche est, par
+exemple un service Ingress, o les paramètres sont la classe et le suffix permttant de construire le FQDN d'accès.
+
+Deux remarques:
+
+- Le service étant par définition public, son accès n'est généralement pas protégé par des crédential. Le problème de la
+  diffusion d'un secret associé ne se pose dond pas.
+- Il s'agit ici d'une extension d'usage de l'outil Connection. Un objet permettant à deux applications d'interagir entre
+  elle. Le terme 'Connection' peut donc paraitre inadapté. Mais, quelle alternative ? (Binding est préempté par k8s.
+  'AppLink' ?)
+
+En utilisant l'objet Connection, Les différentes possibilités pour l'accès à cette Connection depuis n'importe que
+namespace sont les suivante.
+
+1. Chaque application souhaitant accéder à ce service doit connaitre le namespace ou ce services est déployé. Peu
+   pratique.
+2. Le champs 'namespace' des package.inputs accepte une valeur '\*', lui permettant de rechercher la connection dans
+   tous les namespace. Pb de sécurité évident.
+3. un système de réplication réplique la Connection dans tous les namespace existant et à venir. (C'est la solution
+   adapté par trust-manager pour la diffusion de certificats racine). Un peu lourd, surtout avec de nombreux services et
+   namespaces.
+
+Une autre approche consiste en la création d'un object 'cluster scoped' ClusterConnection, similaire à une Connection,
+mais accessible depuis n'importe quel namespace (Grace à un ClusterRole portant sur le groupe de tout utilisateurs
+authentifié)
+
+Le limite de cette approche est que le Release, object namespaced, ne peut etre owner d'un object Cluster scoped. Donc,
+deux approche
+
+- Implémenter dans la Release une forme de OwnerReference cross-namespace
+- Considérer qu'un ClusterConnection est toujours 'unmanaged'. L'intégration avec la Release pourrait alors se faire au
+  niveau du package.
