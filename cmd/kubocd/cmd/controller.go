@@ -41,6 +41,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -259,7 +260,7 @@ var controllerCmd = &cobra.Command{
 			return []string{connection.Spec.Interface}
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
+			setupLog.Error(err, "Unable to index Connection by Interface")
 			os.Exit(1)
 		}
 
@@ -322,10 +323,10 @@ var controllerCmd = &cobra.Command{
 		}
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
-		// Create an index to retrieve a Release from a connection in an efficient way
-		// index release by contexts
-		const connectionIndexOnRelease = "connectionIndexOnRelease"
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, connectionIndexOnRelease, func(rawObj client.Object) []string {
+		// Create an index to retrieve a Release from an input connection in an efficient way
+		// index release by input connections
+		const inputConnectionIndexOnRelease = "inputConnectionIndexOnRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, inputConnectionIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			connections := make([]string, len(release.Status.InputConnections))
 			for idx, connection := range release.Status.InputConnections {
@@ -335,14 +336,14 @@ var controllerCmd = &cobra.Command{
 			return connections
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
+			setupLog.Error(err, "Unable to index Release by inputConnection")
 			os.Exit(1)
 		}
 
-		findReleaseFromConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
+		findReleaseFromInputConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
 			releases := kubocdv1alpha1.ReleaseList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(connectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
+				FieldSelector: fields.OneTermEqualSelector(inputConnectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
 			}
 			err := mgr.GetClient().List(context.Background(), &releases, listOps)
 			if err != nil {
@@ -361,6 +362,22 @@ var controllerCmd = &cobra.Command{
 				})
 			}
 			return requests
+		}
+
+		// Create an index to retrieve a Connection from a release in an efficient way
+		// index connection by owner release (output connection)
+		// NB: Not used in Release controller init, but explicitly in controller code
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.ReleaseIndexOnOutputConnection, func(rawObj client.Object) []string {
+			connection := rawObj.(*kubocdv1alpha1.Connection)
+			owner := metav1.GetControllerOf(connection)
+			if owner == nil {
+				return []string{}
+			}
+			return []string{owner.Name}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
+			os.Exit(1)
 		}
 
 		// Create an index to retrieve a Release from a context in an efficient way
@@ -454,7 +471,7 @@ var controllerCmd = &cobra.Command{
 			RoleStore:       roleStore,
 		}
 
-		// There is 2 watches for Connections resource
+		// There is 2 watches on Connections resource
 		// - The one on Owns(...), watching output connections.
 		// - The one on Watches(...) watching input connections.
 		err = ctrl.NewControllerManagedBy(mgr).
@@ -463,14 +480,17 @@ var controllerCmd = &cobra.Command{
 			Owns(&sourcev1.OCIRepository{}).
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
+			Owns(&kubocdv1alpha1.Connection{}).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
 			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
-			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConnection)).
+			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromInputConnection)).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
 			os.Exit(1)
 		}
+		// --------------------------------------------------------------------------------------
+
 		// -------------------------------------------------------------------------------------- Context controller setup
 
 		const parentIndexOnChild = "parentIndexOnChild"
@@ -531,6 +551,7 @@ var controllerCmd = &cobra.Command{
 			setupLog.Error(err, "unable to create controller", "controller", "Context")
 			os.Exit(1)
 		}
+
 		// ----------------------------------------------------------------------------------------------------
 		if metricsCertWatcher != nil {
 			setupLog.Info("Adding metrics certificate watcher to manager")

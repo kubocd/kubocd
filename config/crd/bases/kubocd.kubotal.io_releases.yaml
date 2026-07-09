@@ -28,10 +28,13 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.readyReleases
-      name: Ready
+      name: Rel.
+      type: string
+    - jsonPath: .status.readyConnections
+      name: Cnct.
       type: string
     - jsonPath: .status.missingDependency
-      name: Wait
+      name: Deps
       type: string
     - jsonPath: .status.printProtected
       name: PRT
@@ -363,6 +366,21 @@ spec:
               As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
               (Except for 'context', as controlled by a debug flag)
             properties:
+              connectionStates:
+                additionalProperties:
+                  description: ConnectionState describe the state if a connection,
+                    inside Release status (Kind of duplication of Connection.Status)
+                  properties:
+                    message:
+                      type: string
+                    status:
+                      type: string
+                  required:
+                  - status
+                  type: object
+                description: ConnectionStates describe the observed state of child
+                  connection by name
+                type: object
               context:
                 description: Context is the resulting context, if requested in debug
                   options
@@ -384,7 +402,7 @@ spec:
                   required:
                   - ready
                   type: object
-                description: HelmReleaseState describe the observed state of child
+                description: HelmReleaseStates describe the observed state of child
                   HelmReleases by name
                 type: object
               inputConnections:
@@ -401,7 +419,9 @@ spec:
                   type: object
                 type: array
               missingDependency:
-                description: Human friendly list of missing dependencies
+                description: |-
+                  Human friendly list of missing dependencies
+                  Also used to display missing connection
                 type: string
               parameters:
                 description: Parameters is the resulting parameters set, if requested
@@ -428,6 +448,11 @@ spec:
                   Protected result of Release.spec.protected defaulted to package.spec.protected
                   It is the value checked by the webhook
                 type: boolean
+              readyConnections:
+                description: |-
+                  ReadyConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               readyReleases:
                 description: |-
                   ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
@@ -452,6 +477,7 @@ spec:
             - phase
             - printProtected
             - protected
+            - readyConnections
             - readyReleases
             - roles
             type: object

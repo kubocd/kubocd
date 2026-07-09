@@ -805,3 +805,18 @@ deux approche
 - Implémenter dans la Release une forme de OwnerReference cross-namespace
 - Considérer qu'un ClusterConnection est toujours 'unmanaged'. L'intégration avec la Release pourrait alors se faire au
   niveau du package.
+
+### Target namespace
+
+Un autre sujet est celui du 'targetNamespace'.
+
+Lors du deployment d'une Release, il est possible de spécifier un 'targetNamespace', c.a.d. un namespace cible pour la
+chart Helm, dans lequel sera donc déployé l'application.
+
+Comme il y a une relation ownerReference entre Connection et Releases en outputs, les Connections seront donc dans le NS
+de la Release.
+
+Si cette Connection référence un secret, celui-ci sera créé par l'application elle même, donc dans le targetNamespace.
+L'interface de la Connection devra donc comprendre une référence à ce namespace.
+
+Une autre approche serait de toujours créer la Release dans le namespace cible (targetNamespace == Release.namespace).

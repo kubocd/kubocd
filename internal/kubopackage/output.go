@@ -28,12 +28,8 @@ type Output struct {
 	Name KcdTemplateString `json:"Name"`
 	// optional. Default to Name. For a potential front end
 	DisplayName KcdTemplateString `json:"displayName,omitempty"`
-	// Optional. Default to Release namespace
-	Namespaces KcdTemplateStringList `json:"namespaces,omitempty"`
 	// Optional. Default to 100
 	Priority KcdTemplateInt `json:"priority,omitempty"`
-	// Optional. Default to Connection. Connection or ClusterConnection
-	Kind KcdTemplateString `json:"kind,omitempty"`
 	// Optional
 	Description KcdTemplateString `json:"description,omitempty"`
 	// Optional. Default to true
@@ -48,9 +44,7 @@ type outputTemplates struct {
 	iface       tmpl.Tmpl
 	name        tmpl.Tmpl
 	displayName tmpl.Tmpl
-	namespaces  tmpl.Tmpl
 	priority    tmpl.Tmpl
-	kind        tmpl.Tmpl
 	description tmpl.Tmpl
 	enabled     tmpl.Tmpl
 	values      tmpl.Tmpl
@@ -81,17 +75,9 @@ func (o *Output) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'displayName' parameter: %w", err)
 	}
-	o.templates.namespaces, err = tmpl.NewFromAny("", o.Namespaces, pck.TemplateHeader)
-	if err != nil {
-		return fmt.Errorf("could not parse 'namespace' parameter: %w", err)
-	}
 	o.templates.priority, err = tmpl.New("", string(o.Priority), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'priority' parameter: %w", err)
-	}
-	o.templates.kind, err = tmpl.New("", string(o.Kind), pck.TemplateHeader)
-	if err != nil {
-		return fmt.Errorf("could not parse 'kind' parameter: %w", err)
 	}
 	o.templates.description, err = tmpl.New("", string(o.Description), pck.TemplateHeader)
 	if err != nil {
@@ -113,9 +99,7 @@ type OutputRendered struct {
 	Name        string                 `json:"name"`
 	Interface   string                 `json:"interface"`
 	DisplayName string                 `json:"displayName,omitempty"`
-	Namespaces  []string               `json:"namespaces,omitempty"`
 	Priority    int                    `json:"priority,omitempty"`
-	Kind        Kind                   `json:"kind,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Enabled     bool                   `json:"enabled"`
 	Values      map[string]interface{} `json:"values,omitempty"`
@@ -136,10 +120,6 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'displayName' parameter: %w", err)
 	}
-	or.Namespaces, _, err = o.templates.namespaces.RenderToStringList(model)
-	if err != nil {
-		return nil, fmt.Errorf("could not render 'namespace' parameter: %w", err)
-	}
 	or.Priority, _, err = o.templates.priority.RenderToInt(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'priority' parameter: %w", err)
@@ -156,20 +136,6 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'values' parameter: %w", err)
 	}
-	k, err := o.templates.kind.RenderToSingleLine(model)
-	if err != nil {
-		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
-	}
-	or.Kind = Kind(k)
-	if or.Kind == "" {
-		or.Kind = KindConnection
-	}
-	if or.Kind != KindConnection && or.Kind != KindClusterConnection {
-		return nil, fmt.Errorf("'kind' should be either 'Connection' or 'ClusterConnection'")
-	}
-	if or.Kind == KindClusterConnection && (or.Namespaces != nil || len(or.Namespaces) == 0) {
-		return nil, fmt.Errorf("'namespaces' should be be empty if kind=ClusterConnection")
-	}
 	if or.Interface == "" {
 		return nil, fmt.Errorf("'interface' is a required parameters")
 	}
@@ -178,9 +144,6 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	}
 	if or.DisplayName == "" {
 		or.DisplayName = or.Name
-	}
-	if or.Namespaces == nil || len(or.Namespaces) == 0 {
-		or.Namespaces = []string{defaultNamespace}
 	}
 	return or, nil
 }

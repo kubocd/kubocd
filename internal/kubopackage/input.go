@@ -41,7 +41,7 @@ type Input struct {
 		Release KcdTemplateString `json:"release,omitempty"`
 		// Used if the release manage several connection with the same interface
 		OutputName KcdTemplateString `json:"outputName,omitempty"`
-		// Connection or ClusterConnection
+		// Connection or ClusterConnection. If empty, both are looked up.
 		Kind KcdTemplateString `json:"kind,omitempty"`
 	}
 	// ------------------------------- Private part

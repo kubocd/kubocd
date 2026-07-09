@@ -161,6 +161,7 @@ const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
 const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
+const ReleasePhaseWaitConnections = ReleasePhase("WAIT_CNCT")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
 const ReleasePhaseWaitInputs = ReleasePhase("WAIT_INPT")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
@@ -174,6 +175,12 @@ type HelmReleaseState struct {
 type ReleaseInputConnection struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+}
+
+// ConnectionState describe the state if a connection, inside Release status (Kind of duplication of Connection.Status)
+type ConnectionState struct {
+	Phase   ConnectionPhase `json:"status"`
+	Message string          `json:"message,omitempty"`
 }
 
 // ReleaseStatus defines the observed state of Release.
@@ -212,13 +219,21 @@ type ReleaseStatus struct {
 	// PrintProtected is a copy of Protected, with a Y/n flag. To be used in display
 	PrintProtected string `json:"printProtected"`
 
-	// HelmReleaseState describe the observed state of child HelmReleases by name
+	// HelmReleaseStates describe the observed state of child HelmReleases by name
 	// +kubebuilder:validation:Optional
 	HelmReleaseStates map[string]HelmReleaseState `json:"helmReleaseStates"`
 
 	// ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
 	// as printcolumn
 	ReadyReleases string `json:"readyReleases"`
+
+	// ConnectionStates describe the observed state of child connection by name
+	// +kubebuilder:validation:Optional
+	ConnectionStates map[string]ConnectionState `json:"connectionStates"`
+
+	// ReadyConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+	// as printcolumn
+	ReadyConnections string `json:"readyConnections"`
 
 	// The result of the package template and release value
 	Dependencies []string `json:"dependencies"`
@@ -227,6 +242,7 @@ type ReleaseStatus struct {
 	Roles []string `json:"roles"`
 
 	// Human friendly list of missing dependencies
+	// Also used to display missing connection
 	MissingDependency string `json:"missingDependency"`
 
 	// List of our input connections. Used for handling dependencies
@@ -239,8 +255,9 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Tag",type=string,JSONPath=`.spec.package.tag`
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.readyReleases`
-// +kubebuilder:printcolumn:name="Wait",type=string,JSONPath=`.status.missingDependency`
+// +kubebuilder:printcolumn:name="Rel.",type=string,JSONPath=`.status.readyReleases`
+// +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyConnections`
+// +kubebuilder:printcolumn:name="Deps",type=string,JSONPath=`.status.missingDependency`
 // +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`

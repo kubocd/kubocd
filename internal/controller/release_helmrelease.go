@@ -71,7 +71,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			if changed {
 				op.logger.V(0).Info("HelmRelease updated", "name", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
 			} else {
-				op.logger.V(1).Info("HelmRelease unchanged", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
+				op.logger.V(1).Info("HelmRelease unchanged", "name", helmReleaseName, "namespace", op.release.Namespace, "module", module.Name)
 			}
 			op.helmReleaseStates[module.Name] = computeHelmReleaseState(helmRelease)
 			return helmRelease, nil

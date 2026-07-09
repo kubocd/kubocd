@@ -34,6 +34,7 @@ import (
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -69,7 +70,9 @@ type releaseOperation struct {
 	pckContainer                *kubopackage.PckContainer
 	ociRepositoryName           string
 	helmRepositoryName          string
-	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values
+	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values for user display
+	outputConnectionStates      map[string]kv1alpha1.ConnectionState  // To collect values for user display
+	outputConnectionK8sName     map[string]struct{}                   // To prevent orphan deletion
 	helmReleaseNameByModuleName map[string]string
 	roles                       []string
 	dependencies                []string
@@ -130,10 +133,10 @@ func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	logger.V(1).Info("vv--------------vv")
+	logger.V(0).Info("vv--------------vv")
 	result, err := r.reconcile2(ctx, req, logger)
 	//logger.V(1).Info("^^--------------^^", "result", result, "error", err)
-	logger.V(1).Info("^^--------------^^", "result", result)
+	logger.V(0).Info("^^--------------^^", "result", result)
 	return result, err
 }
 
@@ -493,7 +496,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		for k, v := range op.helmReleaseStates {
 			//fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
 			if v.Status != "" {
-				fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
+				//fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
 				r.Event(op.release, misc.Ternary(v.Ready == "True", "Normal", "Warning"), fmt.Sprintf("HelmRelease:%s", k), v.Status)
 			}
 		}
@@ -518,18 +521,72 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	*/
 	if phase == kv1alpha1.ReleasePhaseReady {
 		// We can now manage output connection
-		for _, output := range rendered.Outputs {
-			if output.Enabled {
-				reconcileError := r.handleOutputConnection(output)
-				if reconcileError != nil {
-					return r.reportError(op, reconcileError, forceUpdate)
+		op.outputConnectionStates = make(map[string]kv1alpha1.ConnectionState)
+		op.outputConnectionK8sName = make(map[string]struct{})
+		for _, outputRendered := range rendered.Outputs {
+			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
+			_, reconcileError := r.handleOutputConnection(op, connectionName, outputRendered)
+			if reconcileError != nil {
+				return r.reportError(op, reconcileError, forceUpdate)
+			}
+		}
+		// And store outputConnection status
+		readyConnections, allConnectionReady := computeReadyConnection(op)
+		if readyConnections != op.release.Status.ReadyConnections {
+			op.release.Status.ReadyConnections = readyConnections
+			forceUpdate = true
+		}
+
+		if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.ConnectionStates) {
+			op.release.Status.ConnectionStates = op.outputConnectionStates
+			forceUpdate = true
+			for k, v := range op.outputConnectionStates {
+				if v.Phase != "" {
+					message := fmt.Sprintf("Connection '%s' ready", k)
+					if v.Phase != kv1alpha1.ConnectionPhaseReady {
+						message = v.Message
+					}
+					r.Event(op.release, misc.Ternary(v.Phase == kv1alpha1.ConnectionPhaseReady, "Normal", "Warning"), fmt.Sprintf("connection:%s", k), message)
 				}
 			}
 		}
-
+		// phase is kv1alpha1.ReleasePhaseReady
+		if !allConnectionReady {
+			phase = kv1alpha1.ReleasePhaseWaitConnections
+		}
 	}
-
+	// ---------------------------------------------------------- Find orphan connection, to delete them
+	//
+	if phase == kv1alpha1.ReleasePhaseReady { // Only phase == ready, ensure op.outputConnectionK8sName[] is set
+		outputConnection := r.FindOutputConnectionFromRelease(ctx, release, logger)
+		for _, cnct := range outputConnection {
+			_, ok := op.outputConnectionK8sName[cnct]
+			if !ok {
+				// Connection with ownerReference on ourselves, but not managed. Delete it
+				connection := &kv1alpha1.Connection{
+					TypeMeta:   metav1.TypeMeta{APIVersion: kv1alpha1.GroupVersion.String(), Kind: kv1alpha1.ConnectionKind},
+					ObjectMeta: metav1.ObjectMeta{Namespace: release.Namespace, Name: cnct},
+				}
+				logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
+				err := r.Delete(ctx, connection)
+				if err != nil {
+					logger.Error(err, "unable to delete connection", "connection", cnct)
+				}
+			}
+		}
+	}
+	// Final return
 	return r.updateStatus(op, phase, forceUpdate)
+}
+
+func computeReadyConnection(op *releaseOperation) (string, bool) {
+	cnt := 0
+	for _, connectionState := range op.outputConnectionStates {
+		if connectionState.Phase == kv1alpha1.ConnectionPhaseReady {
+			cnt++
+		}
+	}
+	return fmt.Sprintf("%d/%d", cnt, len(op.outputConnectionStates)), cnt == len(op.outputConnectionStates)
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).

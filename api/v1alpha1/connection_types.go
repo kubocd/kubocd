@@ -85,6 +85,7 @@ type ConnectionStatus struct {
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 type Connection struct {
 	metav1.TypeMeta   `json:",inline"`
