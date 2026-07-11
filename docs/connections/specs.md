@@ -759,10 +759,12 @@ Cette approche présente les inconvénient suivants:
   si les mécanismes KuboCD/HelmRelease feront qu'il n'y aura pas de restart du service, cela n'est pas très 'clean'
 - Si la connection intègre une référence à un secret, celui-ci ne sera pas répliqué naturellement.
 
-Un autre approche serait que le Connections soit généré dans le NS du service. Et que l'on n'ai un mécanisme de
+Un autre approche serait que le Connections soit généré dans le NS de la release. Et que l'on n'ai un mécanisme de
 replication des connections, avec une gestion strict des droits
 
 Ceci aurait l'avantage de dé-coreller la gestion du service lui-même de la gestion de ses accès.
+
+Cette solution est retenue pour une première implémentation.
 
 Il pourrait être envisageable d'inclure dans la Connection une convention lui permettant de spécifier les objets
 'annexes' a répliquer en parallèle. Typiquement les secrets associés.

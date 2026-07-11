@@ -70,9 +70,9 @@ type releaseOperation struct {
 	pckContainer                *kubopackage.PckContainer
 	ociRepositoryName           string
 	helmRepositoryName          string
-	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState // To collect values for user display
-	outputConnectionStates      map[string]kv1alpha1.ConnectionState  // To collect values for user display
-	outputConnectionK8sName     map[string]struct{}                   // To prevent orphan deletion
+	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState      // To collect values for user display
+	outputConnectionStates      map[string]kv1alpha1.OutputConnectionState // To collect values for user display
+	outputConnectionK8sName     map[string]struct{}                        // To prevent orphan deletion
 	helmReleaseNameByModuleName map[string]string
 	roles                       []string
 	dependencies                []string
@@ -521,7 +521,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	*/
 	if phase == kv1alpha1.ReleasePhaseReady {
 		// We can now manage output connection
-		op.outputConnectionStates = make(map[string]kv1alpha1.ConnectionState)
+		op.outputConnectionStates = make(map[string]kv1alpha1.OutputConnectionState)
 		op.outputConnectionK8sName = make(map[string]struct{})
 		for _, outputRendered := range rendered.Outputs {
 			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
@@ -532,13 +532,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 		// And store outputConnection status
 		readyConnections, allConnectionReady := computeReadyConnection(op)
-		if readyConnections != op.release.Status.ReadyConnections {
-			op.release.Status.ReadyConnections = readyConnections
+		if readyConnections != op.release.Status.ReadyOutputConnections {
+			op.release.Status.ReadyOutputConnections = readyConnections
 			forceUpdate = true
 		}
 
-		if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.ConnectionStates) {
-			op.release.Status.ConnectionStates = op.outputConnectionStates
+		if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.OutputConnectionStates) {
+			op.release.Status.OutputConnectionStates = op.outputConnectionStates
 			forceUpdate = true
 			for k, v := range op.outputConnectionStates {
 				if v.Phase != "" {
@@ -581,8 +581,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 func computeReadyConnection(op *releaseOperation) (string, bool) {
 	cnt := 0
-	for _, connectionState := range op.outputConnectionStates {
-		if connectionState.Phase == kv1alpha1.ConnectionPhaseReady {
+	for _, outputConnectionState := range op.outputConnectionStates {
+		if outputConnectionState.Phase == kv1alpha1.ConnectionPhaseReady {
 			cnt++
 		}
 	}

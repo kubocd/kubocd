@@ -50,7 +50,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			}
 			r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
 			op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
-			op.outputConnectionStates[outputRendered.Name] = kv1alpha1.ConnectionState{
+			op.outputConnectionStates[outputRendered.Name] = kv1alpha1.OutputConnectionState{
 				Phase:   "",
 				Message: "",
 			}
@@ -73,7 +73,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		} else {
 			op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		}
-		op.outputConnectionStates[outputRendered.Name] = computeConnectionState(connection)
+		op.outputConnectionStates[outputRendered.Name] = computeOutputConnectionState(connection)
 		return connection, nil
 	}
 	op.logger.V(0).Info("Delete connection as disabled", "name", connectionName)
@@ -107,8 +107,8 @@ func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1
 	return originalGeneration != connection.Generation, nil
 }
 
-func computeConnectionState(connection *kv1alpha1.Connection) kv1alpha1.ConnectionState {
-	return kv1alpha1.ConnectionState{
+func computeOutputConnectionState(connection *kv1alpha1.Connection) kv1alpha1.OutputConnectionState {
+	return kv1alpha1.OutputConnectionState{
 		Phase:   connection.Status.Phase,
 		Message: connection.Status.Message,
 	}

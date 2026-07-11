@@ -364,6 +364,9 @@ spec:
     - jsonPath: .status.message
       name: Message
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -393,12 +396,25 @@ spec:
               disabled:
                 description: |-
                   Allow temporary suspension of this connection
+                  NB: This is only relevant for unmanaged connection.
+                  For managed one, always false, or object is deleted.
                   Default: false
                 type: boolean
               interface:
                 description: Define the service type and allow validation of rendered
                   'values'
                 type: string
+              parentRelease:
+                description: For Managed Connections
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
               priority:
                 default: 100
                 type: integer
@@ -655,10 +671,13 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.readyReleases
-      name: Ready
+      name: Rel.
+      type: string
+    - jsonPath: .status.readyConnections
+      name: Cnct.
       type: string
     - jsonPath: .status.missingDependency
-      name: Wait
+      name: Deps
       type: string
     - jsonPath: .status.printProtected
       name: PRT
@@ -1011,11 +1030,43 @@ spec:
                   required:
                   - ready
                   type: object
-                description: HelmReleaseState describe the observed state of child
+                description: HelmReleaseStates describe the observed state of child
                   HelmReleases by name
                 type: object
+              inputConnections:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
               missingDependency:
+                description: |-
+                  Human friendly list of missing dependencies
+                  Also used to display missing connection
                 type: string
+              outputConnectionStates:
+                additionalProperties:
+                  description: OutputConnectionState describe the state of a managed
+                    (output) connection, inside Release status (Kind of duplication
+                    of Connection.Status)
+                  properties:
+                    message:
+                      type: string
+                    status:
+                      type: string
+                  required:
+                  - status
+                  type: object
+                description: OutputConnectionStates describe the observed state of
+                  child connection by name
+                type: object
               parameters:
                 description: Parameters is the resulting parameters set, if requested
                   in debug options
@@ -1041,24 +1092,16 @@ spec:
                   Protected result of Release.spec.protected defaulted to package.spec.protected
                   It is the value checked by the webhook
                 type: boolean
+              readyOutputConnections:
+                description: |-
+                  ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+                  as printcolumn
+                type: string
               readyReleases:
                 description: |-
                   ReadyReleases is a string to display X/Y helmRelease ready. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
-              releaseInputs:
-                description: List of our input connections. Used for handling dependencies
-                items:
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                  - name
-                  - namespace
-                  type: object
-                type: array
               roles:
                 description: The result of the package template and release value
                 items:
@@ -1073,12 +1116,13 @@ spec:
                 type: object
             required:
             - dependencies
+            - inputConnections
             - missingDependency
             - phase
             - printProtected
             - protected
+            - readyOutputConnections
             - readyReleases
-            - releaseInputs
             - roles
             type: object
         type: object

@@ -30,7 +30,7 @@ spec:
     - jsonPath: .status.readyReleases
       name: Rel.
       type: string
-    - jsonPath: .status.readyConnections
+    - jsonPath: .status.readyOutputConnections
       name: Cnct.
       type: string
     - jsonPath: .status.missingDependency
@@ -366,21 +366,6 @@ spec:
               As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
               (Except for 'context', as controlled by a debug flag)
             properties:
-              connectionStates:
-                additionalProperties:
-                  description: ConnectionState describe the state if a connection,
-                    inside Release status (Kind of duplication of Connection.Status)
-                  properties:
-                    message:
-                      type: string
-                    status:
-                      type: string
-                  required:
-                  - status
-                  type: object
-                description: ConnectionStates describe the observed state of child
-                  connection by name
-                type: object
               context:
                 description: Context is the resulting context, if requested in debug
                   options
@@ -423,6 +408,22 @@ spec:
                   Human friendly list of missing dependencies
                   Also used to display missing connection
                 type: string
+              outputConnectionStates:
+                additionalProperties:
+                  description: OutputConnectionState describe the state of a managed
+                    (output) connection, inside Release status (Kind of duplication
+                    of Connection.Status)
+                  properties:
+                    message:
+                      type: string
+                    status:
+                      type: string
+                  required:
+                  - status
+                  type: object
+                description: OutputConnectionStates describe the observed state of
+                  child connection by name
+                type: object
               parameters:
                 description: Parameters is the resulting parameters set, if requested
                   in debug options
@@ -448,9 +449,9 @@ spec:
                   Protected result of Release.spec.protected defaulted to package.spec.protected
                   It is the value checked by the webhook
                 type: boolean
-              readyConnections:
+              readyOutputConnections:
                 description: |-
-                  ReadyConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+                  ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
                   as printcolumn
                 type: string
               readyReleases:
@@ -477,7 +478,7 @@ spec:
             - phase
             - printProtected
             - protected
-            - readyConnections
+            - readyOutputConnections
             - readyReleases
             - roles
             type: object

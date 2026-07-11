@@ -177,8 +177,8 @@ type ReleaseInputConnection struct {
 	Namespace string `json:"namespace"`
 }
 
-// ConnectionState describe the state if a connection, inside Release status (Kind of duplication of Connection.Status)
-type ConnectionState struct {
+// OutputConnectionState describe the state of a managed (output) connection, inside Release status (Kind of duplication of Connection.Status)
+type OutputConnectionState struct {
 	Phase   ConnectionPhase `json:"status"`
 	Message string          `json:"message,omitempty"`
 }
@@ -227,13 +227,13 @@ type ReleaseStatus struct {
 	// as printcolumn
 	ReadyReleases string `json:"readyReleases"`
 
-	// ConnectionStates describe the observed state of child connection by name
+	// OutputConnectionStates describe the observed state of child connection by name
 	// +kubebuilder:validation:Optional
-	ConnectionStates map[string]ConnectionState `json:"connectionStates"`
+	OutputConnectionStates map[string]OutputConnectionState `json:"outputConnectionStates"`
 
-	// ReadyConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
+	// ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
 	// as printcolumn
-	ReadyConnections string `json:"readyConnections"`
+	ReadyOutputConnections string `json:"readyOutputConnections"`
 
 	// The result of the package template and release value
 	Dependencies []string `json:"dependencies"`
@@ -256,7 +256,7 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Rel.",type=string,JSONPath=`.status.readyReleases`
-// +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyConnections`
+// +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyOutputConnections`
 // +kubebuilder:printcolumn:name="Deps",type=string,JSONPath=`.status.missingDependency`
 // +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
