@@ -33,8 +33,8 @@ spec:
     - jsonPath: .status.readyOutputConnections
       name: Cnct.
       type: string
-    - jsonPath: .status.missingDependency
-      name: Deps
+    - jsonPath: .status.message
+      name: Error
       type: string
     - jsonPath: .status.printProtected
       name: PRT
@@ -403,10 +403,8 @@ spec:
                   - namespace
                   type: object
                 type: array
-              missingDependency:
-                description: |-
-                  Human friendly list of missing dependencies
-                  Also used to display missing connection
+              message:
+                description: Human friendly last error message
                 type: string
               outputConnectionStates:
                 additionalProperties:
@@ -474,7 +472,6 @@ spec:
             required:
             - dependencies
             - inputConnections
-            - missingDependency
             - phase
             - printProtected
             - protected

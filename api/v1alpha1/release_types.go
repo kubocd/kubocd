@@ -241,9 +241,8 @@ type ReleaseStatus struct {
 	// The result of the package template and release value
 	Roles []string `json:"roles"`
 
-	// Human friendly list of missing dependencies
-	// Also used to display missing connection
-	MissingDependency string `json:"missingDependency"`
+	// Human friendly last error message
+	Message string `json:"message,omitempty"`
 
 	// List of our input connections. Used for handling dependencies
 	InputConnections []ReleaseInputConnection `json:"inputConnections"`
@@ -257,7 +256,7 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Rel.",type=string,JSONPath=`.status.readyReleases`
 // +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyOutputConnections`
-// +kubebuilder:printcolumn:name="Deps",type=string,JSONPath=`.status.missingDependency`
+// +kubebuilder:printcolumn:name="Error",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`

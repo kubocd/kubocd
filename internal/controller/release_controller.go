@@ -29,6 +29,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/fluxcd/pkg/http/fetch"
@@ -224,7 +225,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, "Wait OCI repository", false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content, if not in cache
@@ -270,7 +271,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, "Wait Helm Repository", false)
 	}
 
 	// ---------------------------------------------------------- Retrieve package from cache, or load it
@@ -379,7 +380,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
 	}
 	// -------------------------------------------------------------------- Enrich model with inputs
-	inputModel, inputConnections, missingConnections, err := BuildInputModel(r, inputs)
+	inputModel, inputConnections, missingInputConnections, err := BuildInputModel(r, inputs)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, false, "Inputs"), forceUpdate)
 	}
@@ -387,16 +388,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		release.Status.InputConnections = inputConnections
 		forceUpdate = true
 	}
-	// Use missingDependency field as:
-	// - If we land here, it should be empty
-	// - In  +kubebuilder:printcolumn, there is no way to concat value or have expression.
-	if missingConnections != release.Status.MissingDependency {
-		release.Status.MissingDependency = missingConnections
-		forceUpdate = true
-	}
-	if missingConnections != "" {
-		r.Event(op.release, "Normal", "MissingConnections", fmt.Sprintf("Waiting for the connection(s) '%s' to be ready", missingConnections))
-		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputs, forceUpdate)
+	if len(missingInputConnections) > 0 {
+		message := fmt.Sprintf("Waiting input connections: %s", strings.Join(missingInputConnections, ", "))
+		r.Event(op.release, "Normal", "MissingConnections", message)
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputs, message, forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -451,13 +446,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	// ---------------------------------------------------------- Test if our dependencies are OK. If not, set status and loop back after 5s
 	missing := r.RoleStore.MissingDependency(req.NamespacedName, op.dependencies)
-	if missing != op.release.Status.MissingDependency {
-		op.release.Status.MissingDependency = missing
-		forceUpdate = true
-	}
 	if missing != "" {
-		r.Event(op.release, "Normal", "MissingDependency", fmt.Sprintf("Waiting for the role '%s' to be ready", missing))
-		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, forceUpdate)
+		message := fmt.Sprintf("Waiting for the role '%s' to be ready", missing)
+		r.Event(op.release, "Normal", "MissingDependency", message)
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitDependencies, message, forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -482,7 +474,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			}
 		}
 	}
-	// -------------------------------------------------------- Adjust status
+	// -------------------------------------------------------- Adjust helmReleases status
 	// And store helmReleases status
 	readyReleases, allReady := computeReadyHelmReleases(op)
 	if readyReleases != op.release.Status.ReadyReleases {
@@ -490,28 +482,34 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		forceUpdate = true
 	}
 
+	var message string
+
+	// Events generation and update setting are performed only if not already done
 	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
 		op.release.Status.HelmReleaseStates = op.helmReleaseStates
 		forceUpdate = true
 		for k, v := range op.helmReleaseStates {
-			//fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
 			if v.Status != "" {
-				//fmt.Printf("********** helmReleaseState[%s]: status:%s   ready:%s\n", k, v.Status, v.Ready)
 				r.Event(op.release, misc.Ternary(v.Ready == "True", "Normal", "Warning"), fmt.Sprintf("HelmRelease:%s", k), v.Status)
 			}
 		}
 	}
-	var phase kv1alpha1.ReleasePhase
-	if op.release.Spec.Suspended {
-		phase = kv1alpha1.ReleasePhaseSuspended
-	} else {
-		if allReady {
-			phase = kv1alpha1.ReleasePhaseReady
-		} else {
-			phase = kv1alpha1.ReleasePhaseWaitHelmReleases
+
+	// Another loop to set the user error message in every reconciliation (idempotency)
+	for k, v := range op.helmReleaseStates {
+		if v.Status != "" && message == "" {
+			message = fmt.Sprintf("HelmRelease %s: %s", k, v.Status)
 		}
 	}
 
+	if op.release.Spec.Suspended {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseSuspended, message, forceUpdate)
+	}
+	if !allReady {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmReleases, message, forceUpdate)
+	}
+
+	// --------------------------------------------------------------------------- We can now manage output connection
 	/*
 		NB: Output connection are updated only when helmRelease are OK. This will ensure
 		- Output connection will be created only when the provider is ready.
@@ -519,64 +517,70 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		  This is coherent with the fact the helmRelease update preserve the running, older, pods, so the service is still alive.
 		  So the consumer services should not be notified in this case. So, don't touch connections.
 	*/
-	if phase == kv1alpha1.ReleasePhaseReady {
-		// We can now manage output connection
-		op.outputConnectionStates = make(map[string]kv1alpha1.OutputConnectionState)
-		op.outputConnectionK8sName = make(map[string]struct{})
-		for _, outputRendered := range rendered.Outputs {
-			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
-			_, reconcileError := r.handleOutputConnection(op, connectionName, outputRendered)
-			if reconcileError != nil {
-				return r.reportError(op, reconcileError, forceUpdate)
-			}
-		}
-		// And store outputConnection status
-		readyConnections, allConnectionReady := computeReadyConnection(op)
-		if readyConnections != op.release.Status.ReadyOutputConnections {
-			op.release.Status.ReadyOutputConnections = readyConnections
-			forceUpdate = true
-		}
-
-		if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.OutputConnectionStates) {
-			op.release.Status.OutputConnectionStates = op.outputConnectionStates
-			forceUpdate = true
-			for k, v := range op.outputConnectionStates {
-				if v.Phase != "" {
-					message := fmt.Sprintf("Connection '%s' ready", k)
-					if v.Phase != kv1alpha1.ConnectionPhaseReady {
-						message = v.Message
-					}
-					r.Event(op.release, misc.Ternary(v.Phase == kv1alpha1.ConnectionPhaseReady, "Normal", "Warning"), fmt.Sprintf("connection:%s", k), message)
-				}
-			}
-		}
-		// phase is kv1alpha1.ReleasePhaseReady
-		if !allConnectionReady {
-			phase = kv1alpha1.ReleasePhaseWaitConnections
+	op.outputConnectionStates = make(map[string]kv1alpha1.OutputConnectionState)
+	op.outputConnectionK8sName = make(map[string]struct{})
+	for _, outputRendered := range rendered.Outputs {
+		connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
+		_, reconcileError := r.handleOutputConnection(op, connectionName, outputRendered)
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError, forceUpdate)
 		}
 	}
-	// ---------------------------------------------------------- Find orphan connection, to delete them
+
+	// ----------------------------------------------------------- adjust Connection status
+	// And store outputConnection status
+	readyOutputConnections, allOutputConnectionReady := computeReadyConnection(op)
+	if readyOutputConnections != op.release.Status.ReadyOutputConnections {
+		op.release.Status.ReadyOutputConnections = readyOutputConnections
+		forceUpdate = true
+	}
+
+	// Events generation and update setting are performed only if not already done
+	if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.OutputConnectionStates) {
+		op.release.Status.OutputConnectionStates = op.outputConnectionStates
+		forceUpdate = true
+		for k, v := range op.outputConnectionStates {
+			if v.Phase != "" {
+				eventMessage := fmt.Sprintf("Connection '%s' ready", k)
+				if v.Phase != kv1alpha1.ConnectionPhaseReady {
+					eventMessage = v.Message
+				}
+				r.Event(op.release, misc.Ternary(v.Phase == kv1alpha1.ConnectionPhaseReady, "Normal", "Warning"), fmt.Sprintf("connection:%s", k), eventMessage)
+			}
+		}
+	}
+
+	// Another loop to set the user error message in every reconciliation (idempotency)
+	for k, v := range op.outputConnectionStates {
+		if v.Phase != "" && v.Phase != kv1alpha1.ConnectionPhaseReady && message == "" {
+			message = fmt.Sprintf("Connection '%s': %s", k, v.Message)
+		}
+	}
+
+	// phase is kv1alpha1.ReleasePhaseReady
+	if !allOutputConnectionReady {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitConnections, message, forceUpdate)
+	}
+	// ---------------------------------------------------------- Find orphan connection, and delete them
 	//
-	if phase == kv1alpha1.ReleasePhaseReady { // Only phase == ready, ensure op.outputConnectionK8sName[] is set
-		outputConnection := r.FindOutputConnectionFromRelease(ctx, release, logger)
-		for _, cnct := range outputConnection {
-			_, ok := op.outputConnectionK8sName[cnct]
-			if !ok {
-				// Connection with ownerReference on ourselves, but not managed. Delete it
-				connection := &kv1alpha1.Connection{
-					TypeMeta:   metav1.TypeMeta{APIVersion: kv1alpha1.GroupVersion.String(), Kind: kv1alpha1.ConnectionKind},
-					ObjectMeta: metav1.ObjectMeta{Namespace: release.Namespace, Name: cnct},
-				}
-				logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
-				err := r.Delete(ctx, connection)
-				if err != nil {
-					logger.Error(err, "unable to delete connection", "connection", cnct)
-				}
+	outputConnection := r.FindOutputConnectionFromRelease(ctx, release, logger)
+	for _, cnct := range outputConnection {
+		_, ok := op.outputConnectionK8sName[cnct]
+		if !ok {
+			// Connection with ownerReference on ourselves, but not managed. Delete it
+			connection := &kv1alpha1.Connection{
+				TypeMeta:   metav1.TypeMeta{APIVersion: kv1alpha1.GroupVersion.String(), Kind: kv1alpha1.ConnectionKind},
+				ObjectMeta: metav1.ObjectMeta{Namespace: release.Namespace, Name: cnct},
+			}
+			logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
+			err := r.Delete(ctx, connection)
+			if err != nil {
+				logger.Error(err, "unable to delete connection", "connection", cnct)
 			}
 		}
 	}
 	// Final return
-	return r.updateStatus(op, phase, forceUpdate)
+	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)
 }
 
 func computeReadyConnection(op *releaseOperation) (string, bool) {
@@ -592,7 +596,7 @@ func computeReadyConnection(op *releaseOperation) (string, bool) {
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
 // In such case, set status.phase = ERROR, log and don't retry
 func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileError, forceUpdate bool) (ctrl.Result, error) {
-	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, forceUpdate)
+	ctrlResult, err2 := r.updateStatus(op, kv1alpha1.ReleasePhaseError, rErr.Error(), forceUpdate)
 	if err2 != nil {
 		return ctrl.Result{}, rErr // Will retry
 	}
@@ -606,18 +610,19 @@ func (r *ReleaseReconciler) reportError(op *releaseOperation, rErr ReconcileErro
 	return ctrl.Result{}, rErr
 }
 
-func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, force bool) (ctrl.Result, error) {
+func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.ReleasePhase, message string, force bool) (ctrl.Result, error) {
 	if phase == kv1alpha1.ReleasePhaseReady {
 		r.RoleStore.RegisterRelease(op.request.NamespacedName, op.roles)
 	} else {
 		r.RoleStore.UnRegisterRelease(op.request.NamespacedName)
 	}
-	if op.release.Status.Phase == phase && !force {
-		op.logger.V(1).Info("Release phase is already up-to-date", "phase", phase)
+	if op.release.Status.Phase == phase && op.release.Status.Message == message && !force {
+		op.logger.V(1).Info("Release phase and message are already up-to-date", "phase", phase, "message", message)
 		return ctrl.Result{}, nil
 	}
-	op.logger.V(1).Info("Updating phase", "newPhase", phase, "oldPhase", op.release.Status.Phase, "force", force)
+	op.logger.V(1).Info("Updating status", "newPhase", phase, "oldPhase", op.release.Status.Phase, "newMessage", message, "oldMessage", op.release.Status.Message, "force", force)
 	op.release.Status.Phase = phase
+	op.release.Status.Message = message
 	err := r.Status().Update(op.ctx, op.release)
 	if err != nil {
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)

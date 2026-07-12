@@ -35,6 +35,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -293,8 +294,8 @@ var renderCmd = &cobra.Command{
 				return err
 			}
 			cmn.Dump(output, "inputConnections.yaml", inputConnections)
-			if missingConnections != "" {
-				return fmt.Errorf("missing connection(s): %s", missingConnections)
+			if len(missingConnections) > 0 {
+				return fmt.Errorf("missing connection(s): %s", strings.Join(missingConnections, ","))
 			}
 			model["Inputs"] = inputModel
 			// -------------------------------------------------------------------- Render all values

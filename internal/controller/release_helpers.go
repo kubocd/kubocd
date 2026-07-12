@@ -190,10 +190,10 @@ func BuildModel(context map[string]interface{}, parameters map[string]interface{
 // - inputConnections: A list of the input connection, used to managed reconciliation triggering.
 // - missingConnections: A list of missing connection, to be set in status to human display
 // - err:
-func BuildInputModel(k8sClient client.Client, inputs []kubopackage.InputRendered) (inputModel map[string]interface{}, inputConnections []kv1alpha1.ReleaseInputConnection, missingConnections string, err error) {
+func BuildInputModel(k8sClient client.Client, inputs []kubopackage.InputRendered) (inputModel map[string]interface{}, inputConnections []kv1alpha1.ReleaseInputConnection, missingInputConnections []string, err error) {
 	inputModel = map[string]interface{}{}
 	inputConnections = make([]kv1alpha1.ReleaseInputConnection, len(inputs))
-	missingConnectionList := make([]string, 0)
+	missingInputConnection := make([]string, 0)
 	for idx, input := range inputs {
 		if input.Connection.Name != "" {
 			connection := &kv1alpha1.Connection{}
@@ -207,31 +207,28 @@ func BuildInputModel(k8sClient client.Client, inputs []kubopackage.InputRendered
 			err := k8sClient.Get(context.Background(), nsName, connection)
 			if err != nil {
 				if k8serrors.IsNotFound(err) {
-					missingConnectionList = append(missingConnectionList, nsName.String())
+					missingInputConnection = append(missingInputConnection, nsName.String())
 					continue
 				}
-				return nil, nil, "", fmt.Errorf("input #%d: could not get connection '%s': %w", idx, nsName.String(), err)
+				return nil, nil, nil, fmt.Errorf("input #%d: could not get connection '%s': %w", idx, nsName.String(), err)
 			}
 			if connection.Spec.Interface != input.Interface {
-				return nil, nil, "", fmt.Errorf("input %d: Interface mismatch: '%s' != '%s'", idx, input.Interface, connection.Spec.Interface)
+				return nil, nil, nil, fmt.Errorf("input %d: Interface mismatch: '%s' != '%s'", idx, input.Interface, connection.Spec.Interface)
 			}
 			if connection.Status.Phase != kv1alpha1.ConnectionPhaseReady {
-				missingConnectionList = append(missingConnectionList, nsName.String())
+				missingInputConnection = append(missingInputConnection, nsName.String())
 				continue
 			}
 			values := make(map[string]interface{})
 			err = yaml.UnmarshalStrict(connection.Spec.Values.Raw, &values)
 			if err != nil {
-				return nil, nil, "", fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err)
+				return nil, nil, nil, fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err)
 			}
 			inputModel[input.Alias] = values
 		} else {
 			// TODO: Lookup connection based on interface
-			return nil, nil, "", fmt.Errorf("input #%d: managed connection not yet implemented", idx)
+			return nil, nil, nil, fmt.Errorf("input #%d: managed connection not yet implemented", idx)
 		}
-	}
-	if len(missingConnectionList) > 0 {
-		missingConnections = strings.Join(missingConnectionList, ",")
 	}
 	return // inputModel, inputConnections, missingInputs, nil
 }
