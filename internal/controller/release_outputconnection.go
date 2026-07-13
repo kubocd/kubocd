@@ -151,7 +151,7 @@ func BuildConnectionName(releaseName, outputName string) string {
 
 const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
 
-func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context, release client.Object, logger logr.Logger) []string {
+func (r *ReleaseReconciler) findOutputConnectionFromRelease(ctx context.Context, release client.Object, logger logr.Logger) []string {
 	connections := kv1alpha1.ConnectionList{}
 	listOps := &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.GetName()),
@@ -169,4 +169,21 @@ func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context,
 		requests = append(requests, item.GetName())
 	}
 	return requests
+}
+
+const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
+
+func (r *ReleaseReconciler) findConnectionsFromInterface(ctx context.Context, iface string, namespace string, logger logr.Logger) *kv1alpha1.ConnectionList {
+	connections := &kv1alpha1.ConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnConnection, iface),
+		Namespace:     namespace,
+	}
+	err := r.List(ctx, connections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logger.Error(err, "FindConnectionsFromInterface(): Error on ")
+		}
+	}
+	return connections
 }

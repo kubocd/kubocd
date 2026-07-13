@@ -364,22 +364,6 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
-		// Create an index to retrieve a Connection from a release in an efficient way
-		// index connection by owner release (output connection)
-		// NB: Not used in Release controller init, but explicitly in controller code
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.ReleaseIndexOnOutputConnection, func(rawObj client.Object) []string {
-			connection := rawObj.(*kubocdv1alpha1.Connection)
-			owner := metav1.GetControllerOf(connection)
-			if owner == nil {
-				return []string{}
-			}
-			return []string{owner.Name}
-		})
-		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
-			os.Exit(1)
-		}
-
 		// Create an index to retrieve a Release from a context in an efficient way
 		// index release by contexts
 		const contextIndexOnRelease = "contextIndexOnRelease"
@@ -489,7 +473,6 @@ var controllerCmd = &cobra.Command{
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
 			os.Exit(1)
 		}
-		// --------------------------------------------------------------------------------------
 
 		// -------------------------------------------------------------------------------------- Context controller setup
 
@@ -549,6 +532,40 @@ var controllerCmd = &cobra.Command{
 			Complete(contextReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Context")
+			os.Exit(1)
+		}
+
+		// ---------------------------------------------------------------------------- Misc index creation
+		// Create an index to retrieve Connections from a release in an efficient way
+		// index connection by owner release (output connection)
+		//
+		// Used by func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context, release client.Object, logger logr.Logger) []string
+		//
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.ReleaseIndexOnOutputConnection, func(rawObj client.Object) []string {
+			connection := rawObj.(*kubocdv1alpha1.Connection)
+			owner := metav1.GetControllerOf(connection)
+			if owner == nil {
+				return []string{}
+			}
+			return []string{owner.Name}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
+			os.Exit(1)
+		}
+
+		// Create an index to retrieve Connections from an interface in an efficient way
+		// index connection by interface
+		//
+		// Used by func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, interface client.Object, logger logr.Logger) []string
+		//
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
+			connection := rawObj.(*kubocdv1alpha1.Connection)
+			iface := connection.Spec.Interface
+			return []string{iface}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Release by Context")
 			os.Exit(1)
 		}
 

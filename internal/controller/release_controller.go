@@ -563,7 +563,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ---------------------------------------------------------- Find orphan connection, and delete them
 	//
-	outputConnection := r.FindOutputConnectionFromRelease(ctx, release, logger)
+	outputConnection := r.findOutputConnectionFromRelease(ctx, release, logger)
 	for _, cnct := range outputConnection {
 		_, ok := op.outputConnectionK8sName[cnct]
 		if !ok {

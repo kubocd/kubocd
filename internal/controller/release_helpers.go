@@ -188,17 +188,18 @@ func BuildModel(context map[string]interface{}, parameters map[string]interface{
 // return:
 // - inputModel: The map to be inserted in the data model
 // - inputConnections: A list of the input connection, used to managed reconciliation triggering.
-// - missingConnections: A list of missing connection, to be set in status to human display
+// - missingConnections: A list of missing connection, to be set in status to human display (This for
 // - err:
 func BuildInputModel(k8sClient client.Client, inputs []kubopackage.InputRendered) (inputModel map[string]interface{}, inputConnections []kv1alpha1.ReleaseInputConnection, missingInputConnections []string, err error) {
 	inputModel = map[string]interface{}{}
 	inputConnections = make([]kv1alpha1.ReleaseInputConnection, len(inputs))
 	missingInputConnection := make([]string, 0)
 	for idx, input := range inputs {
-		if input.Connection.Name != "" {
+		if input.UnmanagedConnection.Name != "" {
+			// Connection is explicit.
 			connection := &kv1alpha1.Connection{}
 			// User target an unmanaged connection. Just read it
-			nsName := types.NamespacedName{Namespace: input.Connection.Namespace, Name: input.Connection.Name}
+			nsName := types.NamespacedName{Namespace: input.Namespace, Name: input.UnmanagedConnection.Name}
 			// We set in the status list even if not found or in error. As we want to be notified if created.
 			inputConnections[idx] = kv1alpha1.ReleaseInputConnection{
 				Name:      nsName.Name,
@@ -226,6 +227,7 @@ func BuildInputModel(k8sClient client.Client, inputs []kubopackage.InputRendered
 			}
 			inputModel[input.Alias] = values
 		} else {
+			//r.findConnectionsFromInterface()
 			// TODO: Lookup connection based on interface
 			return nil, nil, nil, fmt.Errorf("input #%d: managed connection not yet implemented", idx)
 		}

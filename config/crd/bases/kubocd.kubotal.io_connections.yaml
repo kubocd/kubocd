@@ -72,25 +72,12 @@ spec:
                 description: Define the service type and allow validation of rendered
                   'values'
                 type: string
-              parentRelease:
-                description: For Managed Connections
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                required:
-                - name
-                - namespace
-                type: object
               priority:
                 default: 100
                 type: integer
               values:
                 description: Must comply to the schema defined by interface
                 x-kubernetes-preserve-unknown-fields: true
-            required:
-            - interface
             type: object
           status:
             properties:

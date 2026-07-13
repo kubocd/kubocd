@@ -139,6 +139,8 @@ Il s'agit d'un élément de définition d'un package, au même titre que `compon
 Il permet d'insérer dans le data model utilisé pour la résolution des 'values' les paramètres d'une connection
 existante.
 
+Was:
+
 ```
 input:
   - interface: <template_string> # required
@@ -148,6 +150,22 @@ input:
       release: <template_string>   # The release managing this connection.
       outputName: <template_string> # Used if the release manage several connection with the same interface
       kind: <template_string> # Connection or ClusterConnection
+    alias: <template_string> # optional. Default to interface
+
+```
+
+Now:
+
+```
+input:
+  - interface: <template_string> # required
+    kind: <template_string> # Connection or ClusterConnection. Default to Connection
+    namespace: # If kind == Connection. Default to release namespace.
+    unmanagedConnection:
+      name: <template_string>
+    release:
+      name: <template_string>
+      outputName: <template_string>
     alias: <template_string> # optional. Default to interface
 
 ```
@@ -173,7 +191,7 @@ output:
 ### Connection Binding
 
 Lors du déploiement d'une instance, les éléments de la liste 'input' sont insérés dans le data model, à l'emplacement
-`.Input.<alias>.*`
+`.Inputs.<alias>.*`
 
 C'est en fait un filtre permettant de sélectionner une ou plusieurs Connections. Seul l'élément 'interface' est
 obligatoire.
