@@ -161,9 +161,9 @@ const ReleasePhaseError = ReleasePhase("ERROR")
 const ReleasePhaseWaitOci = ReleasePhase("WAIT_OCI")
 const ReleasePhaseWaitHelmRepo = ReleasePhase("WAIT_REPO")
 const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
-const ReleasePhaseWaitConnections = ReleasePhase("WAIT_CNCT")
+const ReleasePhaseWaitOutputConnections = ReleasePhase("WAIT_OCNX")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
-const ReleasePhaseWaitInputs = ReleasePhase("WAIT_INPT")
+const ReleasePhaseWaitInputConnections = ReleasePhase("WAIT_ICNX")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
@@ -172,7 +172,7 @@ type HelmReleaseState struct {
 	Status string                 `json:"status,omitempty"`
 }
 
-type ReleaseInputConnection struct {
+type WatchedInputConnection struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 }
@@ -245,7 +245,7 @@ type ReleaseStatus struct {
 	Message string `json:"message,omitempty"`
 
 	// List of our input connections. Used for handling dependencies
-	InputConnections []ReleaseInputConnection `json:"inputConnections"`
+	WatchedInputConnections []WatchedInputConnection `json:"watchedInputConnections"`
 }
 
 // +kubebuilder:object:root=true

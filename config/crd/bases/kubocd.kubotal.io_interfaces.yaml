@@ -53,10 +53,6 @@ spec:
             type: object
           spec:
             properties:
-              allowMultiple:
-                default: false
-                description: If false, error in case of multiple providers on a binding
-                type: boolean
               description:
                 description: A human oriented description
                 type: string

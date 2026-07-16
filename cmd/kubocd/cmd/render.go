@@ -43,6 +43,8 @@ import (
 	"github.com/spf13/cobra"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var renderParams struct {
@@ -289,15 +291,19 @@ var renderCmd = &cobra.Command{
 			}
 			cmn.Dump(output, "inputs.yaml", inputsRendered)
 			// -------------------------------------------------------------------- Enrich model with inputs
-			inputModel, inputConnections, missingConnections, err := controller.BuildInputModel(k8sClient, inputsRendered)
+			helper := &buildInputModelHelper{
+				Client: k8sClient,
+			}
+
+			buildInputModelResult, err := controller.BuildInputModel(context.Background(), helper, inputsRendered)
 			if err != nil {
 				return err
 			}
-			cmn.Dump(output, "inputConnections.yaml", inputConnections)
-			if len(missingConnections) > 0 {
-				return fmt.Errorf("missing connection(s): %s", strings.Join(missingConnections, ","))
+			cmn.Dump(output, "qatchedInputConnections.yaml", buildInputModelResult.WatchedInputConnections)
+			if len(buildInputModelResult.Messages) > 0 {
+				return fmt.Errorf("missing connection(s): %s", strings.Join(buildInputModelResult.Messages, ","))
 			}
-			model["Inputs"] = inputModel
+			model["Inputs"] = buildInputModelResult
 			// -------------------------------------------------------------------- Render all values
 
 			cmn.Dump(output, "model.yaml", model)
@@ -457,4 +463,15 @@ func DigFolderForFile(inFolder string, lookedUpFile string) (string, error) {
 		return "", err
 	}
 	return result, nil
+}
+
+type buildInputModelHelper struct {
+	client.Client
+}
+
+var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
+
+func (h *buildInputModelHelper) FindOutputConnectionFromRelease(_ context.Context, _ types.NamespacedName) ([]kapi.Connection, controller.ReconcileError) {
+	//TODO implement me
+	panic("implement me")
 }

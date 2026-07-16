@@ -390,19 +390,6 @@ spec:
                 description: HelmReleaseStates describe the observed state of child
                   HelmReleases by name
                 type: object
-              inputConnections:
-                description: List of our input connections. Used for handling dependencies
-                items:
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                  - name
-                  - namespace
-                  type: object
-                type: array
               message:
                 description: Human friendly last error message
                 type: string
@@ -469,15 +456,28 @@ spec:
                   Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
                   Key could 'html', 'text', some language id, etc...
                 type: object
+              watchedInputConnections:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
             required:
             - dependencies
-            - inputConnections
             - phase
             - printProtected
             - protected
             - readyOutputConnections
             - readyReleases
             - roles
+            - watchedInputConnections
             type: object
         type: object
     served: true

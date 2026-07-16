@@ -35,12 +35,13 @@ import (
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
@@ -61,6 +62,9 @@ type ReleaseReconciler struct {
 	RoleStore        rolestore.RoleStore
 	statusErrorCount int
 }
+
+var _ reconcile.Reconciler = &ReleaseReconciler{}
+var _ BuildInputModelHelper = &ReleaseReconciler{}
 
 // Just a container to avoid messy parameters passing
 type releaseOperation struct {
@@ -105,6 +109,7 @@ func (e reconcileErrorImpl) GetEventReason() string {
 	return e.eventReason
 }
 
+// Behave like a standard error
 func (e reconcileErrorImpl) Error() string {
 	return e.error.Error()
 }
@@ -199,8 +204,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if release.Status.Roles == nil {
 		release.Status.Roles = make([]string, 0)
 	}
-	if release.Status.InputConnections == nil {
-		release.Status.InputConnections = make([]kv1alpha1.ReleaseInputConnection, 0)
+	if release.Status.WatchedInputConnections == nil {
+		release.Status.WatchedInputConnections = make([]kv1alpha1.WatchedInputConnection, 0)
 	}
 
 	// Not under deletion. Add a finalizer if not already set
@@ -380,18 +385,19 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
 	}
 	// -------------------------------------------------------------------- Enrich model with inputs
-	inputModel, inputConnections, missingInputConnections, err := BuildInputModel(r, inputs)
+	buildInputModelResult, err := BuildInputModel(op.ctx, r, inputs)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, false, "Inputs"), forceUpdate)
 	}
-	if !reflect.DeepEqual(inputConnections, release.Status.InputConnections) {
-		release.Status.InputConnections = inputConnections
+	if !reflect.DeepEqual(buildInputModelResult.WatchedInputConnections, release.Status.WatchedInputConnections) {
+		release.Status.WatchedInputConnections = buildInputModelResult.WatchedInputConnections
 		forceUpdate = true
 	}
-	if len(missingInputConnections) > 0 {
-		message := fmt.Sprintf("Waiting input connections: %s", strings.Join(missingInputConnections, ", "))
-		r.Event(op.release, "Normal", "MissingConnections", message)
-		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputs, message, forceUpdate)
+	if len(buildInputModelResult.Messages) > 0 {
+		for _, message := range buildInputModelResult.Messages {
+			r.Event(op.release, "Warning", "MissingConnections", message)
+		}
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputConnections, strings.Join(buildInputModelResult.Messages, ","), forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -403,7 +409,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			RequeueAfter: time.Second * 5,
 		}, nil
 	}
-	model["Inputs"] = inputModel
+	model["Inputs"] = buildInputModelResult.InputModel
 	// -------------------------------------------------------------------- Render all values
 	rendered, err := op.pckContainer.Package.Render(model, release.Namespace)
 	if err != nil {
@@ -559,23 +565,19 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 
 	// phase is kv1alpha1.ReleasePhaseReady
 	if !allOutputConnectionReady {
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitConnections, message, forceUpdate)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOutputConnections, message, forceUpdate)
 	}
 	// ---------------------------------------------------------- Find orphan connection, and delete them
 	//
-	outputConnection := r.findOutputConnectionFromRelease(ctx, release, logger)
-	for _, cnct := range outputConnection {
-		_, ok := op.outputConnectionK8sName[cnct]
+	outputConnections, err := r.FindOutputConnectionFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	for _, connection := range outputConnections {
+		_, ok := op.outputConnectionK8sName[connection.Name]
 		if !ok {
 			// Connection with ownerReference on ourselves, but not managed. Delete it
-			connection := &kv1alpha1.Connection{
-				TypeMeta:   metav1.TypeMeta{APIVersion: kv1alpha1.GroupVersion.String(), Kind: kv1alpha1.ConnectionKind},
-				ObjectMeta: metav1.ObjectMeta{Namespace: release.Namespace, Name: cnct},
-			}
 			logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
-			err := r.Delete(ctx, connection)
+			err := r.Delete(ctx, &connection)
 			if err != nil {
-				logger.Error(err, "unable to delete connection", "connection", cnct)
+				logger.Error(err, "unable to delete connection", "connection", connection.Name)
 			}
 		}
 	}

@@ -62,15 +62,19 @@ spec:
                 description: A human oriented description
                 type: string
               disabled:
+                default: false
                 description: |-
                   Allow temporary suspension of this connection
                   NB: This is only relevant for unmanaged connection.
                   For managed one, always false, or object is deleted.
-                  Default: false
                 type: boolean
               interface:
                 description: Define the service type and allow validation of rendered
                   'values'
+                type: string
+              outputName:
+                description: For managed connections, the output name (Set by the
+                  release controller, at creation)
                 type: string
               priority:
                 default: 100
@@ -78,6 +82,8 @@ spec:
               values:
                 description: Must comply to the schema defined by interface
                 x-kubernetes-preserve-unknown-fields: true
+            required:
+            - interface
             type: object
           status:
             properties:

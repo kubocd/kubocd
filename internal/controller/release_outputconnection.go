@@ -142,6 +142,7 @@ func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopa
 	connection.Spec.Interface = outputRendered.Interface
 	connection.Spec.Description = outputRendered.Description
 	connection.Spec.Priority = outputRendered.Priority
+	connection.Spec.OutputName = outputRendered.Name
 	return nil
 }
 
@@ -151,24 +152,20 @@ func BuildConnectionName(releaseName, outputName string) string {
 
 const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
 
-func (r *ReleaseReconciler) findOutputConnectionFromRelease(ctx context.Context, release client.Object, logger logr.Logger) []string {
+func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError) {
 	connections := kv1alpha1.ConnectionList{}
 	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.GetName()),
-		Namespace:     release.GetNamespace(),
+		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.Name),
+		Namespace:     release.Namespace,
 	}
 	err := r.List(ctx, &connections, listOps)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			logger.Error(err, "findOutputConnectionFromRelease(): Unable to find release bindings")
+			return nil, NewReconcileError(fmt.Errorf("FindOutputConnectionFromRelease(): Unable to find release bindings: %w", err), false, "")
 		}
-		return []string{}
+		return []kv1alpha1.Connection{}, nil
 	}
-	requests := make([]string, 0, 10)
-	for _, item := range connections.Items {
-		requests = append(requests, item.GetName())
-	}
-	return requests
+	return connections.Items, nil // TODO: Check if we need to deepcopy()
 }
 
 const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
@@ -185,5 +182,5 @@ func (r *ReleaseReconciler) findConnectionsFromInterface(ctx context.Context, if
 			logger.Error(err, "FindConnectionsFromInterface(): Error on ")
 		}
 	}
-	return connections
+	return connections // TODO: Check if we need to deepcopy()
 }

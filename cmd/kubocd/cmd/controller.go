@@ -325,11 +325,11 @@ var controllerCmd = &cobra.Command{
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
 		// Create an index to retrieve a Release from an input connection in an efficient way
 		// index release by input connections
-		const inputConnectionIndexOnRelease = "inputConnectionIndexOnRelease"
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, inputConnectionIndexOnRelease, func(rawObj client.Object) []string {
+		const watchedInputConnectionIndexOnRelease = "watchedInputConnectionIndexOnRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, watchedInputConnectionIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
-			connections := make([]string, len(release.Status.InputConnections))
-			for idx, connection := range release.Status.InputConnections {
+			connections := make([]string, len(release.Status.WatchedInputConnections))
+			for idx, connection := range release.Status.WatchedInputConnections {
 				connections[idx] = fmt.Sprintf("%s:%s", connection.Namespace, connection.Name)
 			}
 			//fmt.Printf("**********************GetFieldIndexer(release:%s) -> %v\n", release.Name, connections)
@@ -340,10 +340,10 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findReleaseFromInputConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
+		findReleaseFromWatchedInputConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
 			releases := kubocdv1alpha1.ReleaseList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(inputConnectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
+				FieldSelector: fields.OneTermEqualSelector(watchedInputConnectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
 			}
 			err := mgr.GetClient().List(context.Background(), &releases, listOps)
 			if err != nil {
@@ -467,7 +467,7 @@ var controllerCmd = &cobra.Command{
 			Owns(&kubocdv1alpha1.Connection{}).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
 			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
-			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromInputConnection)).
+			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromWatchedInputConnection)).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
@@ -490,7 +490,7 @@ var controllerCmd = &cobra.Command{
 			return parents
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
+			setupLog.Error(err, "Unable to index Context by parent Context")
 			os.Exit(1)
 		}
 
@@ -550,7 +550,7 @@ var controllerCmd = &cobra.Command{
 			return []string{owner.Name}
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
+			setupLog.Error(err, "Unable to index Connection by Release")
 			os.Exit(1)
 		}
 
@@ -558,16 +558,16 @@ var controllerCmd = &cobra.Command{
 		// index connection by interface
 		//
 		// Used by func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, interface client.Object, logger logr.Logger) []string
-		//
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
-			connection := rawObj.(*kubocdv1alpha1.Connection)
-			iface := connection.Spec.Interface
-			return []string{iface}
-		})
-		if err != nil {
-			setupLog.Error(err, "Unable to index Release by Context")
-			os.Exit(1)
-		}
+		////
+		//err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
+		//	connection := rawObj.(*kubocdv1alpha1.Connection)
+		//	iface := connection.Spec.Interface
+		//	return []string{iface}
+		//})
+		//if err != nil {
+		//	setupLog.Error(err, "Unable to index Connection by Interface")
+		//	os.Exit(1)
+		//}
 
 		// ----------------------------------------------------------------------------------------------------
 		if metricsCertWatcher != nil {

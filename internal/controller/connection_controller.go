@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/xeipuuv/gojsonschema"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -57,30 +58,49 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 
 	var finalError error = nil
 	previous := connection.DeepCopy()
-	if connection.Spec.Disabled {
-		if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
-			r.Event(connection, "Normal", "Status", "Set in DISABLED state")
+
+	iface := &kv1alpha1.Interface{}
+	// Interface is cluster-scoped, so no namespace.
+	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
 		}
-		connection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
-		connection.Status.Message = ""
-		connection.Status.InterfaceGeneration = 0
-		finalError = nil
-	} else if ifaceGeneration, err := r.checkConnection(ctx, connection); err != nil {
-		logger.V(0).Error(err, "unable to register connection", "connection", req.NamespacedName.String())
-		r.Event(connection, "Warning", "Registration", err.Error())
 		connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		connection.Status.Message = err.Error()
-		connection.Status.InterfaceGeneration = ifaceGeneration
+		message := fmt.Sprintf("Interface %s unknown", connection.Spec.Interface)
+		if connection.Status.Message != message {
+			r.Event(connection, "Warning", "Status", message)
+		}
+		connection.Status.Message = message
 		finalError = err
 	} else {
-		if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
-			r.Event(connection, "Normal", "Registration", "registration ok")
+		if connection.Spec.Disabled {
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
+				r.Event(connection, "Normal", "Status", "Set in DISABLED state")
+			}
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
+			connection.Status.Message = "Disabled"
+			finalError = nil
+		} else if err := r.checkConnection(iface, connection); err != nil {
+			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())
+			message := err.Error()
+			if connection.Status.Message != message {
+				r.Event(connection, "Warning", "Status", message)
+			}
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
+			connection.Status.Message = message
+			finalError = err
+		} else {
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+				r.Event(connection, "Normal", "Status", "Connection ready")
+			}
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseReady
+			connection.Status.Message = ""
+			finalError = nil
 		}
-		connection.Status.Phase = kv1alpha1.ConnectionPhaseReady
-		connection.Status.Message = ""
-		connection.Status.InterfaceGeneration = ifaceGeneration
-		finalError = nil
+		connection.Status.InterfaceGeneration = iface.Generation
 	}
+
 	if reflect.DeepEqual(previous.Status, connection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, finalError
@@ -92,34 +112,28 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	return ctrl.Result{}, finalError
 }
 
-func (r *ConnectionReconciler) checkConnection(ctx context.Context, connection *kv1alpha1.Connection) (ifaceGeneration int64, err error) {
-	iface := &kv1alpha1.Interface{}
-	// Interface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
-	if err != nil {
-		return 0, fmt.Errorf("unable to fetch interface: %w", err)
-	}
+func (r *ConnectionReconciler) checkConnection(iface *kv1alpha1.Interface, connection *kv1alpha1.Connection) error {
 	if iface.Status.Phase != kv1alpha1.InterfacePhaseReady {
-		return iface.Generation, fmt.Errorf("interface is not ready")
+		return fmt.Errorf("interface is not ready")
 	}
 	defaultValue, goSchema, err := resolveInterface(iface)
 	if err != nil {
 		// NB: This should newer occurs, as interface should be in error case.
-		return iface.Generation, fmt.Errorf("interface in error: %w", err)
+		return fmt.Errorf("interface in error: %w", err)
 	}
 	values := make(map[string]interface{})
 	err = yaml.UnmarshalStrict(connection.Spec.Values.Raw, &values)
 	if err != nil {
-		return iface.Generation, fmt.Errorf("unable to parse connection values: %w", err)
+		return fmt.Errorf("unable to parse connection values: %w", err)
 	}
 	values = misc.MergeMaps(defaultValue, values)
 	// Must check against interface schema
 	validate, err := goSchema.Validate(gojsonschema.NewGoLoader(values))
 	if err != nil {
-		return iface.Generation, fmt.Errorf("error on values: %w", err)
+		return fmt.Errorf("error on values: %w", err)
 	}
 	if len(validate.Errors()) > 0 {
-		return iface.Generation, fmt.Errorf("validation error on values: %s", validate.Errors()[0])
+		return fmt.Errorf("validation error on values: %s", validate.Errors()[0])
 	}
-	return iface.Generation, nil
+	return nil
 }

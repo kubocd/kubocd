@@ -21,18 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-//type NamespacedObjectReference struct {
-//	// +kubebuilder:validation:Required
-//	Namespace string `json:"namespace"`
-//	// +kubebuilder:validation:Required
-//	Name string `json:"name"`
-//}
-
 type ConnectionSpec struct {
-
-	// For Managed Connections
-	// +kubebuilder:validation:Optional
-	//ParentRelease *NamespacedObjectReference `json:"parentRelease,omitempty"`
 
 	// Define the service type and allow validation of rendered 'values'
 	// +kubebuilder:validation:Required
@@ -40,17 +29,22 @@ type ConnectionSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=100
-	Priority int `json:"priority,omitempty"`
+	Priority int `json:"priority"`
 
 	// Must comply to the schema defined by interface
 	// +kubebuilder:validation:Optional
-	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+	Values *apiextensionsv1.JSON `json:"values"`
+
+	// For managed connections, the output name (Set by the release controller, at creation)
+	// +kubebuilder:validation:Optional
+	OutputName string `json:"outputName,omitempty"`
 
 	// Allow temporary suspension of this connection
 	// NB: This is only relevant for unmanaged connection.
 	// For managed one, always false, or object is deleted.
-	// Default: false
-	Disabled bool `json:"disabled,omitempty"`
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=false
+	Disabled bool `json:"disabled"`
 
 	// A human oriented description
 	// +kubebuilder:validation:Optional

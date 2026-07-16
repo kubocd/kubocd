@@ -1,0 +1,4 @@
+- Test orphan
+- Test multiple check
+- Test filtering
+- Test cross namespace (Access to a service in another namespace)

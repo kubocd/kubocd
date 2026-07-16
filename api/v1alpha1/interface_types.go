@@ -26,12 +26,7 @@ type InterfaceSpec struct {
 	// Allow validation of the 'values' attribute on Release.output[x]
 	// May be a JSON/openAPI schema or the kubocd simplified schema format.
 	// +kubebuilder:validation:Optional
-	Schema *apiextensionsv1.JSON `json:"schema,omitempty"`
-
-	// If false, error in case of multiple providers on a binding
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=false
-	AllowMultiple bool `json:"allowMultiple,omitempty"`
+	Schema *apiextensionsv1.JSON `json:"schema"`
 
 	// A human oriented description
 	// +kubebuilder:validation:Optional
@@ -46,6 +41,7 @@ const InterfacePhaseError = InterfacePhase("ERROR")
 type InterfaceStatus struct {
 	Phase InterfacePhase `json:"phase"`
 	// +optional
+	// +kubebuilder:validation:Optional
 	Message string `json:"message"`
 }
 

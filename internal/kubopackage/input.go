@@ -31,12 +31,12 @@ type Input struct {
 	Interface KcdTemplateString `json:"interface"`
 	// Connection or ClusterConnection. If empty, both are looked up.
 	Kind KcdTemplateString `json:"kind,omitempty"`
-	// If kind == Connection. For UnmanagedConnection or Release lookup. Default to release namespace
-	Namespace           KcdTemplateString `json:"namespace,omitempty"`
-	UnmanagedConnection struct {
+	// If kind == Connection. For NamedConnection or Release lookup. Default to release namespace
+	Namespace       KcdTemplateString `json:"namespace,omitempty"`
+	NamedConnection struct {
 		// Must be "" if Relesae.name != nil
 		Name KcdTemplateString `json:"name,omitempty"`
-	} `json:"unmanagedConnection,omitempty"`
+	} `json:"namedConnection,omitempty"`
 	Release struct {
 		// Must be "" if UnmanagedConnection.name != nil
 		Name KcdTemplateString `json:"name,omitempty"`
@@ -45,22 +45,31 @@ type Input struct {
 	} `json:"release,omitempty"`
 	// default to interface
 	Alias KcdTemplateString `json:"alias,omitempty"`
+	// Default: false.
+	// If true and the connection is missing, there is no error, and `.Inputs.<alias>` does not exist.
+	Optional KcdTemplateBool `json:"optional,omitempty"`
+	// Default: false.
+	// If false, error in case of multiple providers on a binding
+	AllowMultiple KcdTemplateBool `json:"allowMultiple"`
+
 	// ------------------------------- Private part
 	templates *inputTemplates
 }
 
 type inputTemplates struct {
-	iface               tmpl.Tmpl
-	kind                tmpl.Tmpl
-	namespace           tmpl.Tmpl
-	unmanagedConnection struct {
+	iface           tmpl.Tmpl
+	kind            tmpl.Tmpl
+	namespace       tmpl.Tmpl
+	namedConnection struct {
 		name tmpl.Tmpl
 	}
 	release struct {
 		name       tmpl.Tmpl
 		outputName tmpl.Tmpl
 	}
-	alias tmpl.Tmpl
+	alias         tmpl.Tmpl
+	optional      tmpl.Tmpl
+	allowMultiple tmpl.Tmpl
 }
 
 func (i *Input) groom(pck *Package) error {
@@ -79,7 +88,7 @@ func (i *Input) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'namespace' parameter: %w", err)
 	}
-	i.templates.unmanagedConnection.name, err = tmpl.New("", string(i.UnmanagedConnection.Name), pck.TemplateHeader)
+	i.templates.namedConnection.name, err = tmpl.New("", string(i.NamedConnection.Name), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'unmanagedConnection.name' parameter: %w", err)
 	}
@@ -95,22 +104,32 @@ func (i *Input) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'alias' parameter: %w", err)
 	}
+	i.templates.optional, err = tmpl.New("", string(i.Optional), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'optional' parameter: %w", err)
+	}
+	i.templates.allowMultiple, err = tmpl.New("", string(i.AllowMultiple), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'allowMultiple' parameter: %w", err)
+	}
 	return nil
 }
 
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type InputRendered struct {
-	Interface           string `json:"interface"`
-	Kind                Kind   `json:"kind,omitempty"`
-	Namespace           string `json:"namespace,omitempty"`
-	UnmanagedConnection struct {
+	Interface       string `json:"interface"`
+	Kind            Kind   `json:"kind"`
+	Namespace       string `json:"namespace"`
+	NamedConnection struct {
 		Name string `json:"name,omitempty"`
-	} `json:"unmanagedConnection,omitempty"`
+	} `json:"namedConnection,omitempty"`
 	Release struct {
 		Name       string `json:"name,omitempty"`
 		OutputName string `json:"outputName,omitempty"`
 	} `json:"release,omitempty"`
-	Alias string `json:"alias,omitempty"`
+	Alias         string `json:"alias"`
+	Optional      bool   `json:"optional"`
+	AllowMultiple bool   `json:"allowMultiple"`
 }
 
 func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*InputRendered, error) {
@@ -128,7 +147,7 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'namespace' parameter: %w", err)
 	}
-	ir.UnmanagedConnection.Name, err = i.templates.unmanagedConnection.name.RenderToSingleLine(model)
+	ir.NamedConnection.Name, err = i.templates.namedConnection.name.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'unmanagedConnection.name' parameter: %w", err)
 	}
@@ -144,6 +163,14 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'alias' parameter: %w", err)
 	}
+	ir.Optional, _, err = i.templates.optional.RenderToBool(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'optional' parameter: %w", err)
+	}
+	ir.AllowMultiple, _, err = i.templates.allowMultiple.RenderToBool(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'allowMultiple' parameter: %w", err)
+	}
 	ir.Kind = Kind(k)
 	if ir.Kind == "" {
 		ir.Kind = KindConnection
@@ -157,7 +184,7 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if ir.Interface == "" {
 		return nil, fmt.Errorf("'interface' is a required parameters")
 	}
-	if ir.UnmanagedConnection.Name != "" && ir.Release.Name != "" {
+	if ir.NamedConnection.Name != "" && ir.Release.Name != "" {
 		return nil, fmt.Errorf("'unmanagedConnection.name' and 'release.name' can't be defined at the same time")
 	}
 	if ir.Alias == "" {

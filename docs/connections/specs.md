@@ -106,7 +106,6 @@ metadata:
   name: <string>  # Le nom k8s est le nom de l'interface
   namespace: <string>
 spec:
-  allowMultiple: <bool> # Optional. If false, error in case of multiple providers on a binding. Default false
   description: <string>
   schema: # <schema_json_or_kubocd>
     properties:
@@ -139,23 +138,6 @@ Il s'agit d'un élément de définition d'un package, au même titre que `compon
 Il permet d'insérer dans le data model utilisé pour la résolution des 'values' les paramètres d'une connection
 existante.
 
-Was:
-
-```
-input:
-  - interface: <template_string> # required
-    connection:
-      namespace: <template_string> # Default to release namespace
-      k8sName: <template_string> # k8s connection name. Mainly for unmanaged connection
-      release: <template_string>   # The release managing this connection.
-      outputName: <template_string> # Used if the release manage several connection with the same interface
-      kind: <template_string> # Connection or ClusterConnection
-    alias: <template_string> # optional. Default to interface
-
-```
-
-Now:
-
 ```
 input:
   - interface: <template_string> # required
@@ -167,6 +149,8 @@ input:
       name: <template_string>
       outputName: <template_string>
     alias: <template_string> # optional. Default to interface
+    optional: <template_bool> # Default: false. If true and the connection is missing, there is no error, and `.Inputs.<alias>` does not exists.
+    allowMultiple: <bool> # Optional. If false, error in case of multiple providers on a binding. Default false
 
 ```
 

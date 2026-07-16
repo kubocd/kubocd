@@ -404,17 +404,6 @@ spec:
                 description: Define the service type and allow validation of rendered
                   'values'
                 type: string
-              parentRelease:
-                description: For Managed Connections
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                required:
-                - name
-                - namespace
-                type: object
               priority:
                 default: 100
                 type: integer
@@ -426,6 +415,11 @@ spec:
             type: object
           status:
             properties:
+              allowMultiple:
+                description: |-
+                  Duplication of the interface attribute. Set by connection controller.
+                  Just to optimize by avoiding access to interface
+                type: boolean
               interfaceGeneration:
                 description: |-
                   InterfaceGeneration is the .metadata.generation of the interface this
@@ -433,6 +427,10 @@ spec:
                 format: int64
                 type: integer
               message:
+                type: string
+              outputName:
+                description: For managed connections, the output name (Set by the
+                  release controller, at creation)
                 type: string
               phase:
                 type: string
@@ -591,6 +589,9 @@ spec:
     - jsonPath: .status.message
       name: Message
       type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -673,11 +674,11 @@ spec:
     - jsonPath: .status.readyReleases
       name: Rel.
       type: string
-    - jsonPath: .status.readyConnections
+    - jsonPath: .status.readyOutputConnections
       name: Cnct.
       type: string
-    - jsonPath: .status.missingDependency
-      name: Deps
+    - jsonPath: .status.message
+      name: Error
       type: string
     - jsonPath: .status.printProtected
       name: PRT
@@ -1046,10 +1047,8 @@ spec:
                   - namespace
                   type: object
                 type: array
-              missingDependency:
-                description: |-
-                  Human friendly list of missing dependencies
-                  Also used to display missing connection
+              message:
+                description: Human friendly last error message
                 type: string
               outputConnectionStates:
                 additionalProperties:
@@ -1117,7 +1116,6 @@ spec:
             required:
             - dependencies
             - inputConnections
-            - missingDependency
             - phase
             - printProtected
             - protected
