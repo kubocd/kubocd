@@ -143,7 +143,7 @@ input:
   - interface: <template_string> # required
     kind: <template_string> # Connection or ClusterConnection. Default to Connection
     namespace: # If kind == Connection. Default to release namespace.
-    unmanagedConnection:
+    namedConnection:
       name: <template_string>
     release:
       name: <template_string>

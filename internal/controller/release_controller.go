@@ -410,6 +410,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}, nil
 	}
 	model["Inputs"] = buildInputModelResult.InputModel
+	model["InputLists"] = buildInputModelResult.InputListModel
 	// -------------------------------------------------------------------- Render all values
 	rendered, err := op.pckContainer.Package.Render(model, release.Namespace)
 	if err != nil {

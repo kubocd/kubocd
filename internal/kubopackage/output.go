@@ -54,12 +54,12 @@ func (o *Output) groom(pck *Package) error {
 	if o.Interface == "" {
 		return fmt.Errorf("'interface' is a required parameters")
 	}
-	if o.Enabled == "" {
-		o.Enabled = "true"
-	}
-	if o.Priority == "" {
-		o.Priority = "100"
-	}
+	//if o.Enabled == "" {
+	//	o.Enabled = "true"
+	//}
+	//if o.Priority == "" {
+	//	o.Priority = "100"
+	//}
 	o.templates = &outputTemplates{}
 	var err error
 	// ------- Now, handle templates
@@ -120,7 +120,7 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'displayName' parameter: %w", err)
 	}
-	or.Priority, _, err = o.templates.priority.RenderToInt(model)
+	or.Priority, _, err = o.templates.priority.RenderToInt(model, 100)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'priority' parameter: %w", err)
 	}
@@ -128,7 +128,7 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'description' parameter: %w", err)
 	}
-	or.Enabled, _, err = o.templates.enabled.RenderToBool(model)
+	or.Enabled, _, err = o.templates.enabled.RenderToBool(model, true)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'enabled' parameter: %w", err)
 	}

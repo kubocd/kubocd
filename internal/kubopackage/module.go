@@ -106,9 +106,9 @@ func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStor
 	if misc.IsZero(m.TargetNamespace) {
 		m.TargetNamespace = "{{.Release.spec.targetNamespace}}"
 	}
-	if m.Enabled == "" {
-		m.Enabled = "true"
-	}
+	//if m.Enabled == "" {
+	//	m.Enabled = "true"
+	//}
 	if misc.IsZero(m.Timeout) {
 		if configStore == nil {
 			// When used in packaging
@@ -267,7 +267,7 @@ func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'targetNamespace' template: %w", err)
 	}
-	mr.Enabled, txt, err = m.templates.enabled.RenderToBool(model)
+	mr.Enabled, txt, err = m.templates.enabled.RenderToBool(model, true)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'enabled' template: %w (%s)", err, txt)
 	}

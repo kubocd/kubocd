@@ -35,8 +35,8 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 	resultCollector := &BuildInputModelResult{
 		InputModel:              make(map[string]interface{}),
 		InputListModel:          make(map[string]interface{}),
-		WatchedInputConnections: make([]kv1alpha1.WatchedInputConnection, len(inputs)),
-		Messages:                make([]string, len(inputs)),
+		WatchedInputConnections: make([]kv1alpha1.WatchedInputConnection, 0, len(inputs)),
+		Messages:                make([]string, 0, len(inputs)),
 	}
 	for idx, input := range inputs {
 		if input.NamedConnection.Name != "" {
@@ -50,12 +50,13 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 			if err != nil {
 				return resultCollector, err
 			}
-		}
-		// ---------------------------------------------------------- We lookup connections by interface
+		} else {
+			// ---------------------------------------------------------- We lookup connections by interface
 
-		//r.findConnectionsFromInterface()
-		// TODO: Lookup connection based on interface
-		return nil, NewReconcileError(fmt.Errorf("input #%d: connection by interface not yet implemented", idx), true, "")
+			//r.findConnectionsFromInterface()
+			// TODO: Lookup connection based on interface
+			return nil, NewReconcileError(fmt.Errorf("input #%d: connection by interface not yet implemented", idx), true, "")
+		}
 	}
 	return resultCollector, nil
 }
@@ -65,10 +66,10 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	// User target an unmanaged connection. Just read it
 	nsName := types.NamespacedName{Namespace: input.Namespace, Name: input.NamedConnection.Name}
 	// We set in the status list even if not found or in error. As we want to be notified if created.
-	resultCollector.WatchedInputConnections[idx] = kv1alpha1.WatchedInputConnection{
+	resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.WatchedInputConnection{
 		Name:      nsName.Name,
 		Namespace: nsName.Namespace,
-	}
+	})
 	err := helper.Get(ctx, nsName, connection)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -112,7 +113,10 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 			continue
 		}
 		possibleConnectionNames = append(possibleConnectionNames, connection.Name)
-		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.WatchedInputConnection{})
+		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.WatchedInputConnection{
+			Name:      connection.Name,
+			Namespace: connection.Namespace,
+		})
 		if connection.Status.Phase == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, &connection)
 		}
@@ -138,9 +142,9 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 	}
 	sort.Slice(electedConnections, func(i, j int) bool {
 		if electedConnections[i].Spec.Priority == electedConnections[j].Spec.Priority {
-			return electedConnections[i].Name < electedConnections[j].Name
+			return electedConnections[i].Name > electedConnections[j].Name
 		}
-		return electedConnections[i].Spec.Priority < electedConnections[j].Spec.Priority
+		return electedConnections[i].Spec.Priority > electedConnections[j].Spec.Priority
 	})
 	// Set the elected value (Higher priority)
 	values, err := parseValue(idx, electedConnections[0])
@@ -149,7 +153,7 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 	}
 	resultCollector.InputModel[input.Alias] = values
 	// And set the list of connectors
-	inputList := make([]map[string]interface{}, 0, len(electedConnections))
+	inputList := make([]map[string]interface{}, len(electedConnections))
 	for idx, electedConnection := range electedConnections {
 		values, err := parseValue(idx, electedConnection)
 		if err != nil {

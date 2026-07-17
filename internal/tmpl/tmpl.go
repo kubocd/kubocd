@@ -33,8 +33,8 @@ type Tmpl interface {
 	RenderToText(model map[string]interface{}) (string, error)
 	RenderToSingleLine(model map[string]interface{}) (string, error)
 	RenderToMap(model map[string]interface{}) (map[string]interface{}, string, error)
-	RenderToBool(model map[string]interface{}) (bool, string, error)
-	RenderToInt(model map[string]interface{}) (int, string, error)
+	RenderToBool(model map[string]interface{}, def bool) (bool, string, error)
+	RenderToInt(model map[string]interface{}, def int) (int, string, error)
 	RenderToStringList(model map[string]interface{}) ([]string, string, error)
 	SetDelimiters(d1, d2 string)
 	RenderToDuration(model map[string]interface{}) (metav1.Duration, string, error)
@@ -134,12 +134,15 @@ func (tt *tmpl) RenderToStringList(model map[string]interface{}) ([]string, stri
 	return a, txt, nil
 }
 
-func (tt *tmpl) RenderToBool(model map[string]interface{}) (bool, string, error) {
+func (tt *tmpl) RenderToBool(model map[string]interface{}, def bool) (bool, string, error) {
 	txt, err := tt.RenderToText(model)
 	if err != nil {
 		return false, txt, err
 	}
 	txt = strings.TrimSpace(txt)
+	if txt == "" {
+		return def, txt, nil
+	}
 	b, err := strconv.ParseBool(txt)
 	if err != nil {
 		return false, txt, err
@@ -147,12 +150,15 @@ func (tt *tmpl) RenderToBool(model map[string]interface{}) (bool, string, error)
 	return b, txt, nil
 }
 
-func (tt *tmpl) RenderToInt(model map[string]interface{}) (int, string, error) {
+func (tt *tmpl) RenderToInt(model map[string]interface{}, def int) (int, string, error) {
 	txt, err := tt.RenderToText(model)
 	if err != nil {
 		return 0, txt, err
 	}
 	txt = strings.TrimSpace(txt)
+	if txt == "" {
+		return def, txt, nil
+	}
 	i, err := strconv.Atoi(txt)
 	if err != nil {
 		return 0, txt, err

@@ -163,11 +163,11 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'alias' parameter: %w", err)
 	}
-	ir.Optional, _, err = i.templates.optional.RenderToBool(model)
+	ir.Optional, _, err = i.templates.optional.RenderToBool(model, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'optional' parameter: %w", err)
 	}
-	ir.AllowMultiple, _, err = i.templates.allowMultiple.RenderToBool(model)
+	ir.AllowMultiple, _, err = i.templates.allowMultiple.RenderToBool(model, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'allowMultiple' parameter: %w", err)
 	}
