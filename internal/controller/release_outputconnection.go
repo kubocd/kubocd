@@ -17,16 +17,13 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
 
-	"github.com/go-logr/logr"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -148,39 +145,4 @@ func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopa
 
 func BuildConnectionName(releaseName, outputName string) string {
 	return fmt.Sprintf(ConnectionNameFormat, releaseName, outputName)
-}
-
-const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
-
-func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError) {
-	connections := kv1alpha1.ConnectionList{}
-	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.Name),
-		Namespace:     release.Namespace,
-	}
-	err := r.List(ctx, &connections, listOps)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("FindOutputConnectionFromRelease(): Unable to find release bindings: %w", err), false, "")
-		}
-		return []kv1alpha1.Connection{}, nil
-	}
-	return connections.Items, nil // TODO: Check if we need to deepcopy()
-}
-
-const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
-
-func (r *ReleaseReconciler) findConnectionsFromInterface(ctx context.Context, iface string, namespace string, logger logr.Logger) *kv1alpha1.ConnectionList {
-	connections := &kv1alpha1.ConnectionList{}
-	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnConnection, iface),
-		Namespace:     namespace,
-	}
-	err := r.List(ctx, connections, listOps)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			logger.Error(err, "FindConnectionsFromInterface(): Error on ")
-		}
-	}
-	return connections // TODO: Check if we need to deepcopy()
 }

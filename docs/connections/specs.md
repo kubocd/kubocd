@@ -19,14 +19,16 @@
   - [Connection validation](#connection-validation)
   - [DisplayName](#displayname)
   - [Outillage](#outillage)
-  - [Namespaces, RBAC et multitenancy](#namespaces-rbac-et-multitenancy)
+  - [Gestion des secrets](#gestion-des-secrets)
 - [Examples](#examples)
   - [Exemple 1: Traefik](#exemple-1-traefik)
   - [Example 2 : Connexion SGBD](#example-2--connexion-sgbd)
   - [Example 3 : Multi connexions](#example-3--multi-connexions)
   - [Example 4 : DEX](#example-4--dex)
   - [Example 5 : Backup](#example-5--backup)
-- [Still TODO](#still-todo)
+- [Namespaces, RBAC et multitenancy](#namespaces-rbac-et-multitenancy)
+  - [ClusterConnection](#clusterconnection)
+  - [Target namespace](#target-namespace)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 

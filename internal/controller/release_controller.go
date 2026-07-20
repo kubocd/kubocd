@@ -35,6 +35,8 @@ import (
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
@@ -397,7 +399,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		for _, message := range buildInputModelResult.Messages {
 			r.Event(op.release, "Warning", "MissingConnections", message)
 		}
-		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputConnections, strings.Join(buildInputModelResult.Messages, ","), forceUpdate)
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitInputConnections, strings.Join(buildInputModelResult.Messages, " - "), forceUpdate)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -570,7 +572,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ---------------------------------------------------------- Find orphan connection, and delete them
 	//
-	outputConnections, err := r.FindOutputConnectionFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	outputConnections, err := r.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
 	for _, connection := range outputConnections {
 		_, ok := op.outputConnectionK8sName[connection.Name]
 		if !ok {
@@ -639,4 +641,39 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	//fmt.Printf("-----------------------: %s\n", phase)
 	r.statusErrorCount = 0
 	return ctrl.Result{}, err
+}
+
+const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
+
+func (r *ReleaseReconciler) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError) {
+	connections := kv1alpha1.ConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputConnection, release.Name),
+		Namespace:     release.Namespace,
+	}
+	err := r.List(ctx, &connections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindOutputConnectionFromRelease(): Unable to find release bindings: %w", err), false, "")
+		}
+		return []kv1alpha1.Connection{}, nil
+	}
+	return connections.Items, nil
+}
+
+const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
+
+func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError) {
+	connections := &kv1alpha1.ConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnConnection, iface),
+		Namespace:     namespace,
+	}
+	err := r.List(ctx, connections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+		}
+	}
+	return connections.Items, nil
 }

@@ -16,7 +16,8 @@ import (
 
 type BuildInputModelHelper interface {
 	client.Client
-	FindOutputConnectionFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError)
+	FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError)
+	FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError)
 }
 
 type BuildInputModelResult struct {
@@ -52,10 +53,10 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 			}
 		} else {
 			// ---------------------------------------------------------- We lookup connections by interface
-
-			//r.findConnectionsFromInterface()
-			// TODO: Lookup connection based on interface
-			return nil, NewReconcileError(fmt.Errorf("input #%d: connection by interface not yet implemented", idx), true, "")
+			err := bimHandleInterfaceConnection(ctx, idx, input, helper, resultCollector)
+			if err != nil {
+				return resultCollector, err
+			}
 		}
 	}
 	return resultCollector, nil
@@ -74,7 +75,7 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if !input.Optional {
-				resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("#%d: namedConnection '%s' not found", idx, nsName.String()))
+				resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Waiting for namedConnection '%s'.", idx, nsName.String()))
 			}
 			return nil
 		}
@@ -85,7 +86,7 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	}
 	if connection.Status.Phase != kv1alpha1.ConnectionPhaseReady {
 		if !input.Optional {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("#%d: namedConnection '%s' not ready", idx, nsName.String()))
+			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Waiting for namedConnection '%s' to be ready", idx, nsName.String()))
 		}
 		return nil
 	}
@@ -99,17 +100,29 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 }
 
 func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
-	connections, err := helper.FindOutputConnectionFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
+	connections, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
 	if err != nil {
 		return err
 	}
+	return bimFilterConnection(connections, idx, input, resultCollector)
+}
+
+func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+	connections, err := helper.FindConnectionsFromInterface(ctx, input.Namespace, input.Interface)
+	if err != nil {
+		return err
+	}
+	return bimFilterConnection(connections, idx, input, resultCollector)
+}
+
+func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]*kv1alpha1.Connection, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
 	for _, connection := range connections {
 		if connection.Spec.Interface != input.Interface {
 			continue
 		}
-		if input.Release.OutputName != "" && connection.Spec.OutputName != input.Release.OutputName {
+		if input.Release.Name != "" && input.Release.OutputName != "" && connection.Spec.OutputName != input.Release.OutputName {
 			continue
 		}
 		possibleConnectionNames = append(possibleConnectionNames, connection.Name)
@@ -123,13 +136,22 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 	}
 	if len(electedConnections) == 0 {
 		if !input.Optional {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("#%d: : %s", idx, strings.Join(possibleConnectionNames, ",")))
+			var mess string
+			if input.Release.Name != "" {
+				mess = fmt.Sprintf("input#%d: Waiting for connection for release '%s'", idx, input.Release.Name)
+			} else {
+				mess = fmt.Sprintf("input#%d: Waiting for connection for interface '%s'", idx, input.Interface)
+			}
+			if len(possibleConnectionNames) > 0 {
+				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))
+			}
+			resultCollector.Messages = append(resultCollector.Messages, mess)
 		}
 		return nil
 	}
 	if !input.AllowMultiple {
 		if len(possibleConnectionNames) > 1 {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("#%d: Too many possible connections: %s", idx, strings.Join(possibleConnectionNames, ",")))
+			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Too many possible connections: %s", idx, strings.Join(possibleConnectionNames, ",")))
 			return nil
 		}
 		// len(electedConnections) == 1, by construction

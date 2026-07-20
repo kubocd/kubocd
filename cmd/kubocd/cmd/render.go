@@ -301,7 +301,7 @@ var renderCmd = &cobra.Command{
 			}
 			cmn.Dump(output, "watchedInputConnections.yaml", buildInputModelResult.WatchedInputConnections)
 			if len(buildInputModelResult.Messages) > 0 {
-				return fmt.Errorf("missing connection(s): %s", strings.Join(buildInputModelResult.Messages, ","))
+				return fmt.Errorf("missing connection(s):\n  %s", strings.Join(buildInputModelResult.Messages, "\n  "))
 			}
 			model["Inputs"] = buildInputModelResult.InputModel
 			model["InputLists"] = buildInputModelResult.InputListModel
@@ -470,9 +470,26 @@ type buildInputModelHelper struct {
 	client.Client
 }
 
+func (h *buildInputModelHelper) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kapi.Connection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all connections
+	// in the namespace and filter on the interface
+	connections := kapi.ConnectionList{}
+	err := h.List(ctx, &connections, &client.ListOptions{Namespace: namespace})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): unable to list connections: %w", err), false, "")
+	}
+	result := make([]kapi.Connection, 0, len(connections.Items))
+	for _, connection := range connections.Items {
+		if connection.Spec.Interface == iface {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
+
 var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
 
-func (h *buildInputModelHelper) FindOutputConnectionFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.Connection, controller.ReconcileError) {
+func (h *buildInputModelHelper) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.Connection, controller.ReconcileError) {
 	// No field indexer is configured for the render command, so we list all connections
 	// in the release namespace and filter on the controller owner reference name.
 	connections := kapi.ConnectionList{}
