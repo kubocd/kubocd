@@ -207,7 +207,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		release.Status.Roles = make([]string, 0)
 	}
 	if release.Status.WatchedInputConnections == nil {
-		release.Status.WatchedInputConnections = make([]kv1alpha1.WatchedInputConnection, 0)
+		release.Status.WatchedInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
+	}
+	if release.Status.EffectiveInputConnections == nil {
+		release.Status.EffectiveInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
 	}
 
 	// Not under deletion. Add a finalizer if not already set
@@ -393,6 +396,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if !reflect.DeepEqual(buildInputModelResult.WatchedInputConnections, release.Status.WatchedInputConnections) {
 		release.Status.WatchedInputConnections = buildInputModelResult.WatchedInputConnections
+		forceUpdate = true
+	}
+	if !reflect.DeepEqual(buildInputModelResult.EffectiveInputConnections, release.Status.EffectiveInputConnections) {
+		release.Status.EffectiveInputConnections = buildInputModelResult.EffectiveInputConnections
 		forceUpdate = true
 	}
 	if len(buildInputModelResult.Messages) > 0 {

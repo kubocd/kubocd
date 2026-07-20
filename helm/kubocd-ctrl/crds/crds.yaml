@@ -394,15 +394,19 @@ spec:
                 description: A human oriented description
                 type: string
               disabled:
+                default: false
                 description: |-
                   Allow temporary suspension of this connection
                   NB: This is only relevant for unmanaged connection.
                   For managed one, always false, or object is deleted.
-                  Default: false
                 type: boolean
               interface:
                 description: Define the service type and allow validation of rendered
                   'values'
+                type: string
+              outputName:
+                description: For managed connections, the output name (Set by the
+                  release controller, at creation)
                 type: string
               priority:
                 default: 100
@@ -415,11 +419,6 @@ spec:
             type: object
           status:
             properties:
-              allowMultiple:
-                description: |-
-                  Duplication of the interface attribute. Set by connection controller.
-                  Just to optimize by avoiding access to interface
-                type: boolean
               interfaceGeneration:
                 description: |-
                   InterfaceGeneration is the .metadata.generation of the interface this
@@ -427,10 +426,6 @@ spec:
                 format: int64
                 type: integer
               message:
-                type: string
-              outputName:
-                description: For managed connections, the output name (Set by the
-                  release controller, at creation)
                 type: string
               phase:
                 type: string
@@ -615,10 +610,6 @@ spec:
             type: object
           spec:
             properties:
-              allowMultiple:
-                default: false
-                description: If false, error in case of multiple providers on a binding
-                type: boolean
               description:
                 description: A human oriented description
                 type: string
@@ -1019,6 +1010,19 @@ spec:
                 items:
                   type: string
                 type: array
+              effectiveInputConnections:
+                description: Array by input#. The selected connection for each input
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
               helmReleaseStates:
                 additionalProperties:
                   description: HelmReleaseState describe the observed state of a child
@@ -1034,19 +1038,6 @@ spec:
                 description: HelmReleaseStates describe the observed state of child
                   HelmReleases by name
                 type: object
-              inputConnections:
-                description: List of our input connections. Used for handling dependencies
-                items:
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                  required:
-                  - name
-                  - namespace
-                  type: object
-                type: array
               message:
                 description: Human friendly last error message
                 type: string
@@ -1113,15 +1104,29 @@ spec:
                   Usage is the rendering of the Package.spec.usage[key]. Aimed to provide user information.
                   Key could 'html', 'text', some language id, etc...
                 type: object
+              watchedInputConnections:
+                description: List of our input connections. Used for handling dependencies
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                type: array
             required:
             - dependencies
-            - inputConnections
+            - effectiveInputConnections
             - phase
             - printProtected
             - protected
             - readyOutputConnections
             - readyReleases
             - roles
+            - watchedInputConnections
             type: object
         type: object
     served: true

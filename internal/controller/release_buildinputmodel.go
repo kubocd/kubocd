@@ -26,7 +26,9 @@ type BuildInputModelResult struct {
 	// For multiple result (When allowMultiple)
 	InputListModel map[string]interface{}
 	// A list of the input connection, used to managed reconciliation triggering.
-	WatchedInputConnections []kv1alpha1.WatchedInputConnection
+	WatchedInputConnections []kv1alpha1.InputConnectionReference
+	// Array by input#. The selected connection for each input
+	EffectiveInputConnections []kv1alpha1.InputConnectionReference `json:"effectiveInputConnections"`
 	// A list of missing (unmanaged) connection, to be set in status for human display
 	Messages []string
 }
@@ -34,10 +36,11 @@ type BuildInputModelResult struct {
 // BuildInputModel build the '.Inputs' in the data model for rendering values.
 func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs []kubopackage.InputRendered) (*BuildInputModelResult, ReconcileError) {
 	resultCollector := &BuildInputModelResult{
-		InputModel:              make(map[string]interface{}),
-		InputListModel:          make(map[string]interface{}),
-		WatchedInputConnections: make([]kv1alpha1.WatchedInputConnection, 0, len(inputs)),
-		Messages:                make([]string, 0, len(inputs)),
+		InputModel:                make(map[string]interface{}),
+		InputListModel:            make(map[string]interface{}),
+		WatchedInputConnections:   make([]kv1alpha1.InputConnectionReference, 0, len(inputs)),
+		EffectiveInputConnections: make([]kv1alpha1.InputConnectionReference, len(inputs)),
+		Messages:                  make([]string, 0, len(inputs)),
 	}
 	for idx, input := range inputs {
 		if input.NamedConnection.Name != "" {
@@ -67,7 +70,7 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	// User target an unmanaged connection. Just read it
 	nsName := types.NamespacedName{Namespace: input.Namespace, Name: input.NamedConnection.Name}
 	// We set in the status list even if not found or in error. As we want to be notified if created.
-	resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.WatchedInputConnection{
+	resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 		Name:      nsName.Name,
 		Namespace: nsName.Namespace,
 	})
@@ -94,6 +97,10 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	err = yaml.UnmarshalStrict(connection.Spec.Values.Raw, &values)
 	if err != nil {
 		return NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err), false, "")
+	}
+	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
+		Name:      nsName.Name,
+		Namespace: nsName.Namespace,
 	}
 	resultCollector.InputModel[input.Alias] = values
 	return nil
@@ -126,7 +133,7 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 			continue
 		}
 		possibleConnectionNames = append(possibleConnectionNames, connection.Name)
-		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.WatchedInputConnection{
+		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 			Name:      connection.Name,
 			Namespace: connection.Namespace,
 		})
@@ -160,6 +167,10 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 			return err
 		}
 		resultCollector.InputModel[input.Alias] = values
+		resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
+			Name:      electedConnections[0].Name,
+			Namespace: electedConnections[0].Namespace,
+		}
 		return nil
 	}
 	sort.Slice(electedConnections, func(i, j int) bool {
@@ -174,6 +185,10 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 		return err
 	}
 	resultCollector.InputModel[input.Alias] = values
+	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
+		Name:      electedConnections[0].Name,
+		Namespace: electedConnections[0].Namespace,
+	}
 	// And set the list of connectors
 	inputList := make([]map[string]interface{}, len(electedConnections))
 	for idx, electedConnection := range electedConnections {

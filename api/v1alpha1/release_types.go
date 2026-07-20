@@ -172,7 +172,7 @@ type HelmReleaseState struct {
 	Status string                 `json:"status,omitempty"`
 }
 
-type WatchedInputConnection struct {
+type InputConnectionReference struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 }
@@ -245,7 +245,10 @@ type ReleaseStatus struct {
 	Message string `json:"message,omitempty"`
 
 	// List of our input connections. Used for handling dependencies
-	WatchedInputConnections []WatchedInputConnection `json:"watchedInputConnections"`
+	WatchedInputConnections []InputConnectionReference `json:"watchedInputConnections"`
+
+	// Array by input#. The selected connection for each input
+	EffectiveInputConnections []InputConnectionReference `json:"effectiveInputConnections"`
 }
 
 // +kubebuilder:object:root=true
