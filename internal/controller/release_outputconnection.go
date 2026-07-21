@@ -128,6 +128,11 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 	if err = r.Create(op.ctx, connection); err != nil {
 		return fmt.Errorf("error while creating connection '%s': %w", connectionName, err)
 	}
+	connection.Status.Parent = op.release.Name
+	err = r.Status().Update(op.ctx, connection)
+	if err != nil {
+		return fmt.Errorf("error while setting status on connection '%s': %w", connectionName, err)
+	}
 	return nil
 }
 

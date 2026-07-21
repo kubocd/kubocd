@@ -130,6 +130,11 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 	if err = r.Create(op.ctx, clusterConnection); err != nil {
 		return fmt.Errorf("error while creating clusterConnection '%s': %w", clusterConnectionName, err)
 	}
+	clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", op.release.Namespace, op.release.Name)
+	err = r.Status().Update(op.ctx, clusterConnection)
+	if err != nil {
+		return fmt.Errorf("error while setting status on connection '%s': %w", clusterConnectionName, err)
+	}
 	return nil
 }
 

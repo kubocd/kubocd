@@ -55,6 +55,9 @@ const ConnectionKind = "Connection"
 
 type ConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`
+	// Name of the owner release (In case of managed connection). To be displayed to the user
+	// +optional
+	Parent string `json:"parent,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
 	// InterfaceGeneration is the .metadata.generation of the interface this
@@ -70,6 +73,7 @@ type ConnectionStatus struct {
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Release",type=string,JSONPath=`.status.parent`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 

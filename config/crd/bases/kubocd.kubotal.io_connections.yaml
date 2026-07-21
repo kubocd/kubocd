@@ -29,6 +29,9 @@ spec:
     - jsonPath: .status.phase
       name: Status
       type: string
+    - jsonPath: .status.parent
+      name: Release
+      type: string
     - jsonPath: .status.message
       name: Message
       type: string
@@ -94,6 +97,10 @@ spec:
                 format: int64
                 type: integer
               message:
+                type: string
+              parent:
+                description: Name of the owner release (In case of managed connection).
+                  To be displayed to the user
                 type: string
               phase:
                 description: ConnectionPhase is used both for Connection and ClusterConnection
