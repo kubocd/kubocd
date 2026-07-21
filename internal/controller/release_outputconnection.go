@@ -47,14 +47,17 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			}
 			r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
 			op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
-			op.outputConnectionStates[outputRendered.Name] = kv1alpha1.OutputConnectionState{
-				Phase:   "",
-				Message: "",
+			op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
+				Kind:      connection.Kind,
+				Name:      connection.Name,
+				Namespace: connection.Namespace,
+				Phase:     "",
+				Message:   "",
 			}
 			return connection, nil
 		}
 		op.logger.V(1).Info("Disabled connection", "connection", connectionName)
-		delete(op.outputConnectionStates, outputRendered.Name)
+		delete(op.outputConnectionByName, outputRendered.Name)
 		// Nothing to do.
 		return nil, nil
 	}
@@ -70,7 +73,13 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		} else {
 			op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		}
-		op.outputConnectionStates[outputRendered.Name] = computeOutputConnectionState(connection)
+		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
+			Kind:      connection.Kind,
+			Name:      connection.Name,
+			Namespace: connection.Namespace,
+			Phase:     connection.Status.Phase,
+			Message:   connection.Status.Message,
+		}
 		return connection, nil
 	}
 	op.logger.V(0).Info("Delete connection as disabled", "name", connectionName)
@@ -78,7 +87,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 	if err != nil {
 		return nil, NewReconcileError(err, false, "ConnectionDelete")
 	}
-	delete(op.outputConnectionStates, outputRendered.Name)
+	delete(op.outputConnectionByName, outputRendered.Name)
 	return nil, nil
 }
 
@@ -102,13 +111,6 @@ func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1
 	}
 	// Check if the generation changed to determine if an update occurred
 	return originalGeneration != connection.Generation, nil
-}
-
-func computeOutputConnectionState(connection *kv1alpha1.Connection) kv1alpha1.OutputConnectionState {
-	return kv1alpha1.OutputConnectionState{
-		Phase:   connection.Status.Phase,
-		Message: connection.Status.Message,
-	}
 }
 
 func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, connectionName string) error {
@@ -144,5 +146,5 @@ func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopa
 }
 
 func BuildConnectionName(releaseName, outputName string) string {
-	return fmt.Sprintf(ConnectionNameFormat, releaseName, outputName)
+	return fmt.Sprintf("kcd-%s-%s", releaseName, outputName)
 }

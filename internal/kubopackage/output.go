@@ -18,6 +18,7 @@ package kubopackage
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/tmpl"
 )
 
@@ -26,6 +27,8 @@ type Output struct {
 	Interface KcdTemplateString `json:"interface"`
 	// optional. Default to interface
 	Name KcdTemplateString `json:"Name"`
+	// Connection or ClusterConnection. Default to Connection
+	Kind KcdTemplateString `json:"Kind,omitempty"`
 	// optional. Default to Name. For a potential front end
 	DisplayName KcdTemplateString `json:"displayName,omitempty"`
 	// Optional. Default to 100
@@ -43,6 +46,7 @@ type Output struct {
 type outputTemplates struct {
 	iface       tmpl.Tmpl
 	name        tmpl.Tmpl
+	kind        tmpl.Tmpl
 	displayName tmpl.Tmpl
 	priority    tmpl.Tmpl
 	description tmpl.Tmpl
@@ -71,6 +75,10 @@ func (o *Output) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'name' parameter: %w", err)
 	}
+	o.templates.kind, err = tmpl.New("", string(o.Kind), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'kind' parameter: %w", err)
+	}
 	o.templates.displayName, err = tmpl.New("", string(o.DisplayName), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'displayName' parameter: %w", err)
@@ -98,6 +106,7 @@ func (o *Output) groom(pck *Package) error {
 type OutputRendered struct {
 	Name        string                 `json:"name"`
 	Interface   string                 `json:"interface"`
+	Kind        string                 `json:"kind"`
 	DisplayName string                 `json:"displayName,omitempty"`
 	Priority    int                    `json:"priority,omitempty"`
 	Description string                 `json:"description,omitempty"`
@@ -115,6 +124,10 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	or.Name, err = o.templates.name.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'name' parameter: %w", err)
+	}
+	or.Kind, err = o.templates.kind.RenderToSingleLine(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
 	}
 	or.DisplayName, err = o.templates.displayName.RenderToSingleLine(model)
 	if err != nil {
@@ -144,6 +157,12 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	}
 	if or.DisplayName == "" {
 		or.DisplayName = or.Name
+	}
+	if or.Kind == "" {
+		or.Kind = kv1alpha1.ConnectionKind
+	}
+	if or.Kind != kv1alpha1.ConnectionKind && or.Kind != kv1alpha1.ClusterConnectionKind {
+		return nil, fmt.Errorf("'kind' Must be one of 'Connection' or 'ClusterConnection'")
 	}
 	return or, nil
 }

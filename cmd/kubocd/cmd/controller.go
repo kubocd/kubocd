@@ -254,8 +254,7 @@ var controllerCmd = &cobra.Command{
 
 		// Create an index to retrieve a Connection from an Interface in an efficient way
 		// index connection by interface
-		const interfaceIndexOnConnection = "interfaceIndexOnConnection"
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, interfaceIndexOnConnection, func(rawObj client.Object) []string {
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
 			connection := rawObj.(*kubocdv1alpha1.Connection)
 			return []string{connection.Spec.Interface}
 		})
@@ -267,7 +266,7 @@ var controllerCmd = &cobra.Command{
 		findConnectionFromInterface := func(ctx context.Context, iface client.Object) []reconcile.Request {
 			connections := kubocdv1alpha1.ConnectionList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(interfaceIndexOnConnection, iface.GetName()),
+				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnConnection, iface.GetName()),
 			}
 			err := mgr.GetClient().List(context.Background(), &connections, listOps)
 			if err != nil {
@@ -290,7 +289,7 @@ var controllerCmd = &cobra.Command{
 
 		connectionReconciler := &controller.ConnectionReconciler{
 			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("interface"),
+			EventRecorder: mgr.GetEventRecorderFor("connection"),
 			Logger:        controllerRootLog.WithName("connectionReconciler"),
 		}
 
@@ -301,6 +300,59 @@ var controllerCmd = &cobra.Command{
 			Complete(connectionReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "connection")
+			os.Exit(1)
+		}
+
+		// -------------------------------------------------------------------------------------- ClusterConnection controller setup
+
+		// Create an index to retrieve a ClusterConnection from an Interface in an efficient way
+		// index connection by interface
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.InterfaceIndexOnClusterConnection, func(rawObj client.Object) []string {
+			clusterConnection := rawObj.(*kubocdv1alpha1.ClusterConnection)
+			return []string{clusterConnection.Spec.Interface}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Connection by Interface")
+			os.Exit(1)
+		}
+
+		findClusterConnectionFromInterface := func(ctx context.Context, iface client.Object) []reconcile.Request {
+			clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnClusterConnection, iface.GetName()),
+			}
+			err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					controllerRootLog.Error(err, "findClusterConnectionFromInterface(): Unable to find interface bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range clusterConnections.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
+		clusterConnectionReconciler := &controller.ClusterConnectionReconciler{
+			Client:        mgr.GetClient(),
+			EventRecorder: mgr.GetEventRecorderFor("clusterConnection"),
+			Logger:        controllerRootLog.WithName("clusterConnectionReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.ClusterConnection{}).
+			Named("kubocd-cluster-connection-controller").
+			Watches(&kubocdv1alpha1.Interface{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromInterface)).
+			Complete(clusterConnectionReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")
 			os.Exit(1)
 		}
 
@@ -323,6 +375,47 @@ var controllerCmd = &cobra.Command{
 		}
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
+		// ----------------------------------------------------------------------------------
+		// Create an index to retrieve a Release from an output ClusterConnection in an efficient way
+		// index release by output ClusterConnections
+		const outputClusterConnectionIndexOnRelease = "outputClusterConnectionIndexOnRelease"
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, outputClusterConnectionIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			clusterConnections := make([]string, 0, len(release.Status.OutputConnectionByName))
+			for _, clusterConnection := range release.Status.OutputConnectionByName {
+				if clusterConnection.Kind == kubocdv1alpha1.ClusterConnectionKind {
+					clusterConnections = append(clusterConnections, clusterConnection.Name)
+				}
+			}
+			return clusterConnections
+		})
+
+		// This function is needed to replace OwnerReference mechanism, as we need a cross namespace reference
+		findReleaseFromOutputClusterConnection := func(ctx context.Context, clusterConnection client.Object) []reconcile.Request {
+			releases := kubocdv1alpha1.ReleaseList{}
+			listOps := &client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(outputClusterConnectionIndexOnRelease, fmt.Sprintf("%s", clusterConnection.GetName())),
+			}
+			err := mgr.GetClient().List(context.Background(), &releases, listOps)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					controllerRootLog.Error(err, "findReleaseFromOutputClusterConnection(): Unable to find ClusterConnection bindings")
+				}
+				return []reconcile.Request{}
+			}
+			requests := make([]reconcile.Request, 0, 10)
+			for _, item := range releases.Items {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      item.GetName(),
+						Namespace: item.GetNamespace(),
+					},
+				})
+			}
+			return requests
+		}
+
+		// ----------------------------------------------------------------------------------
 		// Create an index to retrieve a Release from an input connection in an efficient way
 		// index release by input connections
 		const watchedInputConnectionIndexOnRelease = "watchedInputConnectionIndexOnRelease"
@@ -348,7 +441,7 @@ var controllerCmd = &cobra.Command{
 			err := mgr.GetClient().List(context.Background(), &releases, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromConnection(): Unable to find Connection bindings")
+					controllerRootLog.Error(err, "findReleaseFromWatchedInputConnection(): Unable to find Connection bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -364,6 +457,7 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
+		// ------------------------------------------------------------------------
 		// Create an index to retrieve a Release from a context in an efficient way
 		// index release by contexts
 		const contextIndexOnRelease = "contextIndexOnRelease"
@@ -421,6 +515,7 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
+		// -------------------------------------------------
 		// If config change, will reconcile all release
 		findReleaseFromConfig := func(ctx context.Context, kcontext client.Object) []reconcile.Request {
 			releases := kubocdv1alpha1.ReleaseList{}
@@ -465,6 +560,7 @@ var controllerCmd = &cobra.Command{
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
 			Owns(&kubocdv1alpha1.Connection{}).
+			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromOutputClusterConnection)).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
 			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
 			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromWatchedInputConnection)).
@@ -554,20 +650,20 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Create an index to retrieve Connections from an interface in an efficient way
-		// index connection by interface
+		// ---------------------------------------------------------------------------- Misc index creation
+		// Create an index to retrieve ClusterConnections from a release in an efficient way
+		// index clusterConnection by owner release (output connection)
 		//
-		// Used by func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, interface client.Object, logger logr.Logger) []string
-		////
-		//err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
-		//	connection := rawObj.(*kubocdv1alpha1.Connection)
-		//	iface := connection.Spec.Interface
-		//	return []string{iface}
-		//})
-		//if err != nil {
-		//	setupLog.Error(err, "Unable to index Connection by Interface")
-		//	os.Exit(1)
-		//}
+		// Used by func (r *ReleaseReconciler) FindOutputClusterConnectionFromRelease(ctx context.Context, release client.Object) []string
+		//
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.ReleaseIndexOnOutputClusterConnection, func(rawObj client.Object) []string {
+			connection := rawObj.(*kubocdv1alpha1.ClusterConnection)
+			return []string{fmt.Sprintf("%s:%s", connection.Spec.ParentRelease.Namespace, connection.Spec.ParentRelease.Name)}
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index ClusterConnection by Release")
+			os.Exit(1)
+		}
 
 		// ----------------------------------------------------------------------------------------------------
 		if metricsCertWatcher != nil {

@@ -81,7 +81,7 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			connection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
 			connection.Status.Message = "Disabled"
 			finalError = nil
-		} else if err := r.checkConnection(iface, connection); err != nil {
+		} else if err := checkConnection(iface, connection); err != nil {
 			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())
 			message := err.Error()
 			if connection.Status.Message != message {
@@ -112,7 +112,7 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	return ctrl.Result{}, finalError
 }
 
-func (r *ConnectionReconciler) checkConnection(iface *kv1alpha1.Interface, connection *kv1alpha1.Connection) error {
+func checkConnection(iface *kv1alpha1.Interface, connection kv1alpha1.ConnectionFacade) error {
 	if iface.Status.Phase != kv1alpha1.InterfacePhaseReady {
 		return fmt.Errorf("interface is not ready")
 	}
@@ -122,7 +122,7 @@ func (r *ConnectionReconciler) checkConnection(iface *kv1alpha1.Interface, conne
 		return fmt.Errorf("interface in error: %w", err)
 	}
 	values := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(connection.Spec.Values.Raw, &values)
+	err = yaml.UnmarshalStrict(connection.GetValues().Raw, &values)
 	if err != nil {
 		return fmt.Errorf("unable to parse connection values: %w", err)
 	}

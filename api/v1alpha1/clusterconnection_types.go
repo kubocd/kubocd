@@ -21,7 +21,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ConnectionSpec struct {
+type ParentReleaseRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+type ClusterConnectionSpec struct {
+
+	// For managed clusterConnection.
+	ParentRelease *ParentReleaseRef `json:"parentRelease,omitempty"`
 
 	// Define the service type and allow validation of rendered 'values'
 	// +kubebuilder:validation:Required
@@ -51,9 +59,9 @@ type ConnectionSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-const ConnectionKind = "Connection"
+const ClusterConnectionKind = "ClusterConnection"
 
-type ConnectionStatus struct {
+type ClusterConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -65,7 +73,7 @@ type ConnectionStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=cnx
+// +kubebuilder:resource:scope=Cluster,shortName=ccnx
 // +kubebuilder:printcolumn:name="Interface",type=string,JSONPath=`.spec.interface`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
@@ -73,35 +81,35 @@ type ConnectionStatus struct {
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-type Connection struct {
+type ClusterConnection struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ConnectionSpec   `json:"spec,omitempty"`
-	Status ConnectionStatus `json:"status,omitempty"`
+	Spec   ClusterConnectionSpec   `json:"spec,omitempty"`
+	Status ClusterConnectionStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-type ConnectionList struct {
+type ClusterConnectionList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 
-	Items []Connection `json:"items"`
+	Items []ClusterConnection `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Connection{}, &ConnectionList{})
+	SchemeBuilder.Register(&ClusterConnection{}, &ClusterConnectionList{})
 }
 
 // ------------------------------------------------------------------- ConnectionFacade
 
-var _ ConnectionFacade = &Connection{}
+var _ ConnectionFacade = &ClusterConnection{}
 
-func (cnx *Connection) GetKind() string {
-	return ConnectionKind
+func (cnx *ClusterConnection) GetKind() string {
+	return ClusterConnectionKind
 }
 
-func (cnx *Connection) GetValues() *apiextensionsv1.JSON {
+func (cnx *ClusterConnection) GetValues() *apiextensionsv1.JSON {
 	return cnx.Spec.Values
 }

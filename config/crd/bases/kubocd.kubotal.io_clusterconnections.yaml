@@ -4,17 +4,17 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: connections.kubocd.kubotal.io
+  name: clusterconnections.kubocd.kubotal.io
 spec:
   group: kubocd.kubotal.io
   names:
-    kind: Connection
-    listKind: ConnectionList
-    plural: connections
+    kind: ClusterConnection
+    listKind: ClusterConnectionList
+    plural: clusterconnections
     shortNames:
-    - cnx
-    singular: connection
-  scope: Namespaced
+    - ccnx
+    singular: clusterconnection
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.interface
@@ -76,6 +76,17 @@ spec:
                 description: For managed connections, the output name (Set by the
                   release controller, at creation)
                 type: string
+              parentRelease:
+                description: For managed clusterConnection.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
               priority:
                 default: 100
                 type: integer

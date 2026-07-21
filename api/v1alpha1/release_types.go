@@ -177,10 +177,13 @@ type InputConnectionReference struct {
 	Namespace string `json:"namespace"`
 }
 
-// OutputConnectionState describe the state of a managed (output) connection, inside Release status (Kind of duplication of Connection.Status)
-type OutputConnectionState struct {
-	Phase   ConnectionPhase `json:"status"`
-	Message string          `json:"message,omitempty"`
+// ReleaseOutputConnection describe the state of a managed (output) connection or clusterConnection, inside Release status
+type ReleaseOutputConnection struct {
+	Kind      string          `json:"kind"`
+	Name      string          `json:"name"`
+	Namespace string          `json:"namespace"`
+	Phase     ConnectionPhase `json:"phase"`
+	Message   string          `json:"message,omitempty"`
 }
 
 // ReleaseStatus defines the observed state of Release.
@@ -229,7 +232,7 @@ type ReleaseStatus struct {
 
 	// OutputConnectionStates describe the observed state of child connection by name
 	// +kubebuilder:validation:Optional
-	OutputConnectionStates map[string]OutputConnectionState `json:"outputConnectionStates"`
+	OutputConnectionByName map[string]ReleaseOutputConnection `json:"outputConnectionByName"`
 
 	// ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed
 	// as printcolumn

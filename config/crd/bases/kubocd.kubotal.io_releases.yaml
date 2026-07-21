@@ -406,18 +406,28 @@ spec:
               message:
                 description: Human friendly last error message
                 type: string
-              outputConnectionStates:
+              outputConnectionByName:
                 additionalProperties:
-                  description: OutputConnectionState describe the state of a managed
-                    (output) connection, inside Release status (Kind of duplication
-                    of Connection.Status)
+                  description: ReleaseOutputConnection describe the state of a managed
+                    (output) connection or clusterConnection, inside Release status
                   properties:
+                    kind:
+                      type: string
                     message:
                       type: string
-                    status:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    phase:
+                      description: ConnectionPhase is used both for Connection and
+                        ClusterConnection
                       type: string
                   required:
-                  - status
+                  - kind
+                  - name
+                  - namespace
+                  - phase
                   type: object
                 description: OutputConnectionStates describe the observed state of
                   child connection by name

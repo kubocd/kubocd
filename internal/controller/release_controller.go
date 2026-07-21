@@ -49,7 +49,6 @@ import (
 const OciRepositoryNameFormat = "kcd-%s"  // parameter: releaseName
 const HelmRepositoryNameFormat = "kcd-%s" // parameter: releaseName
 const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
-const ConnectionNameFormat = "kcd-%s-%s"
 
 // ReleaseReconciler reconciles a Release object
 type ReleaseReconciler struct {
@@ -70,19 +69,20 @@ var _ BuildInputModelHelper = &ReleaseReconciler{}
 
 // Just a container to avoid messy parameters passing
 type releaseOperation struct {
-	request                     ctrl.Request
-	ctx                         context.Context
-	logger                      logr.Logger
-	release                     *kv1alpha1.Release
-	pckContainer                *kubopackage.PckContainer
-	ociRepositoryName           string
-	helmRepositoryName          string
-	helmReleaseStates           map[string]kv1alpha1.HelmReleaseState      // To collect values for user display
-	outputConnectionStates      map[string]kv1alpha1.OutputConnectionState // To collect values for user display
-	outputConnectionK8sName     map[string]struct{}                        // To prevent orphan deletion
-	helmReleaseNameByModuleName map[string]string
-	roles                       []string
-	dependencies                []string
+	request                        ctrl.Request
+	ctx                            context.Context
+	logger                         logr.Logger
+	release                        *kv1alpha1.Release
+	pckContainer                   *kubopackage.PckContainer
+	ociRepositoryName              string
+	helmRepositoryName             string
+	helmReleaseStates              map[string]kv1alpha1.HelmReleaseState        // To collect values for user display
+	outputConnectionByName         map[string]kv1alpha1.ReleaseOutputConnection // To collect values for user display and index by connection. Host both Connection and ClusterConnection
+	outputConnectionK8sName        map[string]struct{}                          // To prevent orphan deletion
+	outputClusterConnectionK8sName map[string]struct{}                          // To prevent orphan deletion
+	helmReleaseNameByModuleName    map[string]string
+	roles                          []string
+	dependencies                   []string
 }
 
 // ReconcileError is a specialized error. Will allow to:
@@ -186,6 +186,20 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		if err != nil {
 			// Just log, without any other action
 			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
+		}
+		// Remove outputClusterConnection
+		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
+		if err != nil {
+			// Just log, without any other action
+			op.logger.Error(err, "Failed to list child output ClusterConnection")
+		} else {
+			for _, clusterConnection := range clusterConnections {
+				err := r.Delete(ctx, &clusterConnection)
+				if err != nil {
+					// Just log, without any other action
+					op.logger.Error(err, "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
+				}
+			}
 		}
 		// Deletion OK
 		controllerutil.RemoveFinalizer(release, global.FinalizerName)
@@ -533,11 +547,18 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		  This is coherent with the fact the helmRelease update preserve the running, older, pods, so the service is still alive.
 		  So the consumer services should not be notified in this case. So, don't touch connections.
 	*/
-	op.outputConnectionStates = make(map[string]kv1alpha1.OutputConnectionState)
+	op.outputConnectionByName = make(map[string]kv1alpha1.ReleaseOutputConnection)
 	op.outputConnectionK8sName = make(map[string]struct{})
+	op.outputClusterConnectionK8sName = make(map[string]struct{})
 	for _, outputRendered := range rendered.Outputs {
-		connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
-		_, reconcileError := r.handleOutputConnection(op, connectionName, outputRendered)
+		var reconcileError ReconcileError
+		if outputRendered.Kind == kv1alpha1.ClusterConnectionKind {
+			connectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
+			_, reconcileError = r.handleOutputClusterConnection(op, connectionName, outputRendered)
+		} else {
+			clusterConnectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
+			_, reconcileError = r.handleOutputConnection(op, clusterConnectionName, outputRendered)
+		}
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError, forceUpdate)
 		}
@@ -552,10 +573,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// Events generation and update setting are performed only if not already done
-	if !reflect.DeepEqual(op.outputConnectionStates, op.release.Status.OutputConnectionStates) {
-		op.release.Status.OutputConnectionStates = op.outputConnectionStates
+	if !reflect.DeepEqual(op.outputConnectionByName, op.release.Status.OutputConnectionByName) {
+		op.release.Status.OutputConnectionByName = op.outputConnectionByName
 		forceUpdate = true
-		for k, v := range op.outputConnectionStates {
+		for k, v := range op.outputConnectionByName {
 			if v.Phase != "" {
 				eventMessage := fmt.Sprintf("Connection '%s' ready", k)
 				if v.Phase != kv1alpha1.ConnectionPhaseReady {
@@ -567,7 +588,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// Another loop to set the user error message in every reconciliation (idempotency)
-	for k, v := range op.outputConnectionStates {
+	for k, v := range op.outputConnectionByName {
 		if v.Phase != "" && v.Phase != kv1alpha1.ConnectionPhaseReady && message == "" {
 			message = fmt.Sprintf("Connection '%s': %s", k, v.Message)
 		}
@@ -591,18 +612,32 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			}
 		}
 	}
+	// ---------------------------------------------------------- Find orphan clusterConnection, and delete them
+	//
+	outputClusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	for _, clusterConnection := range outputClusterConnections {
+		_, ok := op.outputClusterConnectionK8sName[clusterConnection.Name]
+		if !ok {
+			// Connection with ownerReference on ourselves, but not managed. Delete it
+			logger.V(0).Info("Deleting orphan clusterConnection", "name", clusterConnection.Name)
+			err := r.Delete(ctx, &clusterConnection)
+			if err != nil {
+				logger.Error(err, "unable to delete clusterConnection", "clusterConnection", clusterConnection.Name)
+			}
+		}
+	}
 	// Final return
 	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)
 }
 
 func computeReadyConnection(op *releaseOperation) (string, bool) {
 	cnt := 0
-	for _, outputConnectionState := range op.outputConnectionStates {
+	for _, outputConnectionState := range op.outputConnectionByName {
 		if outputConnectionState.Phase == kv1alpha1.ConnectionPhaseReady {
 			cnt++
 		}
 	}
-	return fmt.Sprintf("%d/%d", cnt, len(op.outputConnectionStates)), cnt == len(op.outputConnectionStates)
+	return fmt.Sprintf("%d/%d", cnt, len(op.outputConnectionByName)), cnt == len(op.outputConnectionByName)
 }
 
 // If error is 'fatal', this means it is due to something which can't be fixed with retry (i.e: invalid image).
@@ -668,6 +703,23 @@ func (r *ReleaseReconciler) FindOutputConnectionsFromRelease(ctx context.Context
 	return connections.Items, nil
 }
 
+const ReleaseIndexOnOutputClusterConnection = "ReleaseIndexOnOutputClusterConnection"
+
+func (r *ReleaseReconciler) FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.ClusterConnection, ReconcileError) {
+	clusterConnections := kv1alpha1.ClusterConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ReleaseIndexOnOutputClusterConnection, fmt.Sprintf("%s:%s", release.Namespace, release.Name)),
+	}
+	err := r.List(ctx, &clusterConnections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindOutputClusterConnectionsFromRelease(): Unable to find release bindings: %w", err), false, "")
+		}
+		return []kv1alpha1.ClusterConnection{}, nil
+	}
+	return clusterConnections.Items, nil
+}
+
 const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
 
 func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError) {
@@ -683,4 +735,20 @@ func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, na
 		}
 	}
 	return connections.Items, nil
+}
+
+const InterfaceIndexOnClusterConnection = "interfaceIndexOnClusterConnection"
+
+func (r *ReleaseReconciler) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kv1alpha1.ClusterConnection, ReconcileError) {
+	clusterConnections := &kv1alpha1.ClusterConnectionList{}
+	listOps := &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnClusterConnection, iface),
+	}
+	err := r.List(ctx, clusterConnections, listOps)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+		}
+	}
+	return clusterConnections.Items, nil
 }
