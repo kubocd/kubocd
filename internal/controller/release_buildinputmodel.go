@@ -17,7 +17,9 @@ import (
 type BuildInputModelHelper interface {
 	client.Client
 	FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError)
+	FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.ClusterConnection, ReconcileError)
 	FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError)
+	FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kv1alpha1.ClusterConnection, ReconcileError)
 }
 
 type BuildInputModelResult struct {
@@ -66,15 +68,21 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 }
 
 func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
-	connection := &kv1alpha1.Connection{}
-	// User target an unmanaged connection. Just read it
+	var connectionFacade kv1alpha1.ConnectionFacade
+	if input.Kind == kv1alpha1.KindConnection {
+		connectionFacade = &kv1alpha1.ClusterConnection{}
+	} else {
+		connectionFacade = &kv1alpha1.Connection{}
+	}
+	// User target an unmanaged connection/clusterConnection. Just read it
 	nsName := types.NamespacedName{Namespace: input.Namespace, Name: input.NamedConnection.Name}
 	// We set in the status list even if not found or in error. As we want to be notified if created.
 	resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
+		Kind:      connectionFacade.GetKind(),
 		Name:      nsName.Name,
 		Namespace: nsName.Namespace,
 	})
-	err := helper.Get(ctx, nsName, connection)
+	err := helper.Get(ctx, nsName, connectionFacade)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if !input.Optional {
@@ -84,21 +92,22 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 		}
 		return NewReconcileError(fmt.Errorf("input#%d: could not get connection '%s': %w", idx, nsName.String(), err), false, "")
 	}
-	if connection.Spec.Interface != input.Interface {
-		return NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx, input.Interface, connection.Spec.Interface), false, "")
+	if connectionFacade.GetInterface() != input.Interface {
+		return NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx, input.Interface, connectionFacade.GetInterface()), false, "")
 	}
-	if connection.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+	if connectionFacade.GetStatusPhase() != kv1alpha1.ConnectionPhaseReady {
 		if !input.Optional {
 			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Waiting for namedConnection '%s' to be ready", idx, nsName.String()))
 		}
 		return nil
 	}
 	values := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(connection.Spec.Values.Raw, &values)
+	err = yaml.UnmarshalStrict(connectionFacade.GetValues().Raw, &values)
 	if err != nil {
 		return NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err), false, "")
 	}
 	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
+		Kind:      connectionFacade.GetKind(),
 		Name:      nsName.Name,
 		Namespace: nsName.Namespace,
 	}
@@ -107,45 +116,76 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 }
 
 func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
-	connections, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
-	if err != nil {
-		return err
+	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
+	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
+		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
+		if err != nil {
+			return err
+		}
+		for i := range cnx {
+			collectionFacades = append(collectionFacades, &cnx[i])
+		}
 	}
-	return bimFilterConnection(connections, idx, input, resultCollector)
+	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
+		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
+		if err != nil {
+			return err
+		}
+		for i := range cnx {
+			collectionFacades = append(collectionFacades, &cnx[i])
+		}
+	}
+	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
 func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
-	connections, err := helper.FindConnectionsFromInterface(ctx, input.Namespace, input.Interface)
-	if err != nil {
-		return err
+	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
+	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
+		cnx, err := helper.FindConnectionsFromInterface(ctx, input.Namespace, input.Interface)
+		if err != nil {
+			return err
+		}
+		for i := range cnx {
+			collectionFacades = append(collectionFacades, &cnx[i])
+		}
 	}
-	return bimFilterConnection(connections, idx, input, resultCollector)
+	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
+		cnx, err := helper.FindClusterConnectionsFromInterface(ctx, input.Interface)
+		if err != nil {
+			return err
+		}
+		for i := range cnx {
+			collectionFacades = append(collectionFacades, &cnx[i])
+		}
+	}
+	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
-	electedConnections := make([]*kv1alpha1.Connection, 0, len(connections))
+func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
+	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
 	for _, connection := range connections {
-		if connection.Spec.Interface != input.Interface {
+		if connection.GetInterface() != input.Interface {
 			continue
 		}
-		if input.Release.Name != "" && input.Release.OutputName != "" && connection.Spec.OutputName != input.Release.OutputName {
+		if input.Release.Name != "" && input.Release.OutputName != "" && connection.GetOutputName() != input.Release.OutputName {
 			continue
 		}
-		possibleConnectionNames = append(possibleConnectionNames, connection.Name)
+		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
-			Name:      connection.Name,
-			Namespace: connection.Namespace,
+			Kind:      connection.GetKind(),
+			Name:      connection.GetName(),
+			Namespace: connection.GetNamespace(),
 		})
-		if connection.Status.Phase == kv1alpha1.ConnectionPhaseReady {
-			electedConnections = append(electedConnections, &connection)
+		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
+			electedConnections = append(electedConnections, connection)
 		}
 	}
 	if len(electedConnections) == 0 {
 		if !input.Optional {
 			var mess string
 			if input.Release.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for connection for release '%s'", idx, input.Release.Name)
+				mess = fmt.Sprintf("input#%d: Waiting for connection for release '%s:%s'", idx, input.Namespace, input.Release.Name)
 			} else {
 				mess = fmt.Sprintf("input#%d: Waiting for connection for interface '%s'", idx, input.Interface)
 			}
@@ -168,16 +208,17 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 		}
 		resultCollector.InputModel[input.Alias] = values
 		resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
-			Name:      electedConnections[0].Name,
-			Namespace: electedConnections[0].Namespace,
+			Kind:      electedConnections[0].GetKind(),
+			Name:      electedConnections[0].GetName(),
+			Namespace: electedConnections[0].GetNamespace(),
 		}
 		return nil
 	}
 	sort.Slice(electedConnections, func(i, j int) bool {
-		if electedConnections[i].Spec.Priority == electedConnections[j].Spec.Priority {
-			return electedConnections[i].Name > electedConnections[j].Name
+		if electedConnections[i].GetPriority() == electedConnections[j].GetPriority() {
+			return electedConnections[i].GetName() > electedConnections[j].GetName()
 		}
-		return electedConnections[i].Spec.Priority > electedConnections[j].Spec.Priority
+		return electedConnections[i].GetPriority() > electedConnections[j].GetPriority()
 	})
 	// Set the elected value (Higher priority)
 	values, err := parseValue(idx, electedConnections[0])
@@ -186,8 +227,9 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 	}
 	resultCollector.InputModel[input.Alias] = values
 	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
-		Name:      electedConnections[0].Name,
-		Namespace: electedConnections[0].Namespace,
+		Kind:      electedConnections[0].GetKind(),
+		Name:      electedConnections[0].GetName(),
+		Namespace: electedConnections[0].GetNamespace(),
 	}
 	// And set the list of connectors
 	inputList := make([]map[string]interface{}, len(electedConnections))
@@ -202,11 +244,11 @@ func bimFilterConnection(connections []kv1alpha1.Connection, idx int, input kubo
 	return nil
 }
 
-func parseValue(idx int, conn *kv1alpha1.Connection) (map[string]interface{}, ReconcileError) {
+func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{}, ReconcileError) {
 	values := make(map[string]interface{})
-	err := yaml.UnmarshalStrict(conn.Spec.Values.Raw, &values)
+	err := yaml.UnmarshalStrict(conn.GetValues().Raw, &values)
 	if err != nil {
-		return nil, NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, types.NamespacedName{Namespace: conn.Namespace, Name: conn.Name}.String(), err), false, "")
+		return nil, NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, types.NamespacedName{Namespace: conn.GetNamespace(), Name: conn.GetName()}.String(), err), false, "")
 	}
 	return values, nil
 }

@@ -173,13 +173,14 @@ type HelmReleaseState struct {
 }
 
 type InputConnectionReference struct {
+	Kind      Kind   `json:"kind"` // Connection or ClusterConnection
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 }
 
 // ReleaseOutputConnection describe the state of a managed (output) connection or clusterConnection, inside Release status
 type ReleaseOutputConnection struct {
-	Kind      string          `json:"kind"`
+	Kind      Kind            `json:"kind"`
 	Name      string          `json:"name"`
 	Namespace string          `json:"namespace"`
 	Phase     ConnectionPhase `json:"phase"`

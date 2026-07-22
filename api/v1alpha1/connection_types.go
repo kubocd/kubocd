@@ -51,7 +51,7 @@ type ConnectionSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-const ConnectionKind = "Connection"
+// const ConnectionKind = "Connection"
 
 type ConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`
@@ -102,10 +102,26 @@ func init() {
 
 var _ ConnectionFacade = &Connection{}
 
-func (cnx *Connection) GetKind() string {
-	return ConnectionKind
+func (cnx *Connection) GetKind() Kind {
+	return KindConnection
 }
 
 func (cnx *Connection) GetValues() *apiextensionsv1.JSON {
 	return cnx.Spec.Values
+}
+
+func (cnx *Connection) GetInterface() string {
+	return cnx.Spec.Interface
+}
+
+func (cnx *Connection) GetOutputName() string {
+	return cnx.Spec.OutputName
+}
+
+func (cnx *Connection) GetPriority() int {
+	return cnx.Spec.Priority
+}
+
+func (cnx *Connection) GetStatusPhase() ConnectionPhase {
+	return cnx.Status.Phase
 }

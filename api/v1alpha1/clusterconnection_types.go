@@ -59,7 +59,7 @@ type ClusterConnectionSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-const ClusterConnectionKind = "ClusterConnection"
+//const ClusterConnectionKind = "ClusterConnection"
 
 type ClusterConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`
@@ -110,10 +110,26 @@ func init() {
 
 var _ ConnectionFacade = &ClusterConnection{}
 
-func (cnx *ClusterConnection) GetKind() string {
-	return ClusterConnectionKind
+func (cnx *ClusterConnection) GetKind() Kind {
+	return KindClusterConnection
 }
 
 func (cnx *ClusterConnection) GetValues() *apiextensionsv1.JSON {
 	return cnx.Spec.Values
+}
+
+func (cnx *ClusterConnection) GetInterface() string {
+	return cnx.Spec.Interface
+}
+
+func (cnx *ClusterConnection) GetOutputName() string {
+	return cnx.Spec.OutputName
+}
+
+func (cnx *ClusterConnection) GetPriority() int {
+	return cnx.Spec.Priority
+}
+
+func (cnx *ClusterConnection) GetStatusPhase() ConnectionPhase {
+	return cnx.Status.Phase
 }

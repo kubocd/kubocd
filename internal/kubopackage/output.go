@@ -35,8 +35,8 @@ type Output struct {
 	Priority KcdTemplateInt `json:"priority,omitempty"`
 	// Optional
 	Description KcdTemplateString `json:"description,omitempty"`
-	// Optional. Default to true
-	Enabled KcdTemplateBool `json:"enabled,omitempty"`
+	// Optional. Default to false
+	Disabled KcdTemplateBool `json:"disabled,omitempty"`
 	// Optional. A connection without values can be used to mark dependencies
 	Values KcdTemplateMap `json:"values,omitempty"`
 	// ------------------------------- Private part
@@ -50,7 +50,7 @@ type outputTemplates struct {
 	displayName tmpl.Tmpl
 	priority    tmpl.Tmpl
 	description tmpl.Tmpl
-	enabled     tmpl.Tmpl
+	disabled    tmpl.Tmpl
 	values      tmpl.Tmpl
 }
 
@@ -58,12 +58,6 @@ func (o *Output) groom(pck *Package) error {
 	if o.Interface == "" {
 		return fmt.Errorf("'interface' is a required parameters")
 	}
-	//if o.Enabled == "" {
-	//	o.Enabled = "true"
-	//}
-	//if o.Priority == "" {
-	//	o.Priority = "100"
-	//}
 	o.templates = &outputTemplates{}
 	var err error
 	// ------- Now, handle templates
@@ -91,7 +85,7 @@ func (o *Output) groom(pck *Package) error {
 	if err != nil {
 		return fmt.Errorf("could not parse 'description' parameter: %w", err)
 	}
-	o.templates.enabled, err = tmpl.New("", string(o.Enabled), pck.TemplateHeader)
+	o.templates.disabled, err = tmpl.New("", string(o.Disabled), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'disabled' parameter: %w", err)
 	}
@@ -106,15 +100,15 @@ func (o *Output) groom(pck *Package) error {
 type OutputRendered struct {
 	Name        string                 `json:"name"`
 	Interface   string                 `json:"interface"`
-	Kind        string                 `json:"kind"`
+	Kind        kv1alpha1.Kind         `json:"kind"`
 	DisplayName string                 `json:"displayName,omitempty"`
 	Priority    int                    `json:"priority,omitempty"`
 	Description string                 `json:"description,omitempty"`
-	Enabled     bool                   `json:"enabled"`
+	Disabled    bool                   `json:"disabled,omitempty"`
 	Values      map[string]interface{} `json:"values,omitempty"`
 }
 
-func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (*OutputRendered, error) {
+func (o *Output) Render(model map[string]interface{}) (*OutputRendered, error) {
 	or := &OutputRendered{}
 	var err error
 	or.Interface, err = o.templates.iface.RenderToSingleLine(model)
@@ -125,10 +119,11 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'name' parameter: %w", err)
 	}
-	or.Kind, err = o.templates.kind.RenderToSingleLine(model)
+	k, err := o.templates.kind.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
 	}
+	or.Kind = kv1alpha1.Kind(k)
 	or.DisplayName, err = o.templates.displayName.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'displayName' parameter: %w", err)
@@ -141,7 +136,7 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'description' parameter: %w", err)
 	}
-	or.Enabled, _, err = o.templates.enabled.RenderToBool(model, true)
+	or.Disabled, _, err = o.templates.disabled.RenderToBool(model, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'enabled' parameter: %w", err)
 	}
@@ -159,9 +154,9 @@ func (o *Output) Render(model map[string]interface{}, defaultNamespace string) (
 		or.DisplayName = or.Name
 	}
 	if or.Kind == "" {
-		or.Kind = kv1alpha1.ConnectionKind
+		or.Kind = kv1alpha1.KindConnection
 	}
-	if or.Kind != kv1alpha1.ConnectionKind && or.Kind != kv1alpha1.ClusterConnectionKind {
+	if or.Kind != kv1alpha1.KindConnection && or.Kind != kv1alpha1.KindClusterConnection {
 		return nil, fmt.Errorf("'kind' Must be one of 'Connection' or 'ClusterConnection'")
 	}
 	return or, nil

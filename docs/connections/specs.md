@@ -64,7 +64,7 @@ spec:
   interface: <string>  # Required
   priority: <int> # Optionnal
   values: <map[string]interface{}>
-  enabled: <bool> # default true
+  disabled: <bool> # default false
   description: <string>
 
 ```
@@ -85,7 +85,7 @@ spec:
   interface: <string>  # Required
   priority: <int> # Optionnal
   values: <map[string]interface{}
-  enabled: <bool> # default true
+  disabled: <bool> # default false
   description: <string>
 
 ```
@@ -124,10 +124,11 @@ Il permet de définir une ou plusieurs Connections qui seront générées lors d
 output:
   - name: <string>  # Required
     interface: <string> # required
+    kind: <template_string> # Connection or ClusterConnection. Optional. Default to Connection
     displayName: <template_string> # Optional. Default to .name
     priority: <template_int> # Optional. Default 100
     description: <template_string> # Optional
-    enabled: <templte_bool> # default true
+    disabled: <templte_bool> # default false
     values: <template_map[string]interface{}>
 ```
 
@@ -143,7 +144,7 @@ existante.
 ```
 input:
   - interface: <template_string> # required
-    kind: <template_string> # Connection or ClusterConnection. Default to Connection
+    kind: <template_string> # Connection or ClusterConnection. For namedConnection, default to Connection. In other cases, both are looked up.
     namespace: # If kind == Connection. Default to release namespace.
     namedConnection:
       name: <template_string>

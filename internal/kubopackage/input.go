@@ -18,18 +18,14 @@ package kubopackage
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/tmpl"
 )
-
-type Kind string
-
-const KindConnection = Kind("Connection")
-const KindClusterConnection = Kind("ClusterConnection")
 
 type Input struct {
 	// required:true
 	Interface KcdTemplateString `json:"interface"`
-	// Connection or ClusterConnection. If empty, both are looked up.
+	// Connection or ClusterConnection. For namedConnection, default to Connection. In other cases, both are looked up.
 	Kind KcdTemplateString `json:"kind,omitempty"`
 	// If kind == Connection. For NamedConnection or Release lookup. Default to release namespace
 	Namespace       KcdTemplateString `json:"namespace,omitempty"`
@@ -117,9 +113,9 @@ func (i *Input) groom(pck *Package) error {
 
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type InputRendered struct {
-	Interface       string `json:"interface"`
-	Kind            Kind   `json:"kind"`
-	Namespace       string `json:"namespace"`
+	Interface       string         `json:"interface"`
+	Kind            kv1alpha1.Kind `json:"kind"`
+	Namespace       string         `json:"namespace"`
 	NamedConnection struct {
 		Name string `json:"name,omitempty"`
 	} `json:"namedConnection,omitempty"`
@@ -143,6 +139,7 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
 	}
+	ir.Kind = kv1alpha1.Kind(k)
 	ir.Namespace, err = i.templates.namespace.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'namespace' parameter: %w", err)
@@ -171,26 +168,25 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'allowMultiple' parameter: %w", err)
 	}
-	ir.Kind = Kind(k)
-	if ir.Kind == "" {
-		ir.Kind = KindConnection
+	if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
+		return nil, fmt.Errorf("if defined, 'kind' should be either 'Connection' or 'ClusterConnection'")
 	}
-	if ir.Kind != KindConnection && ir.Kind != KindClusterConnection {
-		return nil, fmt.Errorf("'kind' should be either 'Connection' or 'ClusterConnection'")
-	}
-	if ir.Kind == KindClusterConnection && ir.Namespace != "" {
-		return nil, fmt.Errorf("'namespace' should be be empty if kink == ClusterConnection")
+	if ir.Kind == kv1alpha1.KindClusterConnection && ir.Namespace != "" {
+		return nil, fmt.Errorf("'namespace' should be be empty if kind == ClusterConnection")
 	}
 	if ir.Interface == "" {
 		return nil, fmt.Errorf("'interface' is a required parameters")
 	}
 	if ir.NamedConnection.Name != "" && ir.Release.Name != "" {
-		return nil, fmt.Errorf("'unmanagedConnection.name' and 'release.name' can't be defined at the same time")
+		return nil, fmt.Errorf("'namedConnection.name' and 'release.name' can't be defined at the same time")
+	}
+	if ir.NamedConnection.Name != "" && ir.Kind == "" {
+		ir.Kind = kv1alpha1.KindConnection // Default
 	}
 	if ir.Alias == "" {
 		ir.Alias = ir.Interface
 	}
-	if ir.Namespace == "" && ir.Kind == KindConnection {
+	if ir.Namespace == "" && ir.Kind == kv1alpha1.KindConnection {
 		ir.Namespace = defaultNamespace
 	}
 	return ir, nil

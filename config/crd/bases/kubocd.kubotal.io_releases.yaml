@@ -379,11 +379,14 @@ spec:
                 description: Array by input#. The selected connection for each input
                 items:
                   properties:
+                    kind:
+                      type: string
                     name:
                       type: string
                     namespace:
                       type: string
                   required:
+                  - kind
                   - name
                   - namespace
                   type: object
@@ -483,11 +486,14 @@ spec:
                 description: List of our input connections. Used for handling dependencies
                 items:
                   properties:
+                    kind:
+                      type: string
                     name:
                       type: string
                     namespace:
                       type: string
                   required:
+                  - kind
                   - name
                   - namespace
                   type: object

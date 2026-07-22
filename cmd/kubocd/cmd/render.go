@@ -308,7 +308,7 @@ var renderCmd = &cobra.Command{
 			// -------------------------------------------------------------------- Render all values
 
 			cmn.Dump(output, "model.yaml", model)
-			rendered, err := pkgContainer.Package.Render(model, release.Namespace)
+			rendered, err := pkgContainer.Package.Render(model)
 			if err != nil {
 				return fmt.Errorf("could not render package: %w", err)
 			}
@@ -407,12 +407,12 @@ var renderCmd = &cobra.Command{
 			}
 			// --------------------------------------------------------------------- Generate output connections
 			for _, outputRendered := range rendered.Outputs {
-				if outputRendered.Enabled {
-					if outputRendered.Kind == kapi.ClusterConnectionKind {
+				if !outputRendered.Disabled {
+					if outputRendered.Kind == kapi.KindClusterConnection {
 						connection := &kapi.ClusterConnection{
 							TypeMeta: metav1.TypeMeta{
 								APIVersion: kapi.GroupVersion.String(),
-								Kind:       kapi.ClusterConnectionKind,
+								Kind:       string(kapi.KindClusterConnection),
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Name: controller.BuildClusterConnectionName(release.Name, release.Namespace, outputRendered.Name),
@@ -437,7 +437,7 @@ var renderCmd = &cobra.Command{
 						connection := &kapi.Connection{
 							TypeMeta: metav1.TypeMeta{
 								APIVersion: kapi.GroupVersion.String(),
-								Kind:       kapi.ConnectionKind,
+								Kind:       string(kapi.KindConnection),
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Namespace: release.Namespace,
@@ -497,6 +497,8 @@ type buildInputModelHelper struct {
 	client.Client
 }
 
+var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
+
 func (h *buildInputModelHelper) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kapi.Connection, controller.ReconcileError) {
 	// No field indexer is configured for the render command, so we list all connections
 	// in the namespace and filter on the interface
@@ -514,7 +516,22 @@ func (h *buildInputModelHelper) FindConnectionsFromInterface(ctx context.Context
 	return result, nil
 }
 
-var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
+func (h *buildInputModelHelper) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kapi.ClusterConnection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all clusterConnections
+	// filter on the interface
+	clusterConnections := kapi.ClusterConnectionList{}
+	err := h.List(ctx, &clusterConnections, &client.ListOptions{})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): unable to list clusterConnections: %w", err), false, "")
+	}
+	result := make([]kapi.ClusterConnection, 0, len(clusterConnections.Items))
+	for _, connection := range clusterConnections.Items {
+		if connection.Spec.Interface == iface {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
 
 func (h *buildInputModelHelper) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.Connection, controller.ReconcileError) {
 	// No field indexer is configured for the render command, so we list all connections
@@ -528,6 +545,23 @@ func (h *buildInputModelHelper) FindOutputConnectionsFromRelease(ctx context.Con
 	for _, connection := range connections.Items {
 		owner := metav1.GetControllerOf(&connection)
 		if owner != nil && owner.Name == release.Name {
+			result = append(result, connection)
+		}
+	}
+	return result, nil
+}
+
+func (h *buildInputModelHelper) FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kapi.ClusterConnection, controller.ReconcileError) {
+	// No field indexer is configured for the render command, so we list all clusterConnections
+	// in the release namespace and filter on the controller owner reference name.
+	clusterConnections := kapi.ClusterConnectionList{}
+	err := h.List(ctx, &clusterConnections, &client.ListOptions{})
+	if err != nil {
+		return nil, controller.NewReconcileError(fmt.Errorf("FindOutputClusterConnectionsFromRelease(): unable to list clusterConnections: %w", err), false, "")
+	}
+	result := make([]kapi.ClusterConnection, 0, len(clusterConnections.Items))
+	for _, connection := range clusterConnections.Items {
+		if connection.Spec.ParentRelease != nil && connection.Spec.ParentRelease.Name == release.Name && connection.Spec.ParentRelease.Namespace == release.Namespace {
 			result = append(result, connection)
 		}
 	}

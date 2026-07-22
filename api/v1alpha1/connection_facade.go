@@ -16,15 +16,24 @@ limitations under the License.
 
 package v1alpha1
 
-import apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
 
 // ConnectionFacade is the interface hiding differences between Connection and ClusterConnection
 // +kubebuilder:object:generate=false
 type ConnectionFacade interface {
-	GetKind() string
+	client.Object
+
+	GetKind() Kind
 	GetName() string
 	GetNamespace() string
 
+	GetInterface() string
+	GetStatusPhase() ConnectionPhase
+	GetOutputName() string
+	GetPriority() int
 	GetValues() *apiextensionsv1.JSON
 }
 

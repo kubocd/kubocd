@@ -36,7 +36,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		if !apierrors.IsNotFound(err) {
 			return nil, NewReconcileError(fmt.Errorf("on ClusterConnection '%s': %w", clusterConnectionName, err), false, "ClusterConnectionAccess")
 		}
-		if outputRendered.Enabled {
+		if !outputRendered.Disabled {
 			// Must create it
 			op.logger.V(0).Info("Will create clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 			op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
@@ -47,7 +47,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 			r.Event(op.release, "Normal", "ClusterConnectionCreated", fmt.Sprintf("Created ClusterConnection %q", clusterConnectionName))
 			op.logger.V(1).Info("Launched clusterConnection", "connectionName", clusterConnectionName)
 			op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-				Kind:      clusterConnection.Kind,
+				Kind:      kv1alpha1.Kind(clusterConnection.Kind),
 				Name:      clusterConnection.Name,
 				Namespace: "",
 				Phase:     "",
@@ -61,7 +61,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		return nil, nil
 	}
 	// Connection exist. Update if needed
-	if outputRendered.Enabled {
+	if !outputRendered.Disabled {
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
 		if err != nil {
@@ -73,7 +73,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 			op.logger.V(1).Info("ClusterConnection unchanged", "name", clusterConnectionName, "output", outputRendered.Name)
 		}
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-			Kind:      clusterConnection.Kind,
+			Kind:      kv1alpha1.Kind(clusterConnection.Kind),
 			Name:      clusterConnection.Name,
 			Namespace: "",
 			Phase:     clusterConnection.Status.Phase,
@@ -98,7 +98,7 @@ func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterC
 	patch := client.MergeFrom(clusterConnection.DeepCopy())
 
 	// Populate the HelmRelease with updated configuration
-	err := PopulateClusterConnection(clusterConnection, outputRendered)
+	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
 	if err != nil {
 		return false, fmt.Errorf("failed to populate clusterConnection '%s': %w", clusterConnection.Name, err)
 	}
@@ -115,7 +115,7 @@ func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterC
 func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, clusterConnectionName string) error {
 	clusterConnection := &kv1alpha1.ClusterConnection{}
 	clusterConnection.SetName(clusterConnectionName)
-	err := PopulateClusterConnection(clusterConnection, outputRendered)
+	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
 	if err != nil {
 		return fmt.Errorf("failed to populate clusterConnection '%s': %w", clusterConnectionName, err)
 	}
@@ -138,7 +138,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 	return nil
 }
 
-func PopulateClusterConnection(clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
+func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
 	clusterConnection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
@@ -149,6 +149,10 @@ func PopulateClusterConnection(clusterConnection *kv1alpha1.ClusterConnection, o
 	clusterConnection.Spec.Description = outputRendered.Description
 	clusterConnection.Spec.Priority = outputRendered.Priority
 	clusterConnection.Spec.OutputName = outputRendered.Name
+	clusterConnection.Spec.ParentRelease = &kv1alpha1.ParentReleaseRef{
+		Name:      op.release.Name,
+		Namespace: op.release.Namespace,
+	}
 	return nil
 }
 

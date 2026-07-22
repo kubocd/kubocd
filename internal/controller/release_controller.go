@@ -435,7 +435,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	model["Inputs"] = buildInputModelResult.InputModel
 	model["InputLists"] = buildInputModelResult.InputListModel
 	// -------------------------------------------------------------------- Render all values
-	rendered, err := op.pckContainer.Package.Render(model, release.Namespace)
+	rendered, err := op.pckContainer.Package.Render(model)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
 	}
@@ -552,12 +552,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	op.outputClusterConnectionK8sName = make(map[string]struct{})
 	for _, outputRendered := range rendered.Outputs {
 		var reconcileError ReconcileError
-		if outputRendered.Kind == kv1alpha1.ClusterConnectionKind {
-			connectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
-			_, reconcileError = r.handleOutputClusterConnection(op, connectionName, outputRendered)
+		if outputRendered.Kind == kv1alpha1.KindClusterConnection {
+			clusterConnectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
+			_, reconcileError = r.handleOutputClusterConnection(op, clusterConnectionName, outputRendered)
 		} else {
-			clusterConnectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
-			_, reconcileError = r.handleOutputConnection(op, clusterConnectionName, outputRendered)
+			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
+			_, reconcileError = r.handleOutputConnection(op, connectionName, outputRendered)
 		}
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError, forceUpdate)

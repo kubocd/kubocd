@@ -29,6 +29,9 @@ rules:
     resources:
       - releases
       - contexts
+      - connections
+      - clusterconnections
+      - interface
     verbs:
       - get
       - list
@@ -54,6 +57,9 @@ rules:
     resources:
       - releases/status
       - contexts/status
+      - connections/status
+      - clusterconnections/status
+      - interface/status
     verbs:
       - get
       - patch

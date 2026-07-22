@@ -46,6 +46,15 @@ func (in *NamespacedName) IsNil() bool {
 	return in.Namespace == "" && in.Name == ""
 }
 
+//----------------------------------------------------
+
+type Kind string
+
+const KindConnection = Kind("Connection")
+const KindClusterConnection = Kind("ClusterConnection")
+
+//----------------------------------------------------
+
 type OciAddOn struct {
 
 	// The source will be handled by a child fluxCD OciRepository resource, which will be created by this operator

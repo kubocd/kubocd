@@ -189,13 +189,13 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
-	for idx, _ := range pck.Inputs {
+	for idx := range pck.Inputs {
 		err = pck.Inputs[idx].groom(pck)
 		if err != nil {
 			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
 		}
 	}
-	for idx, _ := range pck.Outputs {
+	for idx := range pck.Outputs {
 		err = pck.Outputs[idx].groom(pck)
 		if err != nil {
 			return fmt.Errorf("error on 'output[%d]': %w", idx, err)
@@ -227,7 +227,7 @@ type Rendered struct {
 	Inputs               []InputRendered // Warning: Lifecycle is different. Computed in advance
 }
 
-func (pck *Package) Render(model map[string]interface{}, defaultNamespace string) (*Rendered, error) {
+func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	r := &Rendered{
 		ModuleRenderedByName: make(map[string]*ModuleRendered),
 	}
@@ -275,7 +275,7 @@ func (pck *Package) Render(model map[string]interface{}, defaultNamespace string
 	// ---------------------------- Render outputs
 	r.Outputs = make([]*OutputRendered, len(pck.Outputs))
 	for idx, output := range pck.Outputs {
-		or, err := output.Render(model, defaultNamespace)
+		or, err := output.Render(model)
 		if err != nil {
 			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
 		}

@@ -37,7 +37,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		if !apierrors.IsNotFound(err) {
 			return nil, NewReconcileError(fmt.Errorf("on Connection '%s': %w", connectionName, err), false, "ConnectionAccess")
 		}
-		if outputRendered.Enabled {
+		if !outputRendered.Disabled {
 			// Must create it
 			op.logger.V(0).Info("Will create connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 			op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
@@ -48,7 +48,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
 			op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
 			op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-				Kind:      connection.Kind,
+				Kind:      kv1alpha1.Kind(connection.Kind),
 				Name:      connection.Name,
 				Namespace: connection.Namespace,
 				Phase:     "",
@@ -62,7 +62,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		return nil, nil
 	}
 	// Connection exist. Update if needed
-	if outputRendered.Enabled {
+	if !outputRendered.Disabled {
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchConnection(r, op, connection, outputRendered)
 		if err != nil {
@@ -74,7 +74,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		}
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-			Kind:      connection.Kind,
+			Kind:      kv1alpha1.Kind(connection.Kind),
 			Name:      connection.Name,
 			Namespace: connection.Namespace,
 			Phase:     connection.Status.Phase,
