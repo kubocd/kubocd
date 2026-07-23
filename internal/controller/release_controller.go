@@ -141,10 +141,10 @@ func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *ReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	logger.V(0).Info("vv--------------vv")
+	logger.V(1).Info("vv--------------vv")
 	result, err := r.reconcile2(ctx, req, logger)
 	//logger.V(1).Info("^^--------------^^", "result", result, "error", err)
-	logger.V(0).Info("^^--------------^^", "result", result)
+	logger.V(1).Info("^^--------------^^", "result", result)
 	return result, err
 }
 

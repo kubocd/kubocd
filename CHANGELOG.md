@@ -3,6 +3,8 @@
 - Implementation of Connection sub system
 - The Release.Status has been modified. Error message are reported in a single field, decreasing the need to dig inside
   child resources to retrieve errors.
+- Internally now using helm v4 (Following up fluxCD)
+- Updated go libraries dependencies to latest current version.
 
 # v0.3.1
 
