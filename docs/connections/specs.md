@@ -98,8 +98,8 @@ spec:
 
 ### Interface
 
-Le Interface permet de décrire le schéma auquel doit se conformer l'attribut 'values' d'un `output`. An Interface is a
-cluster resource (non namespaced)
+Une Interface permet de décrire le schéma auquel doit se conformer l'attribut 'values' d'une
+connection/clusterConnextion. An Interface is a namespaced resource
 
 ```
 apiVersion: kubocd.kubotal.io/v2alpha1
@@ -107,6 +107,23 @@ kind: Interface
 metadata:
   name: <string>  # Le nom k8s est le nom de l'interface
   namespace: <string>
+spec:
+  description: <string>
+  schema: # <schema_json_or_kubocd>
+    properties:
+      ....
+```
+
+### ClusterInterface
+
+Une ClusterInterface, cluster scoped resource, permet aussi de décrire le schéma auquel doit se conformer l'attribut
+'values' d'une connection/clusterConnextion.
+
+```
+apiVersion: kubocd.kubotal.io/v2alpha1
+kind: ClusterInterface
+metadata:
+  name: <string>  # Le nom k8s est le nom de l'interface
 spec:
   description: <string>
   schema: # <schema_json_or_kubocd>
@@ -144,12 +161,15 @@ existante.
 ```
 input:
   - interface: <template_string> # required
-    kind: <template_string> # Connection or ClusterConnection. For namedConnection, default to Connection. In other cases, both are looked up.
-    namespace: # If kind == Connection. Default to release namespace.
+    kind: <template_string> # Connection or ClusterConnection. If "", then loopkup both
+    interfaceLookup:
+      namespace: <template_string> # Default to relase namespace.
     namedConnection:
       name: <template_string>
+      namespace: <template_string> # Default to relase namespace. If "", then it is a clusterConnection
     release:
       name: <template_string>
+      namespace: <template_string> # Default to relase namespace
       outputName: <template_string>
     alias: <template_string> # optional. Default to interface
     optional: <template_bool> # Default: false. If true and the connection is missing, there is no error, and `.Inputs.<alias>` does not exists.
@@ -157,23 +177,27 @@ input:
 
 ```
 
-### NamespacedInterface
+interfaceLookup, namedConnection and release are exclusive
 
-NB: Si le besoin s'en fait sentir, il serait possible de définir une alternative namespaced pour les Interface
-(NamespacedInterface ?)
-
-Dans ce cas, elle devra être référencée avec son namespace:
+If none, then:
 
 ```
-output:
-  - name: <string>  # Required
-    interface:  # Empty or ommited
-    namespacedInterface:
-      name: <string>
-      namepace: <string>  # Default to referering Connection namespace
+input:
+  - interface: <template_string> # required
+    interfaceLookup:
+      namespace: targetNamespace
 ```
 
 ## Usage
+
+### Interface/Connection relationship.
+
+- A clusterConnection will lookup its interface by name as ClusterInterface
+- A Connection will lookup its Interface by name in its namespace. If not found, it will lookup a ClusterInterface of
+  appropriate name.
+
+NB: Le Release controller n'accède pas aux resources (Cluster)Interface. Il ne se fi qu'à l'état des (Cluster)Connection
+d'entrée ou de sortie. Cet état est géré par les controlleurs de (Cluster)Connection.
 
 ### Connection Binding
 

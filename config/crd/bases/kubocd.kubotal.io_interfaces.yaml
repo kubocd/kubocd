@@ -11,13 +11,12 @@ spec:
     kind: Interface
     listKind: InterfaceList
     plural: interfaces
+    shortNames:
+    - iface
     singular: interface
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.allowMultiple
-      name: Mul.
-      type: boolean
     - jsonPath: .spec.description
       name: Description
       type: string

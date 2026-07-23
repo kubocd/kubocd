@@ -56,7 +56,7 @@ spec:
             - /kubocd
           args:
             - controller
-            - --leaderElect={{ ne .Values.controller.replicaCount 1.0 }}
+            - --leaderElect={{ ne (int .Values.controller.replicaCount) 1 }}
             - --healthProbeBindAddress=:8081
             - --rootDataFolder=/works
             - --helmRepoAdvAddr={{ include "kubocd.controller.helm-repository.serviceName" . }}.{{.Release.Namespace}}.svc

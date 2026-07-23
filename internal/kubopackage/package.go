@@ -18,11 +18,14 @@ package kubopackage
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+
+	"sigs.k8s.io/yaml"
 )
 
 // KcdTemplateMap A template where expected result is a map[string]interface{}.
@@ -41,6 +44,10 @@ type KcdTemplateDuration string
 // KcdTemplateStringList A template where expected result is a []string
 // May be a string or a []string
 type KcdTemplateStringList interface{}
+
+// KcdTemplateObjectList A template where expected result is a []interface{}
+// May be a string or a []string
+type KcdTemplateObjectList interface{}
 
 // KcdTemplateInt A template where expected result is an integer
 type KcdTemplateInt string
@@ -88,9 +95,9 @@ type Package struct {
 	// Intended to be used to compute some global values
 	TemplateHeader string `json:"templateHeader,omitempty"`
 	// List of inputs referencing connections.
-	Inputs []Input `json:"inputs,omitempty"`
+	Inputs KcdTemplateObjectList `json:"inputs,omitempty"`
 	// List of outputs, to generate connections
-	Outputs []Output `json:"outputs,omitempty"`
+	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -189,18 +196,17 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
-	for idx := range pck.Inputs {
-		err = pck.Inputs[idx].groom(pck)
-		if err != nil {
-			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
-		}
+
+	pck.templates.inputs, err = tmpl.NewFromAny("", pck.Inputs, pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'inputs' template: %w", err)
 	}
-	for idx := range pck.Outputs {
-		err = pck.Outputs[idx].groom(pck)
-		if err != nil {
-			return fmt.Errorf("error on 'output[%d]': %w", idx, err)
-		}
+
+	pck.templates.outputs, err = tmpl.NewFromAny("", pck.Outputs, pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
+
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -210,10 +216,11 @@ type packageTemplates struct {
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
 	description  tmpl.Tmpl
-	//inputs       []tmpl.Tmpl
+	outputs      tmpl.Tmpl
+	inputs       tmpl.Tmpl
 }
 
-// Rendered object is a proxy for a release e of a package.
+// Rendered object is a proxy for a release of a package.
 // Aim is to concentrate all error detection in its constructor
 // Standard way should be to have Getters on package and module object.
 // But each getter may generate an error, thus complicate the code.
@@ -224,7 +231,39 @@ type Rendered struct {
 	ModuleRenderedByName map[string]*ModuleRendered
 	Description          string
 	Outputs              []*OutputRendered
-	Inputs               []InputRendered // Warning: Lifecycle is different. Computed in advance
+	Inputs               []*InputRendered // Warning: Lifecycle is different. Computed in advance
+}
+
+// OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
+type OutputRendered struct {
+	Name        string                 `json:"name"`
+	Interface   string                 `json:"interface"`
+	Kind        kv1alpha1.Kind         `json:"kind"`
+	DisplayName string                 `json:"displayName,omitempty"`
+	Priority    int                    `json:"priority,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Values      map[string]interface{} `json:"values,omitempty"`
+}
+
+// InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
+type InputRendered struct {
+	Interface       string         `json:"interface"`
+	Kind            kv1alpha1.Kind `json:"kind,omitempty"`
+	InterfaceLookup struct {
+		Namespace string `json:"namespace"`
+	} `json:"interfaceLookup"`
+	NamedConnection struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"namedConnection"`
+	Release struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Output    string `json:"output,omitempty"`
+	} `json:"release"`
+	Alias         string `json:"alias"`
+	Optional      bool   `json:"optional"`
+	AllowMultiple bool   `json:"allowMultiple"`
 }
 
 func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
@@ -273,14 +312,39 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 	}
 	// ---------------------------- Render outputs
-	r.Outputs = make([]*OutputRendered, len(pck.Outputs))
-	for idx, output := range pck.Outputs {
-		or, err := output.Render(model)
-		if err != nil {
-			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
-		}
-		r.Outputs[idx] = or
+	txt, err = pck.templates.outputs.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'outputs' template: %w", err)
 	}
+	a := make([]*OutputRendered, 0)
+	err = yaml.UnmarshalStrict([]byte(txt), &a)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse 'outputs' template: %w", err)
+	}
+	r.Outputs = a
+	// ------- Adjust each output
+	for idx, ro := range r.Outputs {
+		// WARNING: This works for []*OutputRendered. []OutputRendered will be bogus.
+		if ro.Interface == "" {
+			return nil, fmt.Errorf("output[%d]: 'interface' is a required parameters", idx)
+		}
+		if ro.Name == "" {
+			ro.Name = ro.Interface
+		}
+		if ro.DisplayName == "" {
+			ro.DisplayName = ro.Name
+		}
+		if ro.Kind == "" {
+			ro.Kind = kv1alpha1.KindConnection
+		}
+		if ro.Kind != kv1alpha1.KindConnection && ro.Kind != kv1alpha1.KindClusterConnection {
+			return nil, fmt.Errorf("output[%d]: 'kind' Must be one of 'Connection' or 'ClusterConnection'", idx)
+		}
+		if ro.Priority == 0 {
+			ro.Priority = 100
+		}
+	}
+
 	// --------------- Must ensure output name are uniques
 	dupDetect := make(map[string]struct{})
 	for _, output := range r.Outputs {
@@ -292,14 +356,50 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	return r, nil
 }
 
-func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]InputRendered, error) {
-	result := make([]InputRendered, len(pck.Inputs))
-	for idx, input := range pck.Inputs {
-		ir, err := input.Render(model, defaultNamespace)
-		if err != nil {
-			return nil, fmt.Errorf("could not render 'inputs[%d]': %w", idx, err)
+func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]*InputRendered, error) {
+	txt, err := pck.templates.inputs.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'inputs' template: %w", err)
+	}
+	result := make([]*InputRendered, 0)
+	err = yaml.UnmarshalStrict([]byte(txt), &result)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse 'inputs' template: %w", err)
+	}
+
+	//fmt.Printf("***************************************** Rendering %d inputs\n%v\n", len(result), result)
+
+	for idx, ir := range result {
+		if ir.Alias == "" {
+			ir.Alias = ir.Interface
 		}
-		result[idx] = *ir
+		if ir.Interface == "" {
+			return nil, fmt.Errorf("input[%d]: interface is required", idx)
+		}
+		if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
+			return nil, fmt.Errorf("input[%d]: invalid kind '%s' value ", idx, ir.Kind)
+		}
+		if ir.NamedConnection.Name != "" {
+			if ir.NamedConnection.Namespace == "" {
+				if ir.Kind == kv1alpha1.KindConnection {
+					ir.NamedConnection.Namespace = defaultNamespace
+				} // else "" is ok
+			} else {
+				if ir.Kind == kv1alpha1.KindClusterConnection {
+					return nil, fmt.Errorf("input[%d]: namedConnection.namespace must be empty if kind is ClusterConnection", idx)
+				}
+			}
+		}
+		if ir.Release.Name != "" && ir.Release.Namespace == "" {
+			ir.Release.Namespace = defaultNamespace
+		}
+		x := misc.CountNonZero(ir.InterfaceLookup.Namespace, ir.NamedConnection.Name, ir.Release.Name)
+		if x > 1 {
+			return nil, fmt.Errorf("input[%d]: 0 or one of 'interfaceLookup.namespace', 'namedConnection.name' or 'release.name' sub element may be specified", idx)
+		}
+		if x == 0 {
+			ir.InterfaceLookup.Namespace = defaultNamespace
+		}
 	}
 	return result, nil
 }

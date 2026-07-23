@@ -31,10 +31,10 @@ spec:
       name: Rel.
       type: string
     - jsonPath: .status.readyOutputConnections
-      name: Cnct.
+      name: Out
       type: string
     - jsonPath: .status.message
-      name: Error
+      name: Message
       type: string
     - jsonPath: .status.printProtected
       name: PRT

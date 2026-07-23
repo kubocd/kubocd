@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/xeipuuv/gojsonschema"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,29 +60,45 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	var finalError error = nil
 	previous := connection.DeepCopy()
 
-	iface := &kv1alpha1.Interface{}
-	// Interface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+	var iface kv1alpha1.InterfaceFacade
+
+	iface = &kv1alpha1.Interface{}
+	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface, Namespace: connection.GetNamespace()}, iface)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface %s unknown", connection.Spec.Interface)
-		if connection.Status.Message != message {
-			r.Event(connection, "Warning", "Status", message)
-		}
-		connection.Status.Message = message
-		finalError = err
-	} else {
-		if connection.Spec.Disabled {
-			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
-				r.Event(connection, "Normal", "Status", "Set in DISABLED state")
+		// Not Found. Try ClusterInterface
+		iface = &kv1alpha1.ClusterInterface{}
+		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
 			}
-			connection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
-			connection.Status.Message = "Disabled"
+			iface = nil // Mark not found
+		}
+	}
+	if iface == nil {
+		if misc.IsZero(connection.Spec.Values) {
+			// If no Values, this is legal
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+				r.Event(connection, "Normal", "Status", "Connection ready")
+			}
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseReady
+			connection.Status.Message = ""
 			finalError = nil
-		} else if err := checkConnection(iface, connection); err != nil {
+		} else {
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
+			connection.Status.InterfaceKind = ""
+			message := fmt.Sprintf("Interface or ClusterInterface '%s' missing", connection.Spec.Interface)
+			if connection.Status.Message != message {
+				r.Event(connection, "Warning", "Status", message)
+			}
+			connection.Status.Message = message
+			finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
+		}
+	} else {
+		if err := checkConnection(iface, connection); err != nil {
 			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())
 			message := err.Error()
 			if connection.Status.Message != message {
@@ -98,9 +115,26 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			connection.Status.Message = ""
 			finalError = nil
 		}
-		connection.Status.InterfaceGeneration = iface.Generation
+		connection.Status.InterfaceGeneration = iface.GetGeneration()
+		connection.Status.InterfaceKind = iface.GetKind()
 	}
-
+	// For prettier interface display
+	switch connection.Status.InterfaceKind {
+	case kv1alpha1.KindInterface:
+		connection.Status.InterfaceDisplay = connection.Spec.Interface
+	case kv1alpha1.KindClusterInterface:
+		connection.Status.InterfaceDisplay = fmt.Sprintf("[%s]", connection.Spec.Interface)
+	default:
+		connection.Status.InterfaceDisplay = fmt.Sprintf("%s?", connection.Spec.Interface)
+	}
+	if connection.Status.Parent == "" {
+		owner := metav1.GetControllerOf(connection)
+		if owner == nil {
+			connection.Status.Parent = ""
+		} else {
+			connection.Status.Parent = owner.Name
+		}
+	}
 	if reflect.DeepEqual(previous.Status, connection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, finalError
@@ -112,8 +146,8 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	return ctrl.Result{}, finalError
 }
 
-func checkConnection(iface *kv1alpha1.Interface, connection kv1alpha1.ConnectionFacade) error {
-	if iface.Status.Phase != kv1alpha1.InterfacePhaseReady {
+func checkConnection(iface kv1alpha1.InterfaceFacade, connection kv1alpha1.ConnectionFacade) error {
+	if iface.GetStatusPhase() != kv1alpha1.InterfacePhaseReady {
 		return fmt.Errorf("interface is not ready")
 	}
 	defaultValue, goSchema, err := resolveInterface(iface)
@@ -122,9 +156,11 @@ func checkConnection(iface *kv1alpha1.Interface, connection kv1alpha1.Connection
 		return fmt.Errorf("interface in error: %w", err)
 	}
 	values := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(connection.GetValues().Raw, &values)
-	if err != nil {
-		return fmt.Errorf("unable to parse connection values: %w", err)
+	if connection.GetValuesRaw() != nil {
+		err = yaml.UnmarshalStrict(connection.GetValuesRaw(), &values)
+		if err != nil {
+			return fmt.Errorf("unable to parse connection values: %w", err)
+		}
 	}
 	values = misc.MergeMaps(defaultValue, values)
 	// Must check against interface schema

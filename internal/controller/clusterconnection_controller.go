@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/misc"
 	"reflect"
 
 	"github.com/go-logr/logr"
@@ -56,29 +57,33 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	var finalError error = nil
 	previous := clusterConnection.DeepCopy()
 
-	iface := &kv1alpha1.Interface{}
-	// Interface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, iface)
+	clusterIface := &kv1alpha1.ClusterInterface{}
+	// ClusterInterface is cluster-scoped, so no namespace.
+	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, clusterIface)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface %s unknown", clusterConnection.Spec.Interface)
-		if clusterConnection.Status.Message != message {
-			r.Event(clusterConnection, "Warning", "Status", message)
-		}
-		clusterConnection.Status.Message = message
-		finalError = err
-	} else {
-		if clusterConnection.Spec.Disabled {
-			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
-				r.Event(clusterConnection, "Normal", "Status", "Set in DISABLED state")
+		// No corresponding ClusterInterface found
+		if misc.IsZero(clusterConnection.Spec.Values) {
+			// If no Values, this is legal
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+				r.Event(clusterConnection, "Normal", "Status", "ClusterConnection ready")
 			}
-			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
-			clusterConnection.Status.Message = "Disabled"
+			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseReady
+			clusterConnection.Status.Message = ""
 			finalError = nil
-		} else if err := checkConnection(iface, clusterConnection); err != nil {
+		} else {
+			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
+			message := fmt.Sprintf("ClusterInterface '%s' missing", clusterConnection.Spec.Interface)
+			if clusterConnection.Status.Message != message {
+				r.Event(clusterConnection, "Warning", "Status", message)
+			}
+			clusterConnection.Status.Message = message
+			finalError = err
+		}
+	} else {
+		if err := checkConnection(clusterIface, clusterConnection); err != nil {
 			logger.V(0).Error(err, "unable to validate clusterConnection", "clusterConnection", req.NamespacedName.String())
 			message := err.Error()
 			if clusterConnection.Status.Message != message {
@@ -95,9 +100,11 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			clusterConnection.Status.Message = ""
 			finalError = nil
 		}
-		clusterConnection.Status.InterfaceGeneration = iface.Generation
+		clusterConnection.Status.InterfaceGeneration = clusterIface.Generation
 	}
-
+	if clusterConnection.Status.Parent == "" && clusterConnection.Spec.ParentRelease != nil {
+		clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", clusterConnection.Spec.ParentRelease.Namespace, clusterConnection.Spec.ParentRelease.Name)
+	}
 	if reflect.DeepEqual(previous.Status, clusterConnection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, finalError

@@ -39,13 +39,6 @@ type ConnectionSpec struct {
 	// +kubebuilder:validation:Optional
 	OutputName string `json:"outputName,omitempty"`
 
-	// Allow temporary suspension of this connection
-	// NB: This is only relevant for unmanaged connection.
-	// For managed one, always false, or object is deleted.
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=false
-	Disabled bool `json:"disabled"`
-
 	// A human oriented description
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`
@@ -56,24 +49,30 @@ type ConnectionSpec struct {
 type ConnectionStatus struct {
 	Phase ConnectionPhase `json:"phase"`
 	// Name of the owner release (In case of managed connection). To be displayed to the user
-	// +optional
+	// +kubebuilder:validation:Optional
 	Parent string `json:"parent,omitempty"`
-	// +optional
+	// +kubebuilder:validation:Optional
 	Message string `json:"message,omitempty"`
 	// InterfaceGeneration is the .metadata.generation of the interface this
 	// connection was last checked against.
-	// +optional
+	// +kubebuilder:validation:Optional
 	InterfaceGeneration int64 `json:"interfaceGeneration,omitempty"`
+	// Interface or ClusterInterface. For user usage
+	// +kubebuilder:validation:Optional as empty in initial state
+	InterfaceKind Kind `json:"interfaceKind,omitempty"`
+	// Decorated interface name, for user display
+	// +kubebuilder:validation:Optional as empty in initial state
+	InterfaceDisplay string `json:"interfaceDisplay,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=cnx
-// +kubebuilder:printcolumn:name="Interface",type=string,JSONPath=`.spec.interface`
+// +kubebuilder:printcolumn:name="Interface",type=string,JSONPath=`.status.interfaceDisplay`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Release",type=string,JSONPath=`.status.parent`
+// +kubebuilder:printcolumn:name="Parent Rel.",type=string,JSONPath=`.status.parent`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
@@ -108,6 +107,13 @@ func (cnx *Connection) GetKind() Kind {
 
 func (cnx *Connection) GetValues() *apiextensionsv1.JSON {
 	return cnx.Spec.Values
+}
+
+func (cnx *Connection) GetValuesRaw() []byte {
+	if cnx.Spec.Values == nil {
+		return nil
+	}
+	return cnx.Spec.Values.Raw
 }
 
 func (cnx *Connection) GetInterface() string {

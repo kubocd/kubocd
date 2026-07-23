@@ -407,55 +407,53 @@ var renderCmd = &cobra.Command{
 			}
 			// --------------------------------------------------------------------- Generate output connections
 			for _, outputRendered := range rendered.Outputs {
-				if !outputRendered.Disabled {
-					if outputRendered.Kind == kapi.KindClusterConnection {
-						connection := &kapi.ClusterConnection{
-							TypeMeta: metav1.TypeMeta{
-								APIVersion: kapi.GroupVersion.String(),
-								Kind:       string(kapi.KindClusterConnection),
-							},
-							ObjectMeta: metav1.ObjectMeta{
-								Name: controller.BuildClusterConnectionName(release.Name, release.Namespace, outputRendered.Name),
-							},
-						}
-						connection.Spec.Disabled = false // Always false for managed connections
-						valuesTxt, err := json.Marshal(outputRendered.Values)
-						if err != nil {
-							return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
-						}
-						connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-						connection.Spec.Interface = outputRendered.Interface
-						connection.Spec.Description = outputRendered.Description
-						connection.Spec.Priority = outputRendered.Priority
-						connection.Spec.ParentRelease = &kapi.ParentReleaseRef{
-							Name:      release.Name,
-							Namespace: release.Namespace,
-						}
-
-						cmn.DumpAppend(output, "outputClusterConnections.yaml", connection)
-					} else {
-						connection := &kapi.Connection{
-							TypeMeta: metav1.TypeMeta{
-								APIVersion: kapi.GroupVersion.String(),
-								Kind:       string(kapi.KindConnection),
-							},
-							ObjectMeta: metav1.ObjectMeta{
-								Namespace: release.Namespace,
-								Name:      controller.BuildConnectionName(release.Name, outputRendered.Name),
-							},
-						}
-						connection.Spec.Disabled = false // Always false for managed connections
-						valuesTxt, err := json.Marshal(outputRendered.Values)
-						if err != nil {
-							return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
-						}
-						connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-						connection.Spec.Interface = outputRendered.Interface
-						connection.Spec.Description = outputRendered.Description
-						connection.Spec.Priority = outputRendered.Priority
-
-						cmn.DumpAppend(output, "outputConnections.yaml", connection)
+				if outputRendered.Kind == kapi.KindClusterConnection {
+					connection := &kapi.ClusterConnection{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: kapi.GroupVersion.String(),
+							Kind:       string(kapi.KindClusterConnection),
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Name: controller.BuildClusterConnectionName(release.Name, release.Namespace, outputRendered.Name),
+						},
 					}
+					valuesTxt, err := json.Marshal(outputRendered.Values)
+					if err != nil {
+						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+					}
+					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+					connection.Spec.Interface = outputRendered.Interface
+					connection.Spec.Description = outputRendered.Description
+					connection.Spec.Priority = outputRendered.Priority
+					connection.Spec.OutputName = outputRendered.Name
+					connection.Spec.ParentRelease = &kapi.ParentReleaseRef{
+						Name:      release.Name,
+						Namespace: release.Namespace,
+					}
+
+					cmn.DumpAppend(output, "outputClusterConnections.yaml", connection)
+				} else {
+					connection := &kapi.Connection{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: kapi.GroupVersion.String(),
+							Kind:       string(kapi.KindConnection),
+						},
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: release.Namespace,
+							Name:      controller.BuildConnectionName(release.Name, outputRendered.Name),
+						},
+					}
+					valuesTxt, err := json.Marshal(outputRendered.Values)
+					if err != nil {
+						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+					}
+					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
+					connection.Spec.Interface = outputRendered.Interface
+					connection.Spec.Description = outputRendered.Description
+					connection.Spec.Priority = outputRendered.Priority
+					connection.Spec.OutputName = outputRendered.Name
+
+					cmn.DumpAppend(output, "outputConnections.yaml", connection)
 				}
 			}
 

@@ -17,7 +17,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.interface
+    - jsonPath: .status.interfaceDisplay
       name: Interface
       type: string
     - jsonPath: .spec.description
@@ -30,7 +30,7 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.parent
-      name: Release
+      name: Parent Rel.
       type: string
     - jsonPath: .status.message
       name: Message
@@ -64,13 +64,6 @@ spec:
               description:
                 description: A human oriented description
                 type: string
-              disabled:
-                default: false
-                description: |-
-                  Allow temporary suspension of this connection
-                  NB: This is only relevant for unmanaged connection.
-                  For managed one, always false, or object is deleted.
-                type: boolean
               interface:
                 description: Define the service type and allow validation of rendered
                   'values'
@@ -90,12 +83,18 @@ spec:
             type: object
           status:
             properties:
+              interfaceDisplay:
+                description: Decorated interface name, for user display
+                type: string
               interfaceGeneration:
                 description: |-
                   InterfaceGeneration is the .metadata.generation of the interface this
                   connection was last checked against.
                 format: int64
                 type: integer
+              interfaceKind:
+                description: Interface or ClusterInterface. For user usage
+                type: string
               message:
                 type: string
               parent:

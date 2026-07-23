@@ -53,6 +53,9 @@ type Kind string
 const KindConnection = Kind("Connection")
 const KindClusterConnection = Kind("ClusterConnection")
 
+const KindInterface = Kind("Interface")
+const KindClusterInterface = Kind("ClusterInterface")
+
 //----------------------------------------------------
 
 type OciAddOn struct {
