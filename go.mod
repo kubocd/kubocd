@@ -1,6 +1,6 @@
 module kubocd
 
-go 1.26.4
+go 1.26.5
 
 // Force Go 1.23 standard library compatibility behaviors under Go 1.24+
 // to prevent runtime regressions in imported Kubernetes and controller libraries.
