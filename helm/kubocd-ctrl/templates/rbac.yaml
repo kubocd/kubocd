@@ -29,8 +29,6 @@ rules:
     resources:
       - releases
       - contexts
-      - connections
-      - clusterconnections
       - interfaces
     verbs:
       - get
@@ -38,6 +36,19 @@ rules:
       - watch
       - patch
       - update
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
+      - connections
+      - clusterconnections
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+      - create
+      - delete
   - apiGroups:
       - kubocd.kubotal.io
     resources:

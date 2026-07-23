@@ -102,9 +102,11 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 		return nil
 	}
 	values := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(connectionFacade.GetValues().Raw, &values)
-	if err != nil {
-		return NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err), false, "")
+	if connectionFacade.GetValuesRaw() != nil {
+		err = yaml.UnmarshalStrict(connectionFacade.GetValuesRaw(), &values)
+		if err != nil {
+			return NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err), false, "")
+		}
 	}
 	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
 		Kind:      connectionFacade.GetKind(),
@@ -246,9 +248,11 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 
 func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{}, ReconcileError) {
 	values := make(map[string]interface{})
-	err := yaml.UnmarshalStrict(conn.GetValues().Raw, &values)
-	if err != nil {
-		return nil, NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, types.NamespacedName{Namespace: conn.GetNamespace(), Name: conn.GetName()}.String(), err), false, "")
+	if conn.GetValuesRaw() != nil {
+		err := yaml.UnmarshalStrict(conn.GetValuesRaw(), &values)
+		if err != nil {
+			return nil, NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, types.NamespacedName{Namespace: conn.GetNamespace(), Name: conn.GetName()}.String(), err), false, "")
+		}
 	}
 	return values, nil
 }

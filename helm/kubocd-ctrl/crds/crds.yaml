@@ -706,9 +706,6 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.allowMultiple
-      name: Mul.
-      type: boolean
     - jsonPath: .spec.description
       name: Description
       type: string

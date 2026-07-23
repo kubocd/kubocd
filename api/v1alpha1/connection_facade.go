@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -34,7 +33,8 @@ type ConnectionFacade interface {
 	GetStatusPhase() ConnectionPhase
 	GetOutputName() string
 	GetPriority() int
-	GetValues() *apiextensionsv1.JSON
+	// GetValues() *apiextensionsv1.JSON
+	GetValuesRaw() []byte
 }
 
 // ConnectionPhase is used both for Connection and ClusterConnection

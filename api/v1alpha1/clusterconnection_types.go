@@ -114,8 +114,15 @@ func (cnx *ClusterConnection) GetKind() Kind {
 	return KindClusterConnection
 }
 
-func (cnx *ClusterConnection) GetValues() *apiextensionsv1.JSON {
-	return cnx.Spec.Values
+//func (cnx *ClusterConnection) GetValues() *apiextensionsv1.JSON {
+//	return cnx.Spec.Values
+//}
+
+func (cnx *ClusterConnection) GetValuesRaw() []byte {
+	if cnx.Spec.Values != nil {
+		return cnx.Spec.Values.Raw
+	}
+	return nil
 }
 
 func (cnx *ClusterConnection) GetInterface() string {

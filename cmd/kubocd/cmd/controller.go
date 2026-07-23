@@ -705,6 +705,9 @@ var controllerCmd = &cobra.Command{
 		//
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.ReleaseIndexOnOutputClusterConnection, func(rawObj client.Object) []string {
 			connection := rawObj.(*kubocdv1alpha1.ClusterConnection)
+			if connection.Spec.ParentRelease == nil {
+				return []string{}
+			}
 			return []string{fmt.Sprintf("%s:%s", connection.Spec.ParentRelease.Namespace, connection.Spec.ParentRelease.Name)}
 		})
 		if err != nil {

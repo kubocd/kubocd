@@ -67,7 +67,7 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			return ctrl.Result{}, err
 		}
 		connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface %s unknown", connection.Spec.Interface)
+		message := fmt.Sprintf("Interface '%s' unknown", connection.Spec.Interface)
 		if connection.Status.Message != message {
 			r.Event(connection, "Warning", "Status", message)
 		}
@@ -122,9 +122,11 @@ func checkConnection(iface *kv1alpha1.Interface, connection kv1alpha1.Connection
 		return fmt.Errorf("interface in error: %w", err)
 	}
 	values := make(map[string]interface{})
-	err = yaml.UnmarshalStrict(connection.GetValues().Raw, &values)
-	if err != nil {
-		return fmt.Errorf("unable to parse connection values: %w", err)
+	if connection.GetValuesRaw() != nil {
+		err = yaml.UnmarshalStrict(connection.GetValuesRaw(), &values)
+		if err != nil {
+			return fmt.Errorf("unable to parse connection values: %w", err)
+		}
 	}
 	values = misc.MergeMaps(defaultValue, values)
 	// Must check against interface schema

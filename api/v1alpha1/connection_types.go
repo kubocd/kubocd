@@ -110,6 +110,13 @@ func (cnx *Connection) GetValues() *apiextensionsv1.JSON {
 	return cnx.Spec.Values
 }
 
+func (cnx *Connection) GetValuesRaw() []byte {
+	if cnx.Spec.Values != nil {
+		return cnx.Spec.Values.Raw
+	}
+	return nil
+}
+
 func (cnx *Connection) GetInterface() string {
 	return cnx.Spec.Interface
 }

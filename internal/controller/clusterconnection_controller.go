@@ -64,7 +64,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			return ctrl.Result{}, err
 		}
 		clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface %s unknown", clusterConnection.Spec.Interface)
+		message := fmt.Sprintf("Interface '%s' unknown", clusterConnection.Spec.Interface)
 		if clusterConnection.Status.Message != message {
 			r.Event(clusterConnection, "Warning", "Status", message)
 		}

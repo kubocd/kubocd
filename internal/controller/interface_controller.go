@@ -84,11 +84,17 @@ func (r *InterfaceReconciler) reconcile2(ctx context.Context, req ctrl.Request, 
 func resolveInterface(iface *kv1alpha1.Interface) (defaultValues map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
 	// Convert k8s form to KuboSchema
 	sch := make(kuboschema.KuboSchema)
-	err = yaml.UnmarshalStrict(iface.Spec.Schema.Raw, &sch)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to parse schema: %w", err)
+	if iface.Spec.Schema != nil && iface.Spec.Schema.Raw != nil {
+		err = yaml.UnmarshalStrict(iface.Spec.Schema.Raw, &sch)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to parse schema: %w", err)
+		}
+	} else {
+		err = yaml.UnmarshalStrict([]byte(`{ "properties": {} }`), &sch)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to parse empty schema: %w", err)
+		}
 	}
-
 	// Translate potential KubocdSchema to JSON/openAPI format
 	sch, err = kuboschema.Kubo2openAPI(sch, false)
 	if err != nil {
