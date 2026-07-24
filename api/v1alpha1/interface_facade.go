@@ -16,34 +16,25 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	"sigs.k8s.io/controller-runtime/pkg/client"
-)
+import "sigs.k8s.io/controller-runtime/pkg/client"
 
-// ConnectionFacade is the interface hiding differences between Connection and ClusterConnection
+// InterfaceFacade is the interface hiding differences between Interface and ClusterInterface
 // +kubebuilder:object:generate=false
-type ConnectionFacade interface {
+type InterfaceFacade interface {
 	client.Object
 
 	GetKind() Kind
-
-	GetInterface() string
-	GetStatusPhase() ConnectionPhase
-	GetOutputName() string
-	GetPriority() int
-	GetValuesRaw() []byte
+	GetStatusPhase() InterfacePhase
+	GetSchemaRaw() []byte
 
 	// Also used, but provided by client.Object
 	//GetName() string
 	//GetNamespace() string
+	//GetGeneration() int64
 
 }
 
-// ConnectionPhase is used both for Connection and ClusterConnection
-type ConnectionPhase string
+type InterfacePhase string
 
-const ConnectionPhaseReady = ConnectionPhase("READY")
-const ConnectionPhaseError = ConnectionPhase("ERROR")
-const ConnectionPhaseDisabled = ConnectionPhase("DISABLED")
-
-// const ConnectionPhasePending = ConnectionPhase("PENDING")
+const InterfacePhaseReady = InterfacePhase("READY")
+const InterfacePhaseError = InterfacePhase("ERROR")

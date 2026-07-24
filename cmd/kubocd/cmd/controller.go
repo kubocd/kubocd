@@ -250,6 +250,23 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// -------------------------------------------------------------------------------------- ClusterInterface controller setup
+
+		clusterInterfaceReconciler := &controller.ClusterInterfaceReconciler{
+			Client:        mgr.GetClient(),
+			EventRecorder: mgr.GetEventRecorderFor("clusterInterface"),
+			Logger:        controllerRootLog.WithName("clusterInterfaceReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.ClusterInterface{}).
+			Named("kubocd-cluster-interface-controller").
+			Complete(clusterInterfaceReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "clusterInterface")
+			os.Exit(1)
+		}
+
 		// -------------------------------------------------------------------------------------- Connection controller setup
 
 		// Create an index to retrieve a Connection from an Interface in an efficient way
@@ -297,6 +314,7 @@ var controllerCmd = &cobra.Command{
 			For(&kubocdv1alpha1.Connection{}).
 			Named("kubocd-connection-controller").
 			Watches(&kubocdv1alpha1.Interface{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromInterface)).
+			Watches(&kubocdv1alpha1.ClusterInterface{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromInterface)).
 			Complete(connectionReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "connection")
@@ -312,19 +330,19 @@ var controllerCmd = &cobra.Command{
 			return []string{clusterConnection.Spec.Interface}
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Connection by Interface")
+			setupLog.Error(err, "Unable to index clusterConnection by Interface")
 			os.Exit(1)
 		}
 
-		findClusterConnectionFromInterface := func(ctx context.Context, iface client.Object) []reconcile.Request {
+		findClusterConnectionFromClusterInterface := func(ctx context.Context, clusterIface client.Object) []reconcile.Request {
 			clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnClusterConnection, iface.GetName()),
+				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnClusterConnection, clusterIface.GetName()),
 			}
 			err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findClusterConnectionFromInterface(): Unable to find interface bindings")
+					controllerRootLog.Error(err, "findClusterConnectionFromClusterInterface(): Unable to find interface bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -349,7 +367,7 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.ClusterConnection{}).
 			Named("kubocd-cluster-connection-controller").
-			Watches(&kubocdv1alpha1.Interface{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromInterface)).
+			Watches(&kubocdv1alpha1.ClusterInterface{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterInterface)).
 			Complete(clusterConnectionReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")

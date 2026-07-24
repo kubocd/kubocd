@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type InterfaceSpec struct {
+type ClusterInterfaceSpec struct {
 
 	// Allow validation of the 'values' attribute on Release.output[x]
 	// May be a JSON/openAPI schema or the kubocd simplified schema format.
@@ -33,7 +33,7 @@ type InterfaceSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-type InterfaceStatus struct {
+type ClusterInterfaceStatus struct {
 	Phase InterfacePhase `json:"phase"`
 	// +optional
 	// +kubebuilder:validation:Optional
@@ -42,13 +42,13 @@ type InterfaceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=iface
+// +kubebuilder:resource:scope=Cluster,shortName=ciface
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-type Interface struct {
+type ClusterInterface struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	Spec              InterfaceSpec   `json:"spec,omitempty"`
@@ -57,31 +57,31 @@ type Interface struct {
 
 // +kubebuilder:object:root=true
 
-type InterfaceList struct {
+type ClusterInterfaceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Interface `json:"items"`
+	Items           []ClusterInterface `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Interface{}, &InterfaceList{})
+	SchemeBuilder.Register(&ClusterInterface{}, &ClusterInterfaceList{})
 }
 
-// ----------------------------------------------------------------------
+// ------------------------------------------------------
 
-var _ InterfaceFacade = &Interface{}
+var _ InterfaceFacade = &ClusterInterface{}
 
-func (iface *Interface) GetKind() Kind {
-	return KindInterface
+func (cIface *ClusterInterface) GetKind() Kind {
+	return KindClusterInterface
 }
 
-func (iface *Interface) GetSchemaRaw() []byte {
-	if iface.Spec.Schema == nil {
+func (cIface *ClusterInterface) GetSchemaRaw() []byte {
+	if cIface.Spec.Schema == nil {
 		return nil
 	}
-	return iface.Spec.Schema.Raw
+	return cIface.Spec.Schema.Raw
 }
 
-func (iface *Interface) GetStatusPhase() InterfacePhase {
-	return iface.Status.Phase
+func (cIface *ClusterInterface) GetStatusPhase() InterfacePhase {
+	return cIface.Status.Phase
 }

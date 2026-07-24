@@ -119,10 +119,10 @@ func (cnx *ClusterConnection) GetKind() Kind {
 //}
 
 func (cnx *ClusterConnection) GetValuesRaw() []byte {
-	if cnx.Spec.Values != nil {
-		return cnx.Spec.Values.Raw
+	if cnx.Spec.Values == nil {
+		return nil
 	}
-	return nil
+	return cnx.Spec.Values.Raw
 }
 
 func (cnx *ClusterConnection) GetInterface() string {

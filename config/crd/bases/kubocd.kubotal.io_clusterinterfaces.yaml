@@ -4,33 +4,24 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: connections.kubocd.kubotal.io
+  name: clusterinterfaces.kubocd.kubotal.io
 spec:
   group: kubocd.kubotal.io
   names:
-    kind: Connection
-    listKind: ConnectionList
-    plural: connections
+    kind: ClusterInterface
+    listKind: ClusterInterfaceList
+    plural: clusterinterfaces
     shortNames:
-    - cnx
-    singular: connection
-  scope: Namespaced
+    - ciface
+    singular: clusterinterface
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.interfaceDisplay
-      name: Interface
-      type: string
     - jsonPath: .spec.description
       name: Description
       type: string
-    - jsonPath: .spec.priority
-      name: Pri.
-      type: integer
     - jsonPath: .status.phase
       name: Status
-      type: string
-    - jsonPath: .status.parent
-      name: Parent Rel.
       type: string
     - jsonPath: .status.message
       name: Message
@@ -64,52 +55,17 @@ spec:
               description:
                 description: A human oriented description
                 type: string
-              disabled:
-                default: false
+              schema:
                 description: |-
-                  Allow temporary suspension of this connection
-                  NB: This is only relevant for unmanaged connection.
-                  For managed one, always false, or object is deleted.
-                type: boolean
-              interface:
-                description: Define the service type and allow validation of rendered
-                  'values'
-                type: string
-              outputName:
-                description: For managed connections, the output name (Set by the
-                  release controller, at creation)
-                type: string
-              priority:
-                default: 100
-                type: integer
-              values:
-                description: Must comply to the schema defined by interface
+                  Allow validation of the 'values' attribute on Release.output[x]
+                  May be a JSON/openAPI schema or the kubocd simplified schema format.
                 x-kubernetes-preserve-unknown-fields: true
-            required:
-            - interface
             type: object
           status:
             properties:
-              interfaceDisplay:
-                description: Decorated interface name, for user display
-                type: string
-              interfaceGeneration:
-                description: |-
-                  InterfaceGeneration is the .metadata.generation of the interface this
-                  connection was last checked against.
-                format: int64
-                type: integer
-              interfaceKind:
-                description: Interface or ClusterInterface. For user usage
-                type: string
               message:
                 type: string
-              parent:
-                description: Name of the owner release (In case of managed connection).
-                  To be displayed to the user
-                type: string
               phase:
-                description: ConnectionPhase is used both for Connection and ClusterConnection
                 type: string
             required:
             - phase

@@ -36,6 +36,7 @@ import (
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -512,8 +513,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		forceUpdate = true
 	}
 
-	var message string
-
 	// Events generation and update setting are performed only if not already done
 	if !reflect.DeepEqual(op.helmReleaseStates, op.release.Status.HelmReleaseStates) {
 		op.release.Status.HelmReleaseStates = op.helmReleaseStates
@@ -525,9 +524,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 	}
 
+	var message string
+
 	// Another loop to set the user error message in every reconciliation (idempotency)
 	for k, v := range op.helmReleaseStates {
-		if v.Status != "" && message == "" {
+		if v.Ready != metav1.ConditionTrue && message == "" {
 			message = fmt.Sprintf("HelmRelease %s: %s", k, v.Status)
 		}
 	}

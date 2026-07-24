@@ -56,15 +56,15 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	var finalError error = nil
 	previous := clusterConnection.DeepCopy()
 
-	iface := &kv1alpha1.Interface{}
+	clusterIface := &kv1alpha1.ClusterInterface{}
 	// Interface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, iface)
+	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, clusterIface)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 		clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface '%s' unknown", clusterConnection.Spec.Interface)
+		message := fmt.Sprintf("ClusterInterface '%s' missing", clusterConnection.Spec.Interface)
 		if clusterConnection.Status.Message != message {
 			r.Event(clusterConnection, "Warning", "Status", message)
 		}
@@ -78,7 +78,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
 			clusterConnection.Status.Message = "Disabled"
 			finalError = nil
-		} else if err := checkConnection(iface, clusterConnection); err != nil {
+		} else if err := checkConnection(clusterIface, clusterConnection); err != nil {
 			logger.V(0).Error(err, "unable to validate clusterConnection", "clusterConnection", req.NamespacedName.String())
 			message := err.Error()
 			if clusterConnection.Status.Message != message {
@@ -95,7 +95,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			clusterConnection.Status.Message = ""
 			finalError = nil
 		}
-		clusterConnection.Status.InterfaceGeneration = iface.Generation
+		clusterConnection.Status.InterfaceGeneration = clusterIface.Generation
 	}
 
 	if reflect.DeepEqual(previous.Status, clusterConnection.Status) {

@@ -59,20 +59,33 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	var finalError error = nil
 	previous := connection.DeepCopy()
 
-	iface := &kv1alpha1.Interface{}
-	// Interface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+	var iface kv1alpha1.InterfaceFacade
+
+	iface = &kv1alpha1.Interface{}
+	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface, Namespace: connection.GetNamespace()}, iface)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
+		// Not Found. Try ClusterInterface
+		iface = &kv1alpha1.ClusterInterface{}
+		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			iface = nil // Mark not found
+		}
+	}
+	if iface == nil {
 		connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("Interface '%s' unknown", connection.Spec.Interface)
+		connection.Status.InterfaceKind = ""
+		message := fmt.Sprintf("Interface or ClusterInterface '%s' missing", connection.Spec.Interface)
 		if connection.Status.Message != message {
 			r.Event(connection, "Warning", "Status", message)
 		}
 		connection.Status.Message = message
-		finalError = err
+		finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
 	} else {
 		if connection.Spec.Disabled {
 			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
@@ -98,9 +111,18 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			connection.Status.Message = ""
 			finalError = nil
 		}
-		connection.Status.InterfaceGeneration = iface.Generation
+		connection.Status.InterfaceGeneration = iface.GetGeneration()
+		connection.Status.InterfaceKind = iface.GetKind()
 	}
-
+	// For prettier interface display
+	switch connection.Status.InterfaceKind {
+	case kv1alpha1.KindInterface:
+		connection.Status.InterfaceDisplay = connection.Spec.Interface
+	case kv1alpha1.KindClusterInterface:
+		connection.Status.InterfaceDisplay = fmt.Sprintf("[%s]", connection.Spec.Interface)
+	default:
+		connection.Status.InterfaceDisplay = fmt.Sprintf("%s?", connection.Spec.Interface)
+	}
 	if reflect.DeepEqual(previous.Status, connection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, finalError
@@ -112,8 +134,8 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	return ctrl.Result{}, finalError
 }
 
-func checkConnection(iface *kv1alpha1.Interface, connection kv1alpha1.ConnectionFacade) error {
-	if iface.Status.Phase != kv1alpha1.InterfacePhaseReady {
+func checkConnection(iface kv1alpha1.InterfaceFacade, connection kv1alpha1.ConnectionFacade) error {
+	if iface.GetStatusPhase() != kv1alpha1.InterfacePhaseReady {
 		return fmt.Errorf("interface is not ready")
 	}
 	defaultValue, goSchema, err := resolveInterface(iface)

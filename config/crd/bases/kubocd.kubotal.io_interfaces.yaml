@@ -11,8 +11,10 @@ spec:
     kind: Interface
     listKind: InterfaceList
     plural: interfaces
+    shortNames:
+    - iface
     singular: interface
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - jsonPath: .spec.description
