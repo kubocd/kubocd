@@ -262,8 +262,8 @@ type ReleaseStatus struct {
 // +kubebuilder:printcolumn:name="Contexts",type=string,JSONPath=`.status.printContexts`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Rel.",type=string,JSONPath=`.status.readyReleases`
-// +kubebuilder:printcolumn:name="Cnct.",type=string,JSONPath=`.status.readyOutputConnections`
-// +kubebuilder:printcolumn:name="Error",type=string,JSONPath=`.status.message`
+// +kubebuilder:printcolumn:name="Out",type=string,JSONPath=`.status.readyOutputConnections`
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="PRT",type=string,JSONPath=`.status.printProtected`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.status.printDescription`

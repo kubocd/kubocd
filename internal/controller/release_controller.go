@@ -529,7 +529,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// Another loop to set the user error message in every reconciliation (idempotency)
 	for k, v := range op.helmReleaseStates {
 		if v.Ready != metav1.ConditionTrue && message == "" {
-			message = fmt.Sprintf("HelmRelease %s: %s", k, v.Status)
+			status := v.Status
+			if status == "" {
+				status = "Deploying..."
+			}
+			if k == "noname" {
+				message = fmt.Sprintf("HelmRelease: %s", status)
+			} else {
+				message = fmt.Sprintf("HelmRelease %s: %s", k, status)
+			}
 		}
 	}
 

@@ -19,25 +19,38 @@ package kubopackage
 import (
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
 )
 
 type Input struct {
 	// required:true
 	Interface KcdTemplateString `json:"interface"`
-	// Connection or ClusterConnection. For namedConnection, default to Connection. In other cases, both are looked up.
+	// required:false
+	// Connection or ClusterConnection. If "", then lookup both
 	Kind KcdTemplateString `json:"kind,omitempty"`
-	// If kind == Connection. For NamedConnection or Release lookup. Default to release namespace
-	Namespace       KcdTemplateString `json:"namespace,omitempty"`
+	// required:false
+	InterfaceLookup struct {
+		// required:false
+		// default to releaseNamespace
+		Namespace KcdTemplateString `json:"namespace"`
+	} `json:"interfaceLookup,omitempty"`
 	NamedConnection struct {
-		// Must be "" if Relesae.name != nil
-		Name KcdTemplateString `json:"name,omitempty"`
+		// required:true
+		Name KcdTemplateString `json:"name"`
+		// required:false
+		// If kind == Connection, default to releaseNamespace. Error if defined and kind == ClusterConnection
+		Namespace KcdTemplateString `json:"namespace"`
 	} `json:"namedConnection,omitempty"`
 	Release struct {
-		// Must be "" if UnmanagedConnection.name != nil
-		Name KcdTemplateString `json:"name,omitempty"`
-		// Optional. Used if the release manage several connection with the same interface
-		OutputName KcdTemplateString `json:"outputName,omitempty"`
+		// required:true
+		Name KcdTemplateString `json:"name"`
+		// required:false
+		// Default to releaseNamespace
+		Namespace KcdTemplateString `json:"namespace"`
+		// required:false
+		// In case the target Release have several output with same interface
+		Output KcdTemplateString `json:"output,omitempty"`
 	} `json:"release,omitempty"`
 	// default to interface
 	Alias KcdTemplateString `json:"alias,omitempty"`
@@ -52,16 +65,23 @@ type Input struct {
 	templates *inputTemplates
 }
 
+type releaseTmpl struct {
+}
+
 type inputTemplates struct {
 	iface           tmpl.Tmpl
 	kind            tmpl.Tmpl
-	namespace       tmpl.Tmpl
+	interfaceLookup struct {
+		namespace tmpl.Tmpl
+	}
 	namedConnection struct {
-		name tmpl.Tmpl
+		name      tmpl.Tmpl
+		namespace tmpl.Tmpl
 	}
 	release struct {
-		name       tmpl.Tmpl
-		outputName tmpl.Tmpl
+		name      tmpl.Tmpl
+		namespace tmpl.Tmpl
+		output    tmpl.Tmpl
 	}
 	alias         tmpl.Tmpl
 	optional      tmpl.Tmpl
@@ -78,24 +98,40 @@ func (i *Input) groom(pck *Package) error {
 	}
 	i.templates.kind, err = tmpl.New("", string(i.Kind), pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'kind' parameter: %w", err)
+		return fmt.Errorf("could not parse 'namedConnection.kind' parameter: %w", err)
 	}
-	i.templates.namespace, err = tmpl.New("", string(i.Namespace), pck.TemplateHeader)
+
+	// ---------------------------
+	i.templates.interfaceLookup.namespace, err = tmpl.New("", string(i.InterfaceLookup.Namespace), pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'namespace' parameter: %w", err)
+		return fmt.Errorf("could not parse 'nterfaceLookup.namespace' parameter: %w", err)
 	}
+
+	// ---------------------------
 	i.templates.namedConnection.name, err = tmpl.New("", string(i.NamedConnection.Name), pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'unmanagedConnection.name' parameter: %w", err)
+		return fmt.Errorf("could not parse 'namedConnection.name' parameter: %w", err)
 	}
+	i.templates.namedConnection.namespace, err = tmpl.New("", string(i.NamedConnection.Namespace), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'namedConnection.namespace' parameter: %w", err)
+	}
+
+	// ------------------------
 	i.templates.release.name, err = tmpl.New("", string(i.Release.Name), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'release.name' parameter: %w", err)
 	}
-	i.templates.release.outputName, err = tmpl.New("", string(i.Release.OutputName), pck.TemplateHeader)
+	i.templates.release.namespace, err = tmpl.New("", string(i.Release.Namespace), pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'release.outputName' parameter: %w", err)
+		return fmt.Errorf("could not parse 'release.namespace' parameter: %w", err)
 	}
+	i.templates.release.output, err = tmpl.New("", string(i.Release.Output), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'release.output' parameter: %w", err)
+	}
+
+	// ------------------------
 	i.templates.alias, err = tmpl.New("", string(i.Alias), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'alias' parameter: %w", err)
@@ -114,14 +150,18 @@ func (i *Input) groom(pck *Package) error {
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type InputRendered struct {
 	Interface       string         `json:"interface"`
-	Kind            kv1alpha1.Kind `json:"kind"`
-	Namespace       string         `json:"namespace"`
+	Kind            kv1alpha1.Kind `json:"kind,omitempty"`
+	InterfaceLookup struct {
+		Namespace string `json:"namespace"`
+	} `json:"interfaceLookup"`
 	NamedConnection struct {
-		Name string `json:"name,omitempty"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
 	} `json:"namedConnection,omitempty"`
 	Release struct {
-		Name       string `json:"name,omitempty"`
-		OutputName string `json:"outputName,omitempty"`
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Output    string `json:"output,omitempty"`
 	} `json:"release,omitempty"`
 	Alias         string `json:"alias"`
 	Optional      bool   `json:"optional"`
@@ -140,25 +180,41 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
 	}
 	ir.Kind = kv1alpha1.Kind(k)
-	ir.Namespace, err = i.templates.namespace.RenderToSingleLine(model)
+
+	// -----------------------------------------
+	ir.InterfaceLookup.Namespace, err = i.templates.interfaceLookup.namespace.RenderToSingleLine(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'namespace' parameter: %w", err)
+		return nil, fmt.Errorf("could not render 'interfaceLookup.namespace' parameter: %w", err)
 	}
+	// -----------------------------------------
 	ir.NamedConnection.Name, err = i.templates.namedConnection.name.RenderToSingleLine(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'unmanagedConnection.name' parameter: %w", err)
+		return nil, fmt.Errorf("could not render 'namedConnection.name' parameter: %w", err)
 	}
+	ir.NamedConnection.Namespace, err = i.templates.namedConnection.namespace.RenderToSingleLine(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'namedConnection.namespace' parameter: %w", err)
+	}
+	// -----------------------------------------
 	ir.Release.Name, err = i.templates.release.name.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'release.name' parameter: %w", err)
 	}
-	ir.Release.OutputName, err = i.templates.release.outputName.RenderToSingleLine(model)
+	ir.Release.Namespace, err = i.templates.release.namespace.RenderToSingleLine(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'release.outputName' parameter: %w", err)
+		return nil, fmt.Errorf("could not render 'release.namespace' parameter: %w", err)
 	}
+	ir.Release.Output, err = i.templates.release.output.RenderToSingleLine(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'release.output' parameter: %w", err)
+	}
+	// ------------------------------------
 	ir.Alias, err = i.templates.alias.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'alias' parameter: %w", err)
+	}
+	if ir.Alias == "" {
+		ir.Alias = ir.Interface
 	}
 	ir.Optional, _, err = i.templates.optional.RenderToBool(model, false)
 	if err != nil {
@@ -168,26 +224,35 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'allowMultiple' parameter: %w", err)
 	}
-	if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
-		return nil, fmt.Errorf("if defined, 'kind' should be either 'Connection' or 'ClusterConnection'")
-	}
-	if ir.Kind == kv1alpha1.KindClusterConnection && ir.Namespace != "" {
-		return nil, fmt.Errorf("'namespace' should be be empty if kind == ClusterConnection")
-	}
+
+	// ----------------------------- Check
 	if ir.Interface == "" {
-		return nil, fmt.Errorf("'interface' is a required parameters")
+		return nil, fmt.Errorf("interface is required")
 	}
-	if ir.NamedConnection.Name != "" && ir.Release.Name != "" {
-		return nil, fmt.Errorf("'namedConnection.name' and 'release.name' can't be defined at the same time")
+	if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
+		return nil, fmt.Errorf("invalid kind '%s' value ", ir.Kind)
 	}
-	if ir.NamedConnection.Name != "" && ir.Kind == "" {
-		ir.Kind = kv1alpha1.KindConnection // Default
+	// ---------- Checks and default
+	if ir.NamedConnection.Name != "" {
+		if ir.NamedConnection.Namespace == "" {
+			if ir.Kind == kv1alpha1.KindConnection {
+				ir.NamedConnection.Namespace = defaultNamespace
+			} // else "" is ok
+		} else {
+			if ir.Kind == kv1alpha1.KindClusterConnection {
+				return nil, fmt.Errorf("namedConnection.namespace must be empty if kind is ClusterConnection")
+			}
+		}
 	}
-	if ir.Alias == "" {
-		ir.Alias = ir.Interface
+	if ir.Release.Name != "" && ir.Release.Namespace == "" {
+		ir.Release.Namespace = defaultNamespace
 	}
-	if ir.Namespace == "" && ir.Kind == kv1alpha1.KindConnection {
-		ir.Namespace = defaultNamespace
+	x := misc.CountNonZero(ir.InterfaceLookup.Namespace, ir.NamedConnection.Name, ir.Release.Name)
+	if x > 1 {
+		return nil, fmt.Errorf("0 or one of 'interfaceLookup.namespace', 'namedConnection.name' or 'release.name' sub element may be specified")
+	}
+	if x == 0 {
+		ir.InterfaceLookup.Namespace = defaultNamespace
 	}
 	return ir, nil
 }

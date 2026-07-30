@@ -81,7 +81,7 @@ type ClusterConnectionStatus struct {
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Release",type=string,JSONPath=`.status.parent`
+// +kubebuilder:printcolumn:name="Parent Rel.",type=string,JSONPath=`.status.parent`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 

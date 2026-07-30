@@ -161,17 +161,31 @@ existante.
 ```
 input:
   - interface: <template_string> # required
-    kind: <template_string> # Connection or ClusterConnection. For namedConnection, default to Connection. In other cases, both are looked up.
-    namespace: # If kind == Connection. Default to release namespace.
+    kind: <template_string> # Connection or ClusterConnection. If "", then loopkup both
+    interfaceLookup:
+      namespace: <template_string> # Default to targetNamespace.
     namedConnection:
       name: <template_string>
+      namespace: <template_string> # Default to targetNamespace. If "", then it is a clusterConnection
     release:
       name: <template_string>
+      namespace: <template_string> # Default to targetNamespace
       outputName: <template_string>
     alias: <template_string> # optional. Default to interface
     optional: <template_bool> # Default: false. If true and the connection is missing, there is no error, and `.Inputs.<alias>` does not exists.
     allowMultiple: <bool> # Optional. If false, error in case of multiple providers on a binding. Default false
 
+```
+
+interfaceLookup, namedConnection and release are exclusive
+
+If none, then:
+
+```
+input:
+  - interface: <template_string> # required
+    interfaceLookup:
+      namespace: targetNamespace
 ```
 
 ## Usage

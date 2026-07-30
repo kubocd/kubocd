@@ -30,7 +30,7 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.parent
-      name: Release
+      name: Parent Rel.
       type: string
     - jsonPath: .status.message
       name: Message

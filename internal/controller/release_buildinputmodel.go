@@ -68,59 +68,60 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 }
 
 func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
-	var connectionFacade kv1alpha1.ConnectionFacade
-	if input.Kind == kv1alpha1.KindConnection {
-		connectionFacade = &kv1alpha1.ClusterConnection{}
-	} else {
-		connectionFacade = &kv1alpha1.Connection{}
-	}
-	// User target an unmanaged connection/clusterConnection. Just read it
-	nsName := types.NamespacedName{Namespace: input.Namespace, Name: input.NamedConnection.Name}
-	// We set in the status list even if not found or in error. As we want to be notified if created.
-	resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
-		Kind:      connectionFacade.GetKind(),
-		Name:      nsName.Name,
-		Namespace: nsName.Namespace,
-	})
-	err := helper.Get(ctx, nsName, connectionFacade)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			if !input.Optional {
-				resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Waiting for namedConnection '%s'.", idx, nsName.String()))
-			}
-			return nil
+
+	var bimFetchNamedConnection = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
+		var connectionFacade kv1alpha1.ConnectionFacade
+		if kind == kv1alpha1.KindConnection {
+			connectionFacade = &kv1alpha1.ClusterConnection{}
+		} else {
+			connectionFacade = &kv1alpha1.Connection{}
 		}
-		return NewReconcileError(fmt.Errorf("input#%d: could not get connection '%s': %w", idx, nsName.String(), err), false, "")
-	}
-	if connectionFacade.GetInterface() != input.Interface {
-		return NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx, input.Interface, connectionFacade.GetInterface()), false, "")
-	}
-	if connectionFacade.GetStatusPhase() != kv1alpha1.ConnectionPhaseReady {
-		if !input.Optional {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Waiting for namedConnection '%s' to be ready", idx, nsName.String()))
-		}
-		return nil
-	}
-	values := make(map[string]interface{})
-	if connectionFacade.GetValuesRaw() != nil {
-		err = yaml.UnmarshalStrict(connectionFacade.GetValuesRaw(), &values)
+		nsName := types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
+		err := helper.Get(ctx, nsName, connectionFacade)
 		if err != nil {
-			return NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, nsName.String(), err), false, "")
+			if k8serrors.IsNotFound(err) {
+				// We set in the status list even if not found or in error. As we want to be notified if created.
+				resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
+					Kind:      connectionFacade.GetKind(),
+					Name:      nsName.Name,
+					Namespace: nsName.Namespace,
+				})
+				return nil, nil
+			}
+			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get %s '%s': %w", idx+1, kind, nsName.String(), err), false, "")
+		}
+		if connectionFacade.GetInterface() != input.Interface {
+			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx+1, input.Interface, connectionFacade.GetInterface()), false, "")
+		}
+		return connectionFacade, nil
+	}
+
+	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 2)
+	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
+		cf, err := bimFetchNamedConnection(kv1alpha1.KindConnection)
+		if err != nil {
+			return err
+		}
+		if cf != nil {
+			collectionFacades = append(collectionFacades, cf)
 		}
 	}
-	resultCollector.EffectiveInputConnections[idx] = kv1alpha1.InputConnectionReference{
-		Kind:      connectionFacade.GetKind(),
-		Name:      nsName.Name,
-		Namespace: nsName.Namespace,
+	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
+		cf, err := bimFetchNamedConnection(kv1alpha1.KindClusterConnection)
+		if err != nil {
+			return err
+		}
+		if cf != nil {
+			collectionFacades = append(collectionFacades, cf)
+		}
 	}
-	resultCollector.InputModel[input.Alias] = values
-	return nil
+	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
 func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
-		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
+		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Release.Namespace, Name: input.Release.Name})
 		if err != nil {
 			return err
 		}
@@ -129,7 +130,7 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 		}
 	}
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
-		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.Release.Name})
+		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Release.Namespace, Name: input.Release.Name})
 		if err != nil {
 			return err
 		}
@@ -143,7 +144,7 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
-		cnx, err := helper.FindConnectionsFromInterface(ctx, input.Namespace, input.Interface)
+		cnx, err := helper.FindConnectionsFromInterface(ctx, input.InterfaceLookup.Namespace, input.Interface)
 		if err != nil {
 			return err
 		}
@@ -163,6 +164,7 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackag
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
+// Called in case of search by Release or by interface
 func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
@@ -170,8 +172,11 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 		if connection.GetInterface() != input.Interface {
 			continue
 		}
-		if input.Release.Name != "" && input.Release.OutputName != "" && connection.GetOutputName() != input.Release.OutputName {
-			continue
+		if input.Release.Name != "" && input.Release.Output != "" {
+			// Must filter also on output
+			if input.Release.Output != connection.GetOutputName() {
+				continue
+			}
 		}
 		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
@@ -187,9 +192,11 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 		if !input.Optional {
 			var mess string
 			if input.Release.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for connection for release '%s:%s'", idx, input.Namespace, input.Release.Name)
+				mess = fmt.Sprintf("input#%d: Waiting for connection from release '%s:%s'", idx+1, input.Release.Namespace, input.Release.Name)
+			} else if input.NamedConnection.Name != "" {
+				mess = fmt.Sprintf("input#%d: Waiting for namedConnection '%s:%s'", idx+1, input.NamedConnection.Namespace, input.NamedConnection.Name)
 			} else {
-				mess = fmt.Sprintf("input#%d: Waiting for connection for interface '%s'", idx, input.Interface)
+				mess = fmt.Sprintf("input#%d: Waiting for a connection with interface '%s'", idx+1, input.Interface)
 			}
 			if len(possibleConnectionNames) > 0 {
 				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))
@@ -200,7 +207,7 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	if !input.AllowMultiple {
 		if len(possibleConnectionNames) > 1 {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Too many possible connections: %s", idx, strings.Join(possibleConnectionNames, ",")))
+			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Too many possible connections: %s", idx+1, strings.Join(possibleConnectionNames, ",")))
 			return nil
 		}
 		// len(electedConnections) == 1, by construction
