@@ -94,6 +94,12 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get %s '%s': %w", idx+1, kind, nsName.String(), err), false, "")
 		}
 		if connectionFacade.GetInterface() != input.Interface {
+			if input.Kind == "" {
+				// Dual lookup: discard this candidate, the other kind may
+				// carry the right interface. If none does, the release waits
+				// with the 'Waiting for namedConnection' message.
+				return nil, nil
+			}
 			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx+1, input.Interface, connectionFacade.GetInterface()), false, "")
 		}
 		return connectionFacade, nil

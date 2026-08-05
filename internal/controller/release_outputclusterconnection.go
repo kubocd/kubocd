@@ -60,7 +60,12 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		// Nothing to do.
 		return nil, nil
 	}
-	// Connection exist. Update if needed
+	// ClusterConnection exists: no adoption, whoever owns it keeps it
+	pr := clusterConnection.Spec.ParentRelease
+	if pr == nil || pr.Name != op.release.Name || pr.Namespace != op.release.Namespace {
+		return nil, NewReconcileError(fmt.Errorf("clusterConnection '%s' already exists and is not owned by this release", clusterConnectionName), false, "ConnectionOwnership")
+	}
+	// Update if needed
 	if !outputRendered.Disabled {
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
@@ -140,16 +145,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 }
 
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
-	// Labels of the output are applied (set or update). Keys set by other
-	// actors are preserved.
-	if len(outputRendered.Labels) > 0 {
-		if clusterConnection.Labels == nil {
-			clusterConnection.Labels = make(map[string]string, len(outputRendered.Labels))
-		}
-		for k, v := range outputRendered.Labels {
-			clusterConnection.Labels[k] = v
-		}
-	}
+	ApplyManagedLabels(&clusterConnection.ObjectMeta, outputRendered.Labels)
 	clusterConnection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {

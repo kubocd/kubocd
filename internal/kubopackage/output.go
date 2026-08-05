@@ -17,6 +17,7 @@ limitations under the License.
 package kubopackage
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
@@ -248,7 +249,18 @@ func (os *OutputsStanza) UnmarshalJSON(data []byte) error {
 		os.Template = s
 		return nil
 	}
-	return json.Unmarshal(data, &os.List)
+	// Every package load path is strict (yaml.UnmarshalStrict), but strictness
+	// does not propagate into a custom unmarshaler: enforce it here, so a typo
+	// in an output field keeps being rejected
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	return dec.Decode(&os.List)
+}
+
+// IsZero makes 'outputs,omitzero' omit an absent stanza in the serialized
+// package (original.yaml, manifest.json), as the []Output shape did.
+func (os OutputsStanza) IsZero() bool {
+	return os.Template == "" && len(os.List) == 0
 }
 
 func (os OutputsStanza) MarshalJSON() ([]byte, error) {

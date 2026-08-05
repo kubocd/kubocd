@@ -90,7 +90,7 @@ type Package struct {
 	// List of inputs referencing connections.
 	Inputs []Input `json:"inputs,omitempty"`
 	// List of outputs, to generate connections
-	Outputs OutputsStanza `json:"outputs,omitempty"`
+	Outputs OutputsStanza `json:"outputs,omitzero"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -298,22 +298,3 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 	return result, nil
 }
 
-//func (pck *Package) RenderOutputs(model map[string]interface{}) ([]OutputRendered, error) {
-//	result := make([]OutputRendered, len(pck.Outputs))
-//	for idx, output := range pck.Outputs {
-//		or, err := output.Render(model)
-//		if err != nil {
-//			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
-//		}
-//		result[idx] = *or
-//	}
-//	// Must ensure name are uniques
-//	dupDetect := make(map[string]struct{})
-//	for _, outp := range result {
-//		if _, ok := dupDetect[outp.Name]; ok {
-//			return nil, fmt.Errorf("duplicate output name '%s'", outp.Name)
-//		}
-//		dupDetect[outp.Name] = struct{}{}
-//	}
-//	return result, nil
-//}

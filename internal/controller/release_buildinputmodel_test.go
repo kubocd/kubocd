@@ -151,16 +151,52 @@ func TestNamedConnectionAbsentIsWatched(t *testing.T) {
 	}
 }
 
-// A named connection carrying another interface is a hard error.
-func TestNamedConnectionInterfaceMismatch(t *testing.T) {
+// Dual lookup: a candidate carrying another interface is discarded, and with
+// no valid alternative the release waits (no hard error loop).
+func TestNamedConnectionInterfaceMismatchDualWaits(t *testing.T) {
 	cnx := readyConnection("my-db", "okdp", "s3", `{}`)
 	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(cnx).Build()
 	helper := &bimTestHelper{Client: cl}
 
 	inputs := []kubopackage.InputRendered{namedInput("database-server", "db", "my-db", "okdp", "")}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("dual lookup must not hard-error on a mismatching candidate: %v", rerr)
+	}
+	if len(result.Messages) != 1 || !strings.Contains(result.Messages[0], "Waiting for namedConnection") {
+		t.Fatalf("expected a waiting message, got %v", result.Messages)
+	}
+}
+
+// With an explicit kind, an interface mismatch stays a hard error.
+func TestNamedConnectionInterfaceMismatchExplicitKind(t *testing.T) {
+	cnx := readyConnection("my-db", "okdp", "s3", `{}`)
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(cnx).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	inputs := []kubopackage.InputRendered{namedInput("database-server", "db", "my-db", "okdp", kv1alpha1.KindConnection)}
 	_, rerr := BuildInputModel(context.Background(), helper, inputs)
 	if rerr == nil {
-		t.Fatal("expected an interface mismatch error")
+		t.Fatal("expected an interface mismatch error with an explicit kind")
+	}
+}
+
+// Dual lookup: a homonym Connection with the wrong interface must not mask a
+// valid ClusterConnection.
+func TestNamedConnectionDualPrefersMatchingKind(t *testing.T) {
+	wrong := readyConnection("sso", "okdp", "s3", `{}`)
+	right := readyClusterConnection("sso", "oidc", `{"issuerUri":"https://sso"}`)
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(wrong, right).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	inputs := []kubopackage.InputRendered{namedInput("oidc", "oidc", "sso", "okdp", "")}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	values, ok := result.InputModel["oidc"].(map[string]interface{})
+	if !ok || values["issuerUri"] != "https://sso" {
+		t.Fatalf("the valid ClusterConnection should resolve, got %#v (messages %v)", result.InputModel, result.Messages)
 	}
 }
 

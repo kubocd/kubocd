@@ -418,7 +418,12 @@ var renderCmd = &cobra.Command{
 				}
 			}
 			// --------------------------------------------------------------------- Generate output connections
-			for _, outputRendered := range rendered.Outputs {
+			// Same effective names (and validation) as the controller
+			effectiveNames, err := controller.ComputeEffectiveOutputNames(release.Name, release.Namespace, rendered.Outputs)
+			if err != nil {
+				return err
+			}
+			for outputIdx, outputRendered := range rendered.Outputs {
 				if !outputRendered.Disabled {
 					if outputRendered.Kind == kapi.KindClusterConnection {
 						connection := &kapi.ClusterConnection{
@@ -427,9 +432,10 @@ var renderCmd = &cobra.Command{
 								Kind:       string(kapi.KindClusterConnection),
 							},
 							ObjectMeta: metav1.ObjectMeta{
-								Name: controller.BuildClusterConnectionName(release.Name, release.Namespace, outputRendered.Name),
+								Name: effectiveNames[outputIdx],
 							},
 						}
+						controller.ApplyManagedLabels(&connection.ObjectMeta, outputRendered.Labels)
 						connection.Spec.Disabled = false // Always false for managed connections
 						valuesTxt, err := json.Marshal(outputRendered.Values)
 						if err != nil {
@@ -453,9 +459,10 @@ var renderCmd = &cobra.Command{
 							},
 							ObjectMeta: metav1.ObjectMeta{
 								Namespace: release.Namespace,
-								Name:      controller.BuildConnectionName(release.Name, outputRendered.Name),
+								Name:      effectiveNames[outputIdx],
 							},
 						}
+						controller.ApplyManagedLabels(&connection.ObjectMeta, outputRendered.Labels)
 						connection.Spec.Disabled = false // Always false for managed connections
 						valuesTxt, err := json.Marshal(outputRendered.Values)
 						if err != nil {

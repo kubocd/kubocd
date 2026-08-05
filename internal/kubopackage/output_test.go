@@ -138,3 +138,10 @@ func TestOutputsStanzaListForm(t *testing.T) {
 		t.Errorf("labels not rendered on list form: %v", outs[0].Labels)
 	}
 }
+
+func TestOutputsStanzaListFormStrict(t *testing.T) {
+	var s OutputsStanza
+	if err := s.UnmarshalJSON([]byte(`[{"interface":"s3","lables":{"tier":"prod"}}]`)); err == nil {
+		t.Fatal("an unknown field in an output entry must be rejected")
+	}
+}

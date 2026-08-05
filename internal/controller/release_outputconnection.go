@@ -24,10 +24,24 @@ import (
 
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sort"
+	"strings"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// ownedByRelease tells if a Connection is controller-owned by the given
+// release. The no-adoption rule: a pre-existing connection not owned by the
+// reconciling release is never patched nor deleted.
+func ownedByRelease(connection *kv1alpha1.Connection, releaseName string) bool {
+	owner := metav1.GetControllerOf(connection)
+	return owner != nil && owner.Kind == "Release" &&
+		strings.HasPrefix(owner.APIVersion, kv1alpha1.GroupVersion.Group) &&
+		owner.Name == releaseName
+}
 
 func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connectionName string, outputRendered *kubopackage.OutputRendered) (*kv1alpha1.Connection, ReconcileError) {
 	connection := &kv1alpha1.Connection{}
@@ -61,7 +75,11 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		// Nothing to do.
 		return nil, nil
 	}
-	// Connection exist. Update if needed
+	// Connection exists: no adoption, whoever owns it keeps it
+	if !ownedByRelease(connection, op.release.Name) {
+		return nil, NewReconcileError(fmt.Errorf("connection '%s' already exists and is not owned by this release", connectionName), false, "ConnectionOwnership")
+	}
+	// Update if needed
 	if !outputRendered.Disabled {
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchConnection(r, op, connection, outputRendered)
@@ -137,17 +155,49 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 	return nil
 }
 
-func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
-	// Labels of the output are applied (set or update). Keys set by other
-	// actors are preserved.
-	if len(outputRendered.Labels) > 0 {
-		if connection.Labels == nil {
-			connection.Labels = make(map[string]string, len(outputRendered.Labels))
+// AppliedLabelsAnnotation records the label keys applied by the output, so a
+// label removed from the package converges (gets deleted) while keys set by
+// other actors are preserved.
+const AppliedLabelsAnnotation = "kubocd.kubotal.io/applied-labels"
+
+// ApplyManagedLabels applies the labels of an output on the object metadata:
+// stale keys (applied previously, absent from the new set) are removed, keys
+// set by other actors are left alone. The applied set is tracked in an
+// annotation.
+func ApplyManagedLabels(meta *metav1.ObjectMeta, rendered map[string]string) {
+	previous := ""
+	if meta.Annotations != nil {
+		previous = meta.Annotations[AppliedLabelsAnnotation]
+	}
+	for _, k := range strings.Split(previous, ",") {
+		if k == "" {
+			continue
 		}
-		for k, v := range outputRendered.Labels {
-			connection.Labels[k] = v
+		if _, still := rendered[k]; !still {
+			delete(meta.Labels, k)
 		}
 	}
+	if len(rendered) > 0 {
+		if meta.Labels == nil {
+			meta.Labels = make(map[string]string, len(rendered))
+		}
+		keys := make([]string, 0, len(rendered))
+		for k, v := range rendered {
+			meta.Labels[k] = v
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		if meta.Annotations == nil {
+			meta.Annotations = make(map[string]string, 1)
+		}
+		meta.Annotations[AppliedLabelsAnnotation] = strings.Join(keys, ",")
+	} else if previous != "" {
+		delete(meta.Annotations, AppliedLabelsAnnotation)
+	}
+}
+
+func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
+	ApplyManagedLabels(&connection.ObjectMeta, outputRendered.Labels)
 	connection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
