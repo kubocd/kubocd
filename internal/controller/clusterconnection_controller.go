@@ -97,7 +97,9 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 		}
 		clusterConnection.Status.InterfaceGeneration = clusterIface.Generation
 	}
-
+	if clusterConnection.Status.Parent == "" && clusterConnection.Spec.ParentRelease != nil {
+		clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", clusterConnection.Spec.ParentRelease.Namespace, clusterConnection.Spec.ParentRelease.Name)
+	}
 	if reflect.DeepEqual(previous.Status, clusterConnection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, finalError

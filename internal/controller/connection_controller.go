@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/xeipuuv/gojsonschema"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -122,6 +123,14 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		connection.Status.InterfaceDisplay = fmt.Sprintf("[%s]", connection.Spec.Interface)
 	default:
 		connection.Status.InterfaceDisplay = fmt.Sprintf("%s?", connection.Spec.Interface)
+	}
+	if connection.Status.Parent == "" {
+		owner := metav1.GetControllerOf(connection)
+		if owner == nil {
+			connection.Status.Parent = ""
+		} else {
+			connection.Status.Parent = owner.Name
+		}
 	}
 	if reflect.DeepEqual(previous.Status, connection.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)

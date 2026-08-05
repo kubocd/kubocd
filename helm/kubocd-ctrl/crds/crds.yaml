@@ -29,7 +29,7 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.parent
-      name: Release
+      name: Parent Rel.
       type: string
     - jsonPath: .status.message
       name: Message
@@ -552,7 +552,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.interface
+    - jsonPath: .status.interfaceDisplay
       name: Interface
       type: string
     - jsonPath: .spec.description
@@ -565,7 +565,7 @@ spec:
       name: Status
       type: string
     - jsonPath: .status.parent
-      name: Release
+      name: Parent Rel.
       type: string
     - jsonPath: .status.message
       name: Message
@@ -625,12 +625,18 @@ spec:
             type: object
           status:
             properties:
+              interfaceDisplay:
+                description: Decorated interface name, for user display
+                type: string
               interfaceGeneration:
                 description: |-
                   InterfaceGeneration is the .metadata.generation of the interface this
                   connection was last checked against.
                 format: int64
                 type: integer
+              interfaceKind:
+                description: Interface or ClusterInterface. For user usage
+                type: string
               message:
                 type: string
               parent:
@@ -876,10 +882,10 @@ spec:
       name: Rel.
       type: string
     - jsonPath: .status.readyOutputConnections
-      name: Cnct.
+      name: Out
       type: string
     - jsonPath: .status.message
-      name: Error
+      name: Message
       type: string
     - jsonPath: .status.printProtected
       name: PRT
