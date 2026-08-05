@@ -26,9 +26,13 @@ type Output struct {
 	// required:true
 	Interface KcdTemplateString `json:"interface"`
 	// optional. Default to interface
-	Name KcdTemplateString `json:"Name"`
+	Name KcdTemplateString `json:"name"`
 	// Connection or ClusterConnection. Default to Connection
-	Kind KcdTemplateString `json:"Kind,omitempty"`
+	Kind KcdTemplateString `json:"kind,omitempty"`
+	// optional. Explicit name of the created (Cluster)Connection. When unset,
+	// the name is generated (kcd-<release>-<output>). An explicit name gives a
+	// stable platform reference, independent of the producer release name.
+	ConnectionName KcdTemplateString `json:"connectionName,omitempty"`
 	// optional. Default to Name. For a potential front end
 	DisplayName KcdTemplateString `json:"displayName,omitempty"`
 	// Optional. Default to 100
@@ -44,14 +48,15 @@ type Output struct {
 }
 
 type outputTemplates struct {
-	iface       tmpl.Tmpl
-	name        tmpl.Tmpl
-	kind        tmpl.Tmpl
-	displayName tmpl.Tmpl
-	priority    tmpl.Tmpl
-	description tmpl.Tmpl
-	disabled    tmpl.Tmpl
-	values      tmpl.Tmpl
+	iface          tmpl.Tmpl
+	name           tmpl.Tmpl
+	kind           tmpl.Tmpl
+	connectionName tmpl.Tmpl
+	displayName    tmpl.Tmpl
+	priority       tmpl.Tmpl
+	description    tmpl.Tmpl
+	disabled       tmpl.Tmpl
+	values         tmpl.Tmpl
 }
 
 func (o *Output) groom(pck *Package) error {
@@ -72,6 +77,10 @@ func (o *Output) groom(pck *Package) error {
 	o.templates.kind, err = tmpl.New("", string(o.Kind), pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'kind' parameter: %w", err)
+	}
+	o.templates.connectionName, err = tmpl.New("", string(o.ConnectionName), pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'connectionName' parameter: %w", err)
 	}
 	o.templates.displayName, err = tmpl.New("", string(o.DisplayName), pck.TemplateHeader)
 	if err != nil {
@@ -98,14 +107,15 @@ func (o *Output) groom(pck *Package) error {
 
 // OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type OutputRendered struct {
-	Name        string                 `json:"name"`
-	Interface   string                 `json:"interface"`
-	Kind        kv1alpha1.Kind         `json:"kind"`
-	DisplayName string                 `json:"displayName,omitempty"`
-	Priority    int                    `json:"priority,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Disabled    bool                   `json:"disabled,omitempty"`
-	Values      map[string]interface{} `json:"values,omitempty"`
+	Name           string                 `json:"name"`
+	Interface      string                 `json:"interface"`
+	Kind           kv1alpha1.Kind         `json:"kind"`
+	ConnectionName string                 `json:"connectionName,omitempty"`
+	DisplayName    string                 `json:"displayName,omitempty"`
+	Priority       int                    `json:"priority,omitempty"`
+	Description    string                 `json:"description,omitempty"`
+	Disabled       bool                   `json:"disabled,omitempty"`
+	Values         map[string]interface{} `json:"values,omitempty"`
 }
 
 func (o *Output) Render(model map[string]interface{}) (*OutputRendered, error) {
@@ -124,6 +134,10 @@ func (o *Output) Render(model map[string]interface{}) (*OutputRendered, error) {
 		return nil, fmt.Errorf("could not render 'kind' parameter: %w", err)
 	}
 	or.Kind = kv1alpha1.Kind(k)
+	or.ConnectionName, err = o.templates.connectionName.RenderToSingleLine(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'connectionName' parameter: %w", err)
+	}
 	or.DisplayName, err = o.templates.displayName.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'displayName' parameter: %w", err)

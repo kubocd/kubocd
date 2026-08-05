@@ -559,14 +559,18 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	op.outputConnectionByName = make(map[string]kv1alpha1.ReleaseOutputConnection)
 	op.outputConnectionK8sName = make(map[string]struct{})
 	op.outputClusterConnectionK8sName = make(map[string]struct{})
-	for _, outputRendered := range rendered.Outputs {
+	// Effective names (explicit connectionName or generated), validated and
+	// checked for duplicates BEFORE any connection is touched.
+	effectiveNames, nameErr := ComputeEffectiveOutputNames(op.release.Name, op.release.Namespace, rendered.Outputs)
+	if nameErr != nil {
+		return r.reportError(op, NewReconcileError(nameErr, false, "OutputConnectionName"), forceUpdate)
+	}
+	for idx, outputRendered := range rendered.Outputs {
 		var reconcileError ReconcileError
 		if outputRendered.Kind == kv1alpha1.KindClusterConnection {
-			clusterConnectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
-			_, reconcileError = r.handleOutputClusterConnection(op, clusterConnectionName, outputRendered)
+			_, reconcileError = r.handleOutputClusterConnection(op, effectiveNames[idx], outputRendered)
 		} else {
-			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
-			_, reconcileError = r.handleOutputConnection(op, connectionName, outputRendered)
+			_, reconcileError = r.handleOutputConnection(op, effectiveNames[idx], outputRendered)
 		}
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError, forceUpdate)
