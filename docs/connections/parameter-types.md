@@ -10,7 +10,11 @@ la stanza).
 schema:
   parameters:
     properties:
-      metadataDb: { type: connectionRef, interface: database-server, required: true }
+      metadataDb:
+        type: connectionRef
+        interface: database-server # requis
+        kind: Connection # optionnel
+        required: true
 # Release :
 #   parameters:
 #     metadataDb: kcd-postgres-superset
@@ -24,8 +28,17 @@ schema:
 - `default` : uniquement une string templatée, rendue contre le Context
   (`default: "{{ .Context.platform.defaults.oidc }}"`). Un défaut littéral est rejeté au groom. Interdit en
   `schema.context`.
+- `kind` (`Connection` ou `ClusterConnection`) : restreint la recherche à un seul type. Absent = recherche dans les
+  deux, ce qui bloque la release ("Too many possible connections") si une Connection et une ClusterConnection portent le
+  même nom ET la même interface, dès qu'au moins l'une des deux est READY (sinon le message reste "Waiting for
+  namedConnection"). Autorisé aussi en `schema.context`. Avec `kind: ClusterConnection`, l'input généré ne porte pas de
+  namespace (objet cluster scoped). Attention, poser un `kind` change aussi le mode d'échec sur mismatch d'interface :
+  la recherche dans les deux types écarte silencieusement un candidat de mauvaise interface, un `kind` explicite en fait
+  une erreur dure (`Interface mismatch`). Compatibilité : le `kind:` brut voyage dans l'artefact OCI, un contrôleur
+  antérieur rejettera le package avec `unknown property 'kind'`.
 - Gating : une connexion nommée absente ou non-READY met la release en WAIT_ICNX, réveil à sa création (watch). Une
-  interface qui ne correspond pas est une erreur.
+  interface qui ne correspond pas est une erreur (en recherche dans les deux types, le candidat qui ne correspond pas
+  est simplement écarté).
 
 ## connectionSelector : requête
 
@@ -42,9 +55,11 @@ schema:
 # Template : {{ range .Parameters.databases }}{{ .host }}{{ end }}
 ```
 
-- La liste résolue est triée par `priority` décroissante puis nom croissant.
+- La liste résolue est triée par `priority` décroissante puis nom croissant, et ne contient que les connexions READY :
+  une candidate qui matche mais n'est pas prête est absente de la liste, sans message.
 - `required: true` = la liste ne doit pas être vide (sinon WAIT_ICNX). `required: false` + aucun match = liste vide
   substituée.
+- `kind` : restreint la recherche à `Connection` ou `ClusterConnection`, comme sur le ref. Absent = les deux.
 - Interdit dans les arrays et dans `schema.context`.
 
 ## Identité et statut

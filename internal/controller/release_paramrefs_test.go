@@ -1,6 +1,7 @@
 package controller
 
 import (
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/kuboschema"
 	"strings"
@@ -40,6 +41,67 @@ func TestGenerateScalarRef(t *testing.T) {
 	}
 	if len(inputModel) != 0 {
 		t.Errorf("generated aliases must be removed from .Inputs, got %v", inputModel)
+	}
+}
+
+func TestGenerateRefKindConnection(t *testing.T) {
+	params := map[string]interface{}{"metadataDb": "kcd-postgres-superset"}
+	decl := refDecl([]string{"metadataDb"}, "database-server", true)
+	decl.KindFilter = "Connection"
+	gen, _, err := GenerateRefInputs([]kuboschema.ConnectionDecl{decl}, nil, params, nil, "okdp", nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if len(gen) != 1 || gen[0].Kind != kv1alpha1.KindConnection ||
+		gen[0].NamedConnection.Namespace != "okdp" {
+		t.Fatalf("unexpected generated input: %+v", gen)
+	}
+}
+
+func TestGenerateRefKindClusterConnection(t *testing.T) {
+	params := map[string]interface{}{"metadataDb": "kcd-shared-postgres"}
+	decl := refDecl([]string{"metadataDb"}, "database-server", true)
+	decl.KindFilter = "ClusterConnection"
+	gen, _, err := GenerateRefInputs([]kuboschema.ConnectionDecl{decl}, nil, params, nil, "okdp", nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if len(gen) != 1 || gen[0].Kind != kv1alpha1.KindClusterConnection {
+		t.Fatalf("unexpected generated input: %+v", gen)
+	}
+	// Cluster-scoped: no namespace, as the hand-written stanza forbids the pair
+	if gen[0].NamedConnection.Namespace != "" {
+		t.Errorf("a ClusterConnection ref must not carry a namespace, got '%s'", gen[0].NamedConnection.Namespace)
+	}
+}
+
+func TestGenerateRefWithoutKind(t *testing.T) {
+	params := map[string]interface{}{"metadataDb": "kcd-postgres-superset"}
+	gen, _, err := GenerateRefInputs(
+		[]kuboschema.ConnectionDecl{refDecl([]string{"metadataDb"}, "database-server", true)},
+		nil, params, nil, "okdp", nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if len(gen) != 1 || gen[0].Kind != "" || gen[0].NamedConnection.Namespace != "okdp" {
+		t.Fatalf("no kind declared: dual lookup and namespace expected, got %+v", gen)
+	}
+}
+
+func TestGenerateContextRefKind(t *testing.T) {
+	context := map[string]interface{}{
+		"platform": map[string]interface{}{"oidc": "kcd-keycloak-oidc"},
+	}
+	decl := refDecl([]string{"platform", "oidc"}, "oidc", true)
+	decl.KindFilter = "ClusterConnection"
+	gen, _, err := GenerateRefInputs(nil, []kuboschema.ConnectionDecl{decl},
+		map[string]interface{}{}, context, "okdp", nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if len(gen) != 1 || gen[0].Alias != "context.platform.oidc" ||
+		gen[0].Kind != kv1alpha1.KindClusterConnection || gen[0].NamedConnection.Namespace != "" {
+		t.Fatalf("unexpected generated input: %+v", gen)
 	}
 }
 

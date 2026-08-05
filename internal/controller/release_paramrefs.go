@@ -146,7 +146,11 @@ func emitDecl(decl kuboschema.ConnectionDecl, concrete []string, value interface
 		ir.AllowMultiple = true
 		ir.Optional = !decl.Required
 		ir.MatchLabels = decl.MatchLabels
-		ir.InterfaceLookup.Namespace = releaseNamespace
+		// Same rule as the ref branch below: a cluster-scoped lookup has no
+		// namespace to search in
+		if ir.Kind != kv1alpha1.KindClusterConnection {
+			ir.InterfaceLookup.Namespace = releaseNamespace
+		}
 		*generated = append(*generated, ir)
 		*bindings = append(*bindings, RefBinding{Alias: alias, Path: concrete, InContext: inContext, List: true})
 		return nil
@@ -165,8 +169,14 @@ func emitDecl(decl kuboschema.ConnectionDecl, concrete []string, value interface
 	var ir kubopackage.InputRendered
 	ir.Interface = decl.Interface
 	ir.Alias = alias
+	ir.Kind = kv1alpha1.Kind(decl.KindFilter)
 	ir.NamedConnection.Name = name
-	ir.NamedConnection.Namespace = releaseNamespace
+	if ir.Kind != kv1alpha1.KindClusterConnection {
+		// A ClusterConnection is cluster-scoped: its lookup ignores the
+		// namespace. Same rule as the hand-written stanza, where a namespace
+		// set together with kind: ClusterConnection is an error.
+		ir.NamedConnection.Namespace = releaseNamespace
+	}
 	// The deployer (or the Context) named this connection: always gate until
 	// it is READY, whatever the schema-level required flag
 	ir.Optional = false

@@ -4,6 +4,7 @@ import (
 	"context"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
+	"kubocd/internal/kuboschema"
 	"strings"
 	"testing"
 
@@ -168,6 +169,28 @@ func TestNamedConnectionInterfaceMismatchDualWaits(t *testing.T) {
 	}
 }
 
+// A cluster-scoped target has no namespace: the message must not show a
+// dangling colon ("':shared-db'").
+func TestWaitingMessageOnClusterConnectionHasNoDanglingColon(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	inputs := []kubopackage.InputRendered{namedInput("database-server", "db", "shared-db", "", kv1alpha1.KindClusterConnection)}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected one waiting message, got %v", result.Messages)
+	}
+	if !strings.Contains(result.Messages[0], "namedConnection 'shared-db'") {
+		t.Fatalf("expected a bare name, got %q", result.Messages[0])
+	}
+	if strings.Contains(result.Messages[0], "':shared-db'") {
+		t.Fatalf("dangling colon in %q", result.Messages[0])
+	}
+}
+
 // With an explicit kind, an interface mismatch stays a hard error.
 func TestNamedConnectionInterfaceMismatchExplicitKind(t *testing.T) {
 	cnx := readyConnection("my-db", "okdp", "s3", `{}`)
@@ -197,6 +220,105 @@ func TestNamedConnectionDualPrefersMatchingKind(t *testing.T) {
 	values, ok := result.InputModel["oidc"].(map[string]interface{})
 	if !ok || values["issuerUri"] != "https://sso" {
 		t.Fatalf("the valid ClusterConnection should resolve, got %#v (messages %v)", result.InputModel, result.Messages)
+	}
+}
+
+// The homonym deadlock a connectionRef 'kind' exists to break: a Connection
+// and a ClusterConnection sharing the name AND the interface are both
+// candidates of a dual lookup, and a generated ref never allows multiple.
+func TestNamedConnectionHomonymNeedsKind(t *testing.T) {
+	namespaced := readyConnection("shared-db", "okdp", "database-server", `{"host":"local"}`)
+	cluster := readyClusterConnection("shared-db", "database-server", `{"host":"corporate"}`)
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(namespaced, cluster).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	// No kind: ambiguous, the release stays gated
+	inputs := []kubopackage.InputRendered{namedInput("database-server", "db", "shared-db", "okdp", "")}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	if len(result.Messages) != 1 || !strings.Contains(result.Messages[0], "Too many possible connections") {
+		t.Fatalf("expected an ambiguity message, got %v", result.Messages)
+	}
+	// The message must tell the two candidates apart: they share one name, so
+	// the kind (and the namespace of the namespaced one) has to be spelled out
+	for _, want := range []string{"(db)", "Connection okdp:shared-db", "ClusterConnection shared-db"} {
+		if !strings.Contains(result.Messages[0], want) {
+			t.Fatalf("ambiguity message should contain %q, got %q", want, result.Messages[0])
+		}
+	}
+
+	// kind: ClusterConnection picks the cluster-scoped one (no namespace)
+	inputs = []kubopackage.InputRendered{namedInput("database-server", "db", "shared-db", "", kv1alpha1.KindClusterConnection)}
+	result, rerr = BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	values, ok := result.InputModel["db"].(map[string]interface{})
+	if !ok || values["host"] != "corporate" {
+		t.Fatalf("kind: ClusterConnection should elect the cluster one, got %#v (messages %v)", result.InputModel, result.Messages)
+	}
+
+	// kind: Connection picks the namespaced one
+	inputs = []kubopackage.InputRendered{namedInput("database-server", "db", "shared-db", "okdp", kv1alpha1.KindConnection)}
+	result, rerr = BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	values, ok = result.InputModel["db"].(map[string]interface{})
+	if !ok || values["host"] != "local" {
+		t.Fatalf("kind: Connection should elect the namespaced one, got %#v (messages %v)", result.InputModel, result.Messages)
+	}
+}
+
+// End to end on the generated path: a connectionRef declaring a kind carries
+// it all the way from the package schema to the resolved values.
+func TestGeneratedRefKindResolvesHomonym(t *testing.T) {
+	namespaced := readyConnection("shared-db", "okdp", "database-server", `{"host":"local"}`)
+	cluster := readyClusterConnection("shared-db", "database-server", `{"host":"corporate"}`)
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(namespaced, cluster).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	schema := kuboschema.KuboSchema{
+		"properties": map[string]interface{}{
+			"metadataDb": map[string]interface{}{
+				"type":      kuboschema.TypeConnectionRef,
+				"interface": "database-server",
+				"kind":      "ClusterConnection",
+				"required":  true,
+			},
+		},
+	}
+	openAPI, err := kuboschema.Kubo2openAPI(schema, false)
+	if err != nil {
+		t.Fatalf("Kubo2openAPI failed: %v", err)
+	}
+	decls, err := kuboschema.CollectConnectionDecls(openAPI, false)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	params := map[string]interface{}{"metadataDb": "shared-db"}
+	gen, bindings, err := GenerateRefInputs(decls, nil, params, nil, "okdp", nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	result, rerr := BuildInputModel(context.Background(), helper, gen)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	if len(result.Messages) != 0 {
+		t.Fatalf("expected no gating message, got %v", result.Messages)
+	}
+	if err := ApplyRefBindings(bindings, result.InputModel, result.InputListModel, params, nil); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	resolved, ok := params["metadataDb"].(map[string]interface{})
+	if !ok || resolved["host"] != "corporate" {
+		t.Fatalf("in-place substitution should carry the ClusterConnection values: %#v", params["metadataDb"])
+	}
+	if result.EffectiveInputConnections[0].Kind != kv1alpha1.KindClusterConnection {
+		t.Errorf("unexpected effective kind: %+v", result.EffectiveInputConnections[0])
 	}
 }
 

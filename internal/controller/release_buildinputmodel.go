@@ -173,6 +173,22 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackag
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
+// qualifiedName renders '<namespace>:<name>', or the bare name for a
+// cluster-scoped target, so that a message never shows a dangling colon.
+func qualifiedName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return fmt.Sprintf("%s:%s", namespace, name)
+}
+
+// describeCandidate identifies a candidate in the 'Too many' message. The name
+// alone is ambiguous: the very case this message reports is a Connection and a
+// ClusterConnection sharing one name.
+func describeCandidate(connection kv1alpha1.ConnectionFacade) string {
+	return fmt.Sprintf("%s %s", connection.GetKind(), qualifiedName(connection.GetNamespace(), connection.GetName()))
+}
+
 // Called in case of search by Release or by interface
 func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
@@ -198,7 +214,7 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 		if !matchesLabels(connection.GetLabels(), input.MatchLabels) {
 			continue
 		}
-		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
+		possibleConnectionNames = append(possibleConnectionNames, describeCandidate(connection))
 		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, connection)
 		} else {
@@ -211,7 +227,7 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 			if input.Release.Name != "" {
 				mess = fmt.Sprintf("input#%d (%s): Waiting for connection from release '%s:%s'", idx+1, input.Alias, input.Release.Namespace, input.Release.Name)
 			} else if input.NamedConnection.Name != "" {
-				mess = fmt.Sprintf("input#%d (%s): Waiting for namedConnection '%s:%s'", idx+1, input.Alias, input.NamedConnection.Namespace, input.NamedConnection.Name)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for namedConnection '%s'", idx+1, input.Alias, qualifiedName(input.NamedConnection.Namespace, input.NamedConnection.Name))
 			} else {
 				mess = fmt.Sprintf("input#%d (%s): Waiting for a connection with interface '%s'", idx+1, input.Alias, input.Interface)
 			}
@@ -237,7 +253,7 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	if !input.AllowMultiple {
 		if len(possibleConnectionNames) > 1 {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Too many possible connections: %s", idx+1, strings.Join(possibleConnectionNames, ",")))
+			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d (%s): Too many possible connections: %s", idx+1, input.Alias, strings.Join(possibleConnectionNames, ", ")))
 			return nil
 		}
 		// len(electedConnections) == 1, by construction

@@ -42,6 +42,7 @@ var connectionRefAllowedProperties = map[string]bool{
 	"required":    true,
 	"default":     true,
 	"interface":   true,
+	"kind":        true,
 }
 
 var connectionSelectorAllowedProperties = map[string]bool{
@@ -69,13 +70,18 @@ func desugarConnectionRef(path string, node map[string]interface{}) (map[string]
 			return nil, false, fmt.Errorf("node '%s': the 'default' of a %s must be a template string (rendered against the Context), literal targets are not allowed", path, TypeConnectionRef)
 		}
 	}
+	marker := map[string]interface{}{"interface": iface}
+	if err := connectionKind(path, node, marker); err != nil {
+		return nil, false, err
+	}
 	required, err := handleRequired(node)
 	if err != nil {
 		return nil, false, fmt.Errorf("node '%s': %w", path, err)
 	}
 	node["type"] = "string"
 	delete(node, "interface")
-	node[MarkerConnectionRef] = map[string]interface{}{"interface": iface}
+	delete(node, "kind")
+	node[MarkerConnectionRef] = marker
 	return node, required, nil
 }
 
@@ -101,12 +107,8 @@ func desugarConnectionSelector(path string, node map[string]interface{}) (map[st
 		}
 		marker["matchLabels"] = mlMap
 	}
-	if kind, ok := node["kind"]; ok {
-		kindStr, isStr := kind.(string)
-		if !isStr || (kindStr != "Connection" && kindStr != "ClusterConnection") {
-			return nil, false, fmt.Errorf("node '%s': 'kind' must be 'Connection' or 'ClusterConnection'", path)
-		}
-		marker["kind"] = kindStr
+	if err := connectionKind(path, node, marker); err != nil {
+		return nil, false, err
 	}
 	required, err := handleRequired(node)
 	if err != nil {
@@ -119,6 +121,23 @@ func desugarConnectionSelector(path string, node map[string]interface{}) (map[st
 	delete(node, "kind")
 	node[MarkerConnectionSelector] = marker
 	return node, false, nil
+}
+
+// connectionKind reads the optional 'kind' restriction, common to both
+// connection types, and stores it in the marker. Absent means "look both kinds
+// up", which is only ambiguous when the same name (or interface) is carried by
+// a Connection AND a ClusterConnection.
+func connectionKind(path string, node map[string]interface{}, marker map[string]interface{}) error {
+	kind, ok := node["kind"]
+	if !ok {
+		return nil
+	}
+	kindStr, isStr := kind.(string)
+	if !isStr || (kindStr != "Connection" && kindStr != "ClusterConnection") {
+		return fmt.Errorf("node '%s': 'kind' must be 'Connection' or 'ClusterConnection'", path)
+	}
+	marker["kind"] = kindStr
+	return nil
 }
 
 func connectionInterface(path string, node map[string]interface{}) (string, error) {
@@ -148,9 +167,10 @@ type ConnectionDecl struct {
 	Required bool
 	// For a ref: the default template ("" if none)
 	Default string
-	// Selector filters
+	// Selector-only filter
 	MatchLabels map[string]string
-	KindFilter  string
+	// Restrict the lookup to one kind ("" = both). Legal on both types.
+	KindFilter string
 }
 
 // CollectConnectionDecls walks a de-sugared schema and returns the connection
@@ -175,6 +195,7 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 	if marker, ok := node[MarkerConnectionRef]; ok {
 		markerMap, _ := marker.(map[string]interface{})
 		iface, _ := markerMap["interface"].(string)
+		kind, _ := markerMap["kind"].(string)
 		def, _ := node["default"].(string)
 		if isContext && def != "" {
 			return fmt.Errorf("node '%s': a %s in schema.context cannot have a default, the name always comes from the Context", pathStr, TypeConnectionRef)
@@ -188,10 +209,11 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 			return err
 		}
 		*decls = append(*decls, ConnectionDecl{
-			Path:      append([]string{}, path...),
-			Interface: iface,
-			Required:  required,
-			Default:   def,
+			Path:       append([]string{}, path...),
+			Interface:  iface,
+			Required:   required,
+			Default:    def,
+			KindFilter: kind,
 		})
 		return nil
 	}
@@ -257,6 +279,7 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 	}
 	return nil
 }
+
 // checkRefPathSegments rejects all-digit property names on a connection
 // declaration path: the substitution machinery distinguishes map keys from
 // array indices by their digit-only shape.

@@ -86,6 +86,113 @@ func TestDesugarConnectionRefInArray(t *testing.T) {
 	}
 }
 
+func TestDesugarConnectionRefKind(t *testing.T) {
+	for _, kind := range []string{"Connection", "ClusterConnection"} {
+		schema := KuboSchema{
+			"properties": map[string]interface{}{
+				"metadataDb": map[string]interface{}{
+					"type":      TypeConnectionRef,
+					"interface": "database-server",
+					"kind":      kind,
+					"required":  true,
+				},
+			},
+		}
+		openAPI, err := Kubo2openAPI(schema, false)
+		if err != nil {
+			t.Fatalf("Kubo2openAPI failed: %v", err)
+		}
+		node := openAPI["properties"].(map[string]interface{})["metadataDb"].(map[string]interface{})
+		if _, leaked := node["kind"]; leaked {
+			t.Errorf("'kind' must be removed from the de-sugared node: %v", node)
+		}
+		marker := node[MarkerConnectionRef].(map[string]interface{})
+		if marker["kind"] != kind {
+			t.Errorf("marker should carry kind %s, got %v", kind, marker)
+		}
+		decls, err := CollectConnectionDecls(openAPI, false)
+		if err != nil {
+			t.Fatalf("collect failed: %v", err)
+		}
+		if len(decls) != 1 || decls[0].KindFilter != kind {
+			t.Errorf("unexpected decl for kind %s: %+v", kind, decls)
+		}
+	}
+}
+
+func TestDesugarConnectionRefWithoutKind(t *testing.T) {
+	schema := KuboSchema{
+		"properties": map[string]interface{}{
+			"metadataDb": map[string]interface{}{
+				"type":      TypeConnectionRef,
+				"interface": "database-server",
+			},
+		},
+	}
+	openAPI, err := Kubo2openAPI(schema, false)
+	if err != nil {
+		t.Fatalf("Kubo2openAPI failed: %v", err)
+	}
+	marker := openAPI["properties"].(map[string]interface{})["metadataDb"].(map[string]interface{})[MarkerConnectionRef].(map[string]interface{})
+	if _, ok := marker["kind"]; ok {
+		t.Errorf("no 'kind' declared: the marker must not carry one, got %v", marker)
+	}
+	decls, err := CollectConnectionDecls(openAPI, false)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(decls) != 1 || decls[0].KindFilter != "" {
+		t.Errorf("KindFilter should stay empty: %+v", decls)
+	}
+}
+
+func TestDesugarConnectionRefInvalidKindRejected(t *testing.T) {
+	schema := KuboSchema{
+		"properties": map[string]interface{}{
+			"db": map[string]interface{}{
+				"type":      TypeConnectionRef,
+				"interface": "database-server",
+				"kind":      "Cnx",
+			},
+		},
+	}
+	if _, err := Kubo2openAPI(schema, false); err == nil ||
+		!strings.Contains(err.Error(), "'kind' must be 'Connection' or 'ClusterConnection'") {
+		t.Fatalf("expected an invalid kind rejection, got %v", err)
+	}
+}
+
+func TestDesugarConnectionRefKindInContext(t *testing.T) {
+	schema := KuboSchema{
+		"properties": map[string]interface{}{
+			"platform": map[string]interface{}{
+				"properties": map[string]interface{}{
+					"oidc": map[string]interface{}{
+						"type":      TypeConnectionRef,
+						"interface": "oidc",
+						"kind":      "ClusterConnection",
+						"required":  true,
+					},
+				},
+			},
+		},
+	}
+	openAPI, err := Kubo2openAPI(schema, true)
+	if err != nil {
+		t.Fatalf("Kubo2openAPI failed: %v", err)
+	}
+	decls, err := CollectConnectionDecls(openAPI, true)
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(decls) != 1 || decls[0].KindFilter != "ClusterConnection" || !decls[0].Required {
+		t.Fatalf("unexpected context decl: %+v", decls)
+	}
+	if len(decls[0].Path) != 2 || decls[0].Path[0] != "platform" || decls[0].Path[1] != "oidc" {
+		t.Errorf("unexpected path: %v", decls[0].Path)
+	}
+}
+
 func TestDesugarConnectionSelector(t *testing.T) {
 	schema := KuboSchema{
 		"properties": map[string]interface{}{
