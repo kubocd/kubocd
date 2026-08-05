@@ -1,0 +1,247 @@
+/*
+Copyright 2026 Kubotal
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package kuboschema
+
+import (
+	"fmt"
+	"strings"
+)
+
+// The two connection-aware schema types. A connectionRef types a parameter
+// (or a context variable) carrying the NAME of a connection: it is de-sugared
+// to a plain string, and the controller generates the matching input, then
+// substitutes the resolved values in place. A connectionSelector types a
+// query ("all the connections of this interface, optionally label-filtered"):
+// the deployer never provides a value, the resolved list lands in place.
+const TypeConnectionRef = "connectionRef"
+const TypeConnectionSelector = "connectionSelector"
+
+// Markers left in the de-sugared (openAPI) schema. gojsonschema ignores
+// unknown keywords, so they are transparent for validation.
+const MarkerConnectionRef = "x-kubocd-connection-ref"
+const MarkerConnectionSelector = "x-kubocd-connection-selector"
+
+var connectionRefAllowedProperties = map[string]bool{
+	"type":        true,
+	"title":       true,
+	"description": true,
+	"required":    true,
+	"default":     true,
+	"interface":   true,
+}
+
+var connectionSelectorAllowedProperties = map[string]bool{
+	"type":        true,
+	"title":       true,
+	"description": true,
+	"required":    true,
+	"interface":   true,
+	"matchLabels": true,
+	"kind":        true,
+}
+
+// desugarConnectionRef turns a connectionRef node into a string node carrying
+// the marker. The default, when present, must be a template string (rendered
+// against the Context): a literal default would hardcode a wiring target in
+// the package, which is forbidden.
+func desugarConnectionRef(path string, node map[string]interface{}) (map[string]interface{}, bool, error) {
+	iface, err := connectionInterface(path, node)
+	if err != nil {
+		return nil, false, err
+	}
+	if def, ok := node["default"]; ok {
+		defStr, isStr := def.(string)
+		if !isStr || !strings.Contains(defStr, "{{") {
+			return nil, false, fmt.Errorf("node '%s': the 'default' of a %s must be a template string (rendered against the Context), literal targets are not allowed", path, TypeConnectionRef)
+		}
+	}
+	required, err := handleRequired(node)
+	if err != nil {
+		return nil, false, fmt.Errorf("node '%s': %w", path, err)
+	}
+	node["type"] = "string"
+	delete(node, "interface")
+	node[MarkerConnectionRef] = map[string]interface{}{"interface": iface}
+	return node, required, nil
+}
+
+// desugarConnectionSelector turns a connectionSelector node into a string
+// node carrying the marker. The deployer never provides a value: the node is
+// never 'required' at the openAPI level, the required flag (meaning: the
+// resolved list must not be empty) moves into the marker.
+func desugarConnectionSelector(path string, node map[string]interface{}) (map[string]interface{}, bool, error) {
+	iface, err := connectionInterface(path, node)
+	if err != nil {
+		return nil, false, err
+	}
+	marker := map[string]interface{}{"interface": iface}
+	if ml, ok := node["matchLabels"]; ok {
+		mlMap, isMap := ml.(map[string]interface{})
+		if !isMap {
+			return nil, false, fmt.Errorf("node '%s': 'matchLabels' must be a map of strings", path)
+		}
+		for k, v := range mlMap {
+			if _, isStr := v.(string); !isStr {
+				return nil, false, fmt.Errorf("node '%s': 'matchLabels.%s' must be a string", path, k)
+			}
+		}
+		marker["matchLabels"] = mlMap
+	}
+	if kind, ok := node["kind"]; ok {
+		kindStr, isStr := kind.(string)
+		if !isStr || (kindStr != "Connection" && kindStr != "ClusterConnection") {
+			return nil, false, fmt.Errorf("node '%s': 'kind' must be 'Connection' or 'ClusterConnection'", path)
+		}
+		marker["kind"] = kindStr
+	}
+	required, err := handleRequired(node)
+	if err != nil {
+		return nil, false, fmt.Errorf("node '%s': %w", path, err)
+	}
+	marker["required"] = required
+	node["type"] = "string"
+	delete(node, "interface")
+	delete(node, "matchLabels")
+	delete(node, "kind")
+	node[MarkerConnectionSelector] = marker
+	return node, false, nil
+}
+
+func connectionInterface(path string, node map[string]interface{}) (string, error) {
+	iface, ok := node["interface"]
+	if !ok {
+		return "", fmt.Errorf("node '%s': 'interface' is required", path)
+	}
+	ifaceStr, ok := iface.(string)
+	if !ok || ifaceStr == "" {
+		return "", fmt.Errorf("node '%s': 'interface' must be a non-empty string", path)
+	}
+	return ifaceStr, nil
+}
+
+// ConnectionDecl is one connectionRef or connectionSelector declaration found
+// in a de-sugared schema.
+type ConnectionDecl struct {
+	// Path segments from the schema root. An array traversal is the "[]"
+	// segment, replaced by the actual index at generation time.
+	Path []string
+	// The connection interface
+	Interface string
+	// true for a connectionSelector
+	Selector bool
+	// For a ref: the parameter (or context variable) is required. For a
+	// selector: the resolved list must not be empty.
+	Required bool
+	// For a ref: the default template ("" if none)
+	Default string
+	// Selector filters
+	MatchLabels map[string]string
+	KindFilter  string
+}
+
+// CollectConnectionDecls walks a de-sugared schema and returns the connection
+// declarations. Position rules: a connectionSelector is only legal at the top
+// level or in a nested object of schema.parameters (not in arrays, not in
+// schema.context), a connectionRef in schema.context cannot have a default
+// (the name always comes from the Context).
+func CollectConnectionDecls(schema map[string]interface{}, isContext bool) ([]ConnectionDecl, error) {
+	if len(schema) == 0 {
+		return nil, nil
+	}
+	decls := make([]ConnectionDecl, 0)
+	err := collectConnectionDecls(schema, nil, false, false, isContext, &decls)
+	if err != nil {
+		return nil, err
+	}
+	return decls, nil
+}
+
+func collectConnectionDecls(node map[string]interface{}, path []string, required bool, inArray bool, isContext bool, decls *[]ConnectionDecl) error {
+	pathStr := strings.Join(path, ".")
+	if marker, ok := node[MarkerConnectionRef]; ok {
+		markerMap, _ := marker.(map[string]interface{})
+		iface, _ := markerMap["interface"].(string)
+		def, _ := node["default"].(string)
+		if isContext && def != "" {
+			return fmt.Errorf("node '%s': a %s in schema.context cannot have a default, the name always comes from the Context", pathStr, TypeConnectionRef)
+		}
+		*decls = append(*decls, ConnectionDecl{
+			Path:      append([]string{}, path...),
+			Interface: iface,
+			Required:  required,
+			Default:   def,
+		})
+		return nil
+	}
+	if marker, ok := node[MarkerConnectionSelector]; ok {
+		if isContext {
+			return fmt.Errorf("node '%s': a %s is not allowed in schema.context", pathStr, TypeConnectionSelector)
+		}
+		if inArray {
+			return fmt.Errorf("node '%s': a %s is not allowed inside arrays", pathStr, TypeConnectionSelector)
+		}
+		markerMap, _ := marker.(map[string]interface{})
+		iface, _ := markerMap["interface"].(string)
+		req, _ := markerMap["required"].(bool)
+		var matchLabels map[string]string
+		if ml, ok := markerMap["matchLabels"].(map[string]interface{}); ok {
+			matchLabels = make(map[string]string, len(ml))
+			for k, v := range ml {
+				matchLabels[k], _ = v.(string)
+			}
+		}
+		kind, _ := markerMap["kind"].(string)
+		*decls = append(*decls, ConnectionDecl{
+			Path:        append([]string{}, path...),
+			Interface:   iface,
+			Selector:    true,
+			Required:    req,
+			MatchLabels: matchLabels,
+			KindFilter:  kind,
+		})
+		return nil
+	}
+	if properties, ok := node["properties"].(map[string]interface{}); ok {
+		requiredSet := make(map[string]bool)
+		if reqList, ok := node["required"].([]string); ok {
+			for _, r := range reqList {
+				requiredSet[r] = true
+			}
+		} else if reqList, ok := node["required"].([]interface{}); ok {
+			for _, r := range reqList {
+				if s, isStr := r.(string); isStr {
+					requiredSet[s] = true
+				}
+			}
+		}
+		for k, v := range properties {
+			child, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if err := collectConnectionDecls(child, append(path, k), requiredSet[k], inArray, isContext, decls); err != nil {
+				return err
+			}
+		}
+	}
+	if items, ok := node["items"].(map[string]interface{}); ok {
+		if err := collectConnectionDecls(items, append(path, "[]"), false, true, isContext, decls); err != nil {
+			return err
+		}
+	}
+	return nil
+}

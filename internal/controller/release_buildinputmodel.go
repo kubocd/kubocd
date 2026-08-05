@@ -181,6 +181,9 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 				continue
 			}
 		}
+		if !matchesLabels(connection.GetLabels(), input.MatchLabels) {
+			continue
+		}
 		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 			Kind:      connection.GetKind(),
@@ -255,6 +258,17 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	resultCollector.InputListModel[input.Alias] = inputList
 	return nil
+}
+
+// matchesLabels tells if the labels of a connection satisfy the (possibly
+// empty) matchLabels filter of a generated selector input.
+func matchesLabels(labels map[string]string, matchLabels map[string]string) bool {
+	for k, v := range matchLabels {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{}, ReconcileError) {
