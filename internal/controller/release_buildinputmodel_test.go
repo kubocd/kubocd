@@ -277,3 +277,29 @@ func TestSelectorNonMatchingLabelsStillWatched(t *testing.T) {
 		t.Fatalf("non-matching candidate must not be elected: %+v", collector.InputListModel)
 	}
 }
+
+// A consumer waiting on an existing but broken connection must surface the
+// root cause (phase, producer release, message), not a bare 'waiting'.
+func TestWaitingMessageCarriesRootCause(t *testing.T) {
+	c := readyConnection("kcd-trino-endpoint", "okdp", "trino", `{}`)
+	c.Status.Phase = kv1alpha1.ConnectionPhaseError
+	c.Status.Parent = "trino"
+	c.Status.Message = "helm install failed"
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(c).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	inputs := []kubopackage.InputRendered{namedInput("trino", "parameters.trino", "kcd-trino-endpoint", "okdp", "")}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected one waiting message, got %v", result.Messages)
+	}
+	m := result.Messages[0]
+	for _, want := range []string{"ERROR", "producer release trino", "helm install failed"} {
+		if !strings.Contains(m, want) {
+			t.Fatalf("message must carry %q, got: %s", want, m)
+		}
+	}
+}

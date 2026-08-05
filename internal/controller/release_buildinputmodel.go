@@ -177,6 +177,7 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackag
 func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
+	notReady := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	for _, connection := range connections {
 		if connection.GetInterface() != input.Interface {
 			continue
@@ -200,6 +201,8 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
 		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, connection)
+		} else {
+			notReady = append(notReady, connection)
 		}
 	}
 	if len(electedConnections) == 0 {
@@ -212,8 +215,21 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 			} else {
 				mess = fmt.Sprintf("input#%d (%s): Waiting for a connection with interface '%s'", idx+1, input.Alias, input.Interface)
 			}
-			if len(possibleConnectionNames) > 0 {
-				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))
+			if len(notReady) > 0 {
+				// Surface the ROOT CAUSE: a consumer must not just say
+				// 'waiting' while its producer is broken
+				details := make([]string, 0, len(notReady))
+				for _, c := range notReady {
+					d := fmt.Sprintf("%s is %s", c.GetName(), c.GetStatusPhase())
+					if parent := c.GetParent(); parent != "" {
+						d = fmt.Sprintf("%s (producer release %s)", d, parent)
+					}
+					if msg := c.GetStatusMessage(); msg != "" {
+						d = fmt.Sprintf("%s: %s", d, msg)
+					}
+					details = append(details, d)
+				}
+				mess = fmt.Sprintf("%s  [%s]", mess, strings.Join(details, " | "))
 			}
 			resultCollector.Messages = append(resultCollector.Messages, mess)
 		}
