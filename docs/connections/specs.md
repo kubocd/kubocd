@@ -131,14 +131,14 @@ spec:
       ....
 ```
 
-### output
+### outputs
 
 Il s'agit d'un élément de définition d'un package, au même titre que `components`, ou `schemas`.
 
 Il permet de définir une ou plusieurs Connections qui seront générées lors du déploiement.
 
 ```
-output:
+outputs:
   - name: <string>  # Required
     interface: <string> # required
     kind: <template_string> # Connection or ClusterConnection. Optional. Default to Connection
@@ -151,7 +151,7 @@ output:
 
 NB: 'output' Pourrait aussi être nommé 'connectionTemplate'
 
-### input
+### inputs
 
 Il s'agit d'un élément de définition d'un package, au même titre que `components`, `schemas` ou `output`.
 
@@ -159,7 +159,7 @@ Il permet d'insérer dans le data model utilisé pour la résolution des 'values
 existante.
 
 ```
-input:
+inputs:
   - interface: <template_string> # required
     kind: <template_string> # Connection or ClusterConnection. If "", then loopkup both
     interfaceLookup:
@@ -182,7 +182,7 @@ interfaceLookup, namedConnection and release are exclusive
 If none, then:
 
 ```
-input:
+inputs:
   - interface: <template_string> # required
     interfaceLookup:
       namespace: targetNamespace
@@ -231,8 +231,9 @@ Les Connections (Ou ClusterConnections) peuvent être classées en deux catégor
 Les secondes se caractérisent par
 
 - L'attribut OwnerReference, pointant sur l'Instance ayant donné lieu à la création.
-- Un nom intégrant le nom de la release, le nom de la connection et une valeur aléatoire, avec le pattern traditionnel
-  K8S
+- Un nom déterministe `kcd-<release>-<output>` (ou `kcd-<namespace>-<release>-<output>` pour une ClusterConnection),
+  sauf si l'output fixe un `connectionName` explicite (référence stable de plateforme). Unicité vérifiée sur l'ensemble
+  des noms effectifs de la release.
 
 Concernant les connections autonomes, il appartient aux différents administrateurs de s'assurer de l'unicité du nom.
 
@@ -326,14 +327,14 @@ schema:
 components:
   - name: ......
 
-output:
+outputs:
 
   - name: ingress
     displayName: Treafik ingress controller
     interface: ingress
     type: ClusterConnection
     values:
-      domain: ingress.{{ .Input.env.domain }}
+      domain: ingress.{{ .Inputs.env.domain }}
       className: traefik
 
   - name: gatewayApi
@@ -341,7 +342,7 @@ output:
     displayName: Treafik gateway
     type: ClusterConnection
     values:
-      domain: gapi.{{ .Input.env.domain }}
+      domain: gapi.{{ .Inputs.env.domain }}
       parentRefs:
         name: traefik-gateway
         namespace: {{ .Instance.targetNamespace }}
@@ -350,7 +351,7 @@ output:
           https: webSecure
           passthrough: passthrough
 
-input:
+inputs:
   - interface: environement
     alias: env
 
@@ -413,14 +414,14 @@ components:
     values: |
       ingress:
         enabled: true
-        className: {{ .Input.ingress.className  }}
+        className: {{ .Inputs.ingress.className  }}
         hosts:
-          - host: {{ .Parameters.host }}.{{ .Input.ingress.domain }}
+          - host: {{ .Parameters.host }}.{{ .Inputs.ingress.domain }}
             paths:
               - path: /
                 pathType: ImplementationSpecific
 
-input:
+inputs:
   - interface: ingress
 ```
 
@@ -456,11 +457,11 @@ components:
       name: {{ .Instance.metadat.name }}-route
     spec:
       parentRefs:
-        - name: {{ .Input.gateway-api.parentRefs.name }}
-          namespace: {{ .Input.gateway-api.parentRefs.namespace }}
-          sectionName: {{ .Input.gateway-api.parentRefs.sectionNames.http }}
+        - name: {{ .Inputs.gateway-api.parentRefs.name }}
+          namespace: {{ .Inputs.gateway-api.parentRefs.namespace }}
+          sectionName: {{ .Inputs.gateway-api.parentRefs.sectionNames.http }}
       hostnames:
-        - {{ .Parameters.host }}.{{ .Input.gw.domain }}
+        - {{ .Parameters.host }}.{{ .Inputs.gw.domain }}
       rules:
         - matches:
             - path:
@@ -471,7 +472,7 @@ components:
               name: podinfo
               port: 4040
 
-input:
+inputs:
   - interface: gateway-api
 ```
 
@@ -499,7 +500,7 @@ schema:
 components:
   .....
 
-output:
+outputs:
   - name: db
     interface: database-pg
     displayName: Database {{ .Parameter.displayName | default .Instance.metadata.name }}
@@ -529,12 +530,12 @@ components:
   .....
   values:
     db:
-      host: {{ .Input.db.port }}
-      dbName: {{ .Input.db.dbName }}
-      user: {{ .Input.db.user }}
-      password: {{ .Input.db.password }}
+      host: {{ .Inputs.db.port }}
+      dbName: {{ .Inputs.db.dbName }}
+      user: {{ .Inputs.db.user }}
+      password: {{ .Inputs.db.password }}
 
-input:
+inputs:
   - connectionName: {{ .Parameters.database }}
     interface: database-pg
     alias: db
@@ -565,7 +566,7 @@ components:
         user: {{ .user }}
         password: {{ .password }}
     {{- end }}
-input:
+inputs:
   - interface: database-pg
     alias: db
 
@@ -627,7 +628,7 @@ components:
               {{ -toYaml $item.config | nindent 12 }}
           {{- end }}
 
-input:
+inputs:
   - interface: dex-connector
     alias: dexConnector
 ```
@@ -645,7 +646,7 @@ schema:
   .....
 components:
   ......
-output:
+outputs:
   - interface: dex-connector
     type: ClusterConnection
     values:
@@ -707,7 +708,7 @@ components:
   .....
 
 
-output:
+outputs:
   - name: backup-request
     interface: backup-s3
     type: ClusterConnection
@@ -744,7 +745,7 @@ components:
       {{- end }}
 
 
-input:
+inputs:
   - interface: backup-s3-request
     alias: bcks
 

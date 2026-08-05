@@ -235,9 +235,12 @@ func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*
 	// ---------- Checks and default
 	if ir.NamedConnection.Name != "" {
 		if ir.NamedConnection.Namespace == "" {
-			if ir.Kind == kv1alpha1.KindConnection {
+			if ir.Kind != kv1alpha1.KindClusterConnection {
+				// The (possible) Connection lookup needs a namespace, both for an
+				// explicit kind: Connection and for the dual lookup (kind unset).
+				// The ClusterConnection lookup ignores it.
 				ir.NamedConnection.Namespace = defaultNamespace
-			} // else "" is ok
+			}
 		} else {
 			if ir.Kind == kv1alpha1.KindClusterConnection {
 				return nil, fmt.Errorf("namedConnection.namespace must be empty if kind is ClusterConnection")

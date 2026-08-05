@@ -71,18 +71,21 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 
 	var bimFetchNamedConnection = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
 		var connectionFacade kv1alpha1.ConnectionFacade
+		var nsName types.NamespacedName
 		if kind == kv1alpha1.KindConnection {
-			connectionFacade = &kv1alpha1.ClusterConnection{}
-		} else {
 			connectionFacade = &kv1alpha1.Connection{}
+			nsName = types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
+		} else {
+			// A ClusterConnection is cluster-scoped: lookup by name only
+			connectionFacade = &kv1alpha1.ClusterConnection{}
+			nsName = types.NamespacedName{Name: input.NamedConnection.Name}
 		}
-		nsName := types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
 		err := helper.Get(ctx, nsName, connectionFacade)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				// We set in the status list even if not found or in error. As we want to be notified if created.
 				resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
-					Kind:      connectionFacade.GetKind(),
+					Kind:      kind,
 					Name:      nsName.Name,
 					Namespace: nsName.Namespace,
 				})
@@ -225,7 +228,8 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	sort.Slice(electedConnections, func(i, j int) bool {
 		if electedConnections[i].GetPriority() == electedConnections[j].GetPriority() {
-			return electedConnections[i].GetName() > electedConnections[j].GetName()
+			// Deterministic tie-break: ascending name order
+			return electedConnections[i].GetName() < electedConnections[j].GetName()
 		}
 		return electedConnections[i].GetPriority() > electedConnections[j].GetPriority()
 	})
