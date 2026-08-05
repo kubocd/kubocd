@@ -140,6 +140,16 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 }
 
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
+	// Labels of the output are applied (set or update). Keys set by other
+	// actors are preserved.
+	if len(outputRendered.Labels) > 0 {
+		if clusterConnection.Labels == nil {
+			clusterConnection.Labels = make(map[string]string, len(outputRendered.Labels))
+		}
+		for k, v := range outputRendered.Labels {
+			clusterConnection.Labels[k] = v
+		}
+	}
 	clusterConnection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {

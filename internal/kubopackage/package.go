@@ -90,7 +90,7 @@ type Package struct {
 	// List of inputs referencing connections.
 	Inputs []Input `json:"inputs,omitempty"`
 	// List of outputs, to generate connections
-	Outputs []Output `json:"outputs,omitempty"`
+	Outputs OutputsStanza `json:"outputs,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -195,11 +195,9 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
 		}
 	}
-	for idx := range pck.Outputs {
-		err = pck.Outputs[idx].groom(pck)
-		if err != nil {
-			return fmt.Errorf("error on 'output[%d]': %w", idx, err)
-		}
+	err = pck.Outputs.groom(pck)
+	if err != nil {
+		return fmt.Errorf("error on 'outputs': %w", err)
 	}
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
@@ -273,13 +271,9 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 	}
 	// ---------------------------- Render outputs
-	r.Outputs = make([]*OutputRendered, len(pck.Outputs))
-	for idx, output := range pck.Outputs {
-		or, err := output.Render(model)
-		if err != nil {
-			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
-		}
-		r.Outputs[idx] = or
+	r.Outputs, err = pck.Outputs.Render(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'outputs': %w", err)
 	}
 	// --------------- Must ensure output name are uniques
 	dupDetect := make(map[string]struct{})

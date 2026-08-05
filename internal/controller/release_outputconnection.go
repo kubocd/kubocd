@@ -138,6 +138,16 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 }
 
 func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
+	// Labels of the output are applied (set or update). Keys set by other
+	// actors are preserved.
+	if len(outputRendered.Labels) > 0 {
+		if connection.Labels == nil {
+			connection.Labels = make(map[string]string, len(outputRendered.Labels))
+		}
+		for k, v := range outputRendered.Labels {
+			connection.Labels[k] = v
+		}
+	}
 	connection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
