@@ -5,13 +5,13 @@ Make the relationship between Release and output Connection using spec.Parent in
 Then, add a 'namespace' attribute on output. Default to targetNamespace (Which default to release namespace)
 
 ```
-output:
+outputs:
   - name: <string>  # Required
     interface: <string> # required
     kind: <template_string> # Connection or ClusterConnection. Optional. Default to Connection
     namespace: <template_string> # Default to targetNamespace
     displayName: <template_string> # Optional. Default to .name
-    priority: <template_int> # Optional. Default 200 for Connection and 100 for CLusterConnection
+    priority: <template_int> # Optional. Default 100 (implémenté)
     description: <template_string> # Optional
     disabled: <templte_bool> # default false
     values: <template_map[string]interface{}>
@@ -23,6 +23,6 @@ output:
 
 - Find a shortcut for ClusterInterface used only once
 
-- Allow inputs and outputs chunk to be a complete template
+- Allow inputs chunk to be a complete template (fait pour outputs)
 
 - Pouvoir disabler une release

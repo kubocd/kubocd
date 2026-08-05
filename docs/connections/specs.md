@@ -142,10 +142,13 @@ outputs:
   - name: <string>  # Required
     interface: <string> # required
     kind: <template_string> # Connection or ClusterConnection. Optional. Default to Connection
+    connectionName: <template_string> # Optional. Nom explicite de la (Cluster)Connection créée.
+                                      # Défaut: kcd-<release>-<output> (kcd-<ns>-<release>-<output> en cluster)
     displayName: <template_string> # Optional. Default to .name
     priority: <template_int> # Optional. Default 100
     description: <template_string> # Optional
     disabled: <templte_bool> # default false
+    labels: <template_map[string]string> # Optional. Labels posés sur la (Cluster)Connection créée
     values: <template_map[string]interface{}>
 ```
 
@@ -166,7 +169,9 @@ inputs:
       namespace: <template_string> # Default to relase namespace.
     namedConnection:
       name: <template_string>
-      namespace: <template_string> # Default to relase namespace. If "", then it is a clusterConnection
+      namespace: <template_string> # Défaut: namespace de la release (sert au lookup Connection, ignoré
+                                   # pour ClusterConnection). Pour cibler uniquement une ClusterConnection,
+                                   # poser kind: ClusterConnection (namespace doit alors rester vide)
     release:
       name: <template_string>
       namespace: <template_string> # Default to relase namespace
@@ -332,7 +337,7 @@ outputs:
   - name: ingress
     displayName: Treafik ingress controller
     interface: ingress
-    type: ClusterConnection
+    kind: ClusterConnection
     values:
       domain: ingress.{{ .Inputs.env.domain }}
       className: traefik
@@ -340,7 +345,7 @@ outputs:
   - name: gatewayApi
     interface: gateway-api
     displayName: Treafik gateway
-    type: ClusterConnection
+    kind: ClusterConnection
     values:
       domain: gapi.{{ .Inputs.env.domain }}
       parentRefs:
@@ -536,9 +541,10 @@ components:
       password: {{ .Inputs.db.password }}
 
 inputs:
-  - connectionName: {{ .Parameters.database }}
-    interface: database-pg
+  - interface: database-pg
     alias: db
+    namedConnection:
+      name: {{ .Parameters.database }}
 
 ```
 
@@ -648,7 +654,7 @@ components:
   ......
 outputs:
   - interface: dex-connector
-    type: ClusterConnection
+    kind: ClusterConnection
     values:
       type: ldap
       name: {{ .Release.metadata.name }}-ldap
@@ -711,7 +717,7 @@ components:
 outputs:
   - name: backup-request
     interface: backup-s3
-    type: ClusterConnection
+    kind: ClusterConnection
     values:
       baseURL: https://s3.mycompany.com
       bucket: bucket1
