@@ -172,3 +172,48 @@ func TestRefDefaultRejectedInContext(t *testing.T) {
 		t.Fatalf("expected a context default rejection, got %v", err)
 	}
 }
+
+func TestRefDefaultRejectedInArrayItems(t *testing.T) {
+	schema := KuboSchema{
+		"properties": map[string]interface{}{
+			"list": map[string]interface{}{
+				"items": map[string]interface{}{
+					"properties": map[string]interface{}{
+						"db": map[string]interface{}{
+							"type": TypeConnectionRef, "interface": "database-server",
+							"default": "{{ .Context.defaults.db }}",
+						},
+					},
+				},
+			},
+		},
+	}
+	openAPI, err := Kubo2openAPI(schema, false)
+	if err != nil {
+		t.Fatalf("Kubo2openAPI failed: %v", err)
+	}
+	if _, err := CollectConnectionDecls(openAPI, false); err == nil ||
+		!strings.Contains(err.Error(), "array items cannot have a default") {
+		t.Fatalf("expected an array-default rejection, got %v", err)
+	}
+}
+
+func TestAllDigitPropertyNameRejected(t *testing.T) {
+	schema := KuboSchema{
+		"properties": map[string]interface{}{
+			"ports": map[string]interface{}{
+				"properties": map[string]interface{}{
+					"8080": map[string]interface{}{"type": TypeConnectionRef, "interface": "trino"},
+				},
+			},
+		},
+	}
+	openAPI, err := Kubo2openAPI(schema, false)
+	if err != nil {
+		t.Fatalf("Kubo2openAPI failed: %v", err)
+	}
+	if _, err := CollectConnectionDecls(openAPI, false); err == nil ||
+		!strings.Contains(err.Error(), "all-digit") {
+		t.Fatalf("expected an all-digit rejection, got %v", err)
+	}
+}

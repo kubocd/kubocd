@@ -187,15 +187,17 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 				continue
 			}
 		}
-		if !matchesLabels(connection.GetLabels(), input.MatchLabels) {
-			continue
-		}
-		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
+		// Watch every candidate of the right interface, label-matching or not:
+		// a label ADDED later must wake the release up
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 			Kind:      connection.GetKind(),
 			Name:      connection.GetName(),
 			Namespace: connection.GetNamespace(),
 		})
+		if !matchesLabels(connection.GetLabels(), input.MatchLabels) {
+			continue
+		}
+		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
 		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, connection)
 		}
@@ -204,11 +206,11 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 		if !input.Optional {
 			var mess string
 			if input.Release.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for connection from release '%s:%s'", idx+1, input.Release.Namespace, input.Release.Name)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for connection from release '%s:%s'", idx+1, input.Alias, input.Release.Namespace, input.Release.Name)
 			} else if input.NamedConnection.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for namedConnection '%s:%s'", idx+1, input.NamedConnection.Namespace, input.NamedConnection.Name)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for namedConnection '%s:%s'", idx+1, input.Alias, input.NamedConnection.Namespace, input.NamedConnection.Name)
 			} else {
-				mess = fmt.Sprintf("input#%d: Waiting for a connection with interface '%s'", idx+1, input.Interface)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for a connection with interface '%s'", idx+1, input.Alias, input.Interface)
 			}
 			if len(possibleConnectionNames) > 0 {
 				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))

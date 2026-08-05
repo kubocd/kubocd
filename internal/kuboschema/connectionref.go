@@ -179,6 +179,14 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 		if isContext && def != "" {
 			return fmt.Errorf("node '%s': a %s in schema.context cannot have a default, the name always comes from the Context", pathStr, TypeConnectionRef)
 		}
+		if inArray && def != "" {
+			// The defaulter never descends into array items: such a default
+			// would be silently dead. Reject loudly.
+			return fmt.Errorf("node '%s': a %s inside array items cannot have a default", pathStr, TypeConnectionRef)
+		}
+		if err := checkRefPathSegments(path); err != nil {
+			return err
+		}
 		*decls = append(*decls, ConnectionDecl{
 			Path:      append([]string{}, path...),
 			Interface: iface,
@@ -205,6 +213,9 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 			}
 		}
 		kind, _ := markerMap["kind"].(string)
+		if err := checkRefPathSegments(path); err != nil {
+			return err
+		}
 		*decls = append(*decls, ConnectionDecl{
 			Path:        append([]string{}, path...),
 			Interface:   iface,
@@ -215,6 +226,7 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 		})
 		return nil
 	}
+
 	if properties, ok := node["properties"].(map[string]interface{}); ok {
 		requiredSet := make(map[string]bool)
 		if reqList, ok := node["required"].([]string); ok {
@@ -241,6 +253,27 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 	if items, ok := node["items"].(map[string]interface{}); ok {
 		if err := collectConnectionDecls(items, append(path, "[]"), false, true, isContext, decls); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+// checkRefPathSegments rejects all-digit property names on a connection
+// declaration path: the substitution machinery distinguishes map keys from
+// array indices by their digit-only shape.
+func checkRefPathSegments(path []string) error {
+	for _, seg := range path {
+		if seg == "[]" {
+			continue
+		}
+		allDigits := len(seg) > 0
+		for _, c := range seg {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return fmt.Errorf("property '%s': an all-digit property name is not supported on a connection declaration path", strings.Join(path, "."))
 		}
 	}
 	return nil

@@ -62,11 +62,12 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 	}
 	// ClusterConnection exists: no adoption, whoever owns it keeps it
 	pr := clusterConnection.Spec.ParentRelease
-	if pr == nil || pr.Name != op.release.Name || pr.Namespace != op.release.Namespace {
-		return nil, NewReconcileError(fmt.Errorf("clusterConnection '%s' already exists and is not owned by this release", clusterConnectionName), false, "ConnectionOwnership")
-	}
+	owned := pr != nil && pr.Name == op.release.Name && pr.Namespace == op.release.Namespace
 	// Update if needed
 	if !outputRendered.Disabled {
+		if !owned {
+			return nil, NewReconcileError(fmt.Errorf("clusterConnection '%s' already exists and is not owned by this release", clusterConnectionName), false, "ConnectionOwnership")
+		}
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
 		if err != nil {
@@ -85,6 +86,12 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 			Message:   clusterConnection.Status.Message,
 		}
 		return clusterConnection, nil
+	}
+	if !owned {
+		// Disabled output whose name collides with a foreign clusterConnection:
+		// nothing would be touched anyway, do not delete, do not error
+		delete(op.outputConnectionByName, outputRendered.Name)
+		return nil, nil
 	}
 	op.logger.V(0).Info("Delete clusterConnection as disabled", "name", clusterConnectionName)
 	err = r.Delete(op.ctx, clusterConnection)

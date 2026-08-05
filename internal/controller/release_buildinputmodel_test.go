@@ -248,3 +248,32 @@ func TestElectionOrdering(t *testing.T) {
 		t.Errorf("elected should be 'high', got %+v", collector.EffectiveInputConnections[0])
 	}
 }
+
+// A right-interface candidate whose labels do not match must still be watched
+// (a label added later has to wake the release up), but not elected.
+func TestSelectorNonMatchingLabelsStillWatched(t *testing.T) {
+	c := readyConnection("silver-db", "okdp", "database-server", `{"host":"x"}`)
+	c.Labels = map[string]string{"tier": "silver"}
+	var ir kubopackage.InputRendered
+	ir.Interface = "database-server"
+	ir.Alias = "parameters.golds"
+	ir.AllowMultiple = true
+	ir.Optional = true
+	ir.MatchLabels = map[string]string{"tier": "gold"}
+
+	collector := &BuildInputModelResult{
+		InputModel:                make(map[string]interface{}),
+		InputListModel:            make(map[string]interface{}),
+		WatchedInputConnections:   []kv1alpha1.InputConnectionReference{},
+		EffectiveInputConnections: make([]kv1alpha1.InputConnectionReference, 1),
+	}
+	if err := bimFilterConnection([]kv1alpha1.ConnectionFacade{c}, 0, ir, collector); err != nil {
+		t.Fatalf("bimFilterConnection failed: %v", err)
+	}
+	if len(collector.WatchedInputConnections) != 1 || collector.WatchedInputConnections[0].Name != "silver-db" {
+		t.Fatalf("non-matching candidate must be watched, got %+v", collector.WatchedInputConnections)
+	}
+	if _, elected := collector.InputListModel["parameters.golds"]; elected {
+		t.Fatalf("non-matching candidate must not be elected: %+v", collector.InputListModel)
+	}
+}

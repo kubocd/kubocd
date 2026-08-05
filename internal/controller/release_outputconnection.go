@@ -76,11 +76,12 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		return nil, nil
 	}
 	// Connection exists: no adoption, whoever owns it keeps it
-	if !ownedByRelease(connection, op.release.Name) {
-		return nil, NewReconcileError(fmt.Errorf("connection '%s' already exists and is not owned by this release", connectionName), false, "ConnectionOwnership")
-	}
+	owned := ownedByRelease(connection, op.release.Name)
 	// Update if needed
 	if !outputRendered.Disabled {
+		if !owned {
+			return nil, NewReconcileError(fmt.Errorf("connection '%s' already exists and is not owned by this release", connectionName), false, "ConnectionOwnership")
+		}
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
 		changed, err := patchConnection(r, op, connection, outputRendered)
 		if err != nil {
@@ -99,6 +100,12 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			Message:   connection.Status.Message,
 		}
 		return connection, nil
+	}
+	if !owned {
+		// Disabled output whose name collides with a foreign connection:
+		// nothing would be touched anyway, do not delete, do not error
+		delete(op.outputConnectionByName, outputRendered.Name)
+		return nil, nil
 	}
 	op.logger.V(0).Info("Delete connection as disabled", "name", connectionName)
 	err = r.Delete(op.ctx, connection)
