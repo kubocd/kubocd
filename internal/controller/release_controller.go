@@ -446,7 +446,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ------------------------------ Substitute resolved connections in place
 	// (.Parameters.x / .Context.y) and keep .Inputs for the stanza only
-	err = ApplyRefBindings(refBindings, buildInputModelResult.InputModel, buildInputModelResult.InputListModel, parameters, theContext)
+	err = ApplyRefBindings(refBindings, buildInputModelResult.InputModel, parameters, theContext)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, false, "ConnectionParameters"), forceUpdate)
 	}

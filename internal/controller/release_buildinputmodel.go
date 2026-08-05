@@ -204,16 +204,13 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 				continue
 			}
 		}
-		// Watch every candidate of the right interface, label-matching or not:
-		// a label ADDED later must wake the release up
+		// Watch BEFORE the READY test: a candidate that is not ready yet must
+		// still wake the release up when it becomes ready
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 			Kind:      connection.GetKind(),
 			Name:      connection.GetName(),
 			Namespace: connection.GetNamespace(),
 		})
-		if !matchesLabels(connection.GetLabels(), input.MatchLabels) {
-			continue
-		}
 		possibleConnectionNames = append(possibleConnectionNames, describeCandidate(connection))
 		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, connection)
@@ -298,17 +295,6 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	resultCollector.InputListModel[input.Alias] = inputList
 	return nil
-}
-
-// matchesLabels tells if the labels of a connection satisfy the (possibly
-// empty) matchLabels filter of a generated selector input.
-func matchesLabels(labels map[string]string, matchLabels map[string]string) bool {
-	for k, v := range matchLabels {
-		if labels[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{}, ReconcileError) {

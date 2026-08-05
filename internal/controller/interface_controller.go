@@ -101,14 +101,14 @@ func resolveInterface(iface kv1alpha1.InterfaceFacade) (defaultValues map[string
 	if err != nil {
 		return nil, nil, fmt.Errorf("error on kubocd schema conversion: %w", err)
 	}
-	// connectionRef / connectionSelector are release-schema types: meaningless
-	// in the values schema of an interface, reject them loudly
+	// connectionRef is a release-schema type: meaningless in the values schema
+	// of an interface, reject it loudly
 	ifaceDecls, err := kuboschema.CollectConnectionDecls(sch, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid schema: %w", err)
 	}
 	if len(ifaceDecls) > 0 {
-		return nil, nil, fmt.Errorf("connectionRef/connectionSelector are not allowed in an interface schema (found at '%s')", strings.Join(ifaceDecls[0].Path, "."))
+		return nil, nil, fmt.Errorf("connectionRef is not allowed in an interface schema (found at '%s')", strings.Join(ifaceDecls[0].Path, "."))
 	}
 	// Test default value
 	defaultValues, err = kuboschema.Defaulter(sch)

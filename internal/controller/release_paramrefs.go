@@ -26,8 +26,8 @@ import (
 	"strings"
 )
 
-// The connectionRef / connectionSelector parameter types generate their input
-// entries: alias = the declaration path (parameters.datasources[1].trino,
+// The connectionRef parameter type generates its input entries: alias = the
+// declaration path (parameters.datasources[1].trino,
 // context.platform.connections.oidc), unique by construction. After
 // BuildInputModel, the resolved values replace the connection name IN PLACE
 // in the Parameters / Context maps: templates read the declaration point
@@ -42,8 +42,6 @@ type RefBinding struct {
 	Path []string
 	// The tree: true for Context, false for Parameters
 	InContext bool
-	// true for a selector: the resolved LIST is substituted
-	List bool
 }
 
 // GenerateRefInputs walks the connection declarations of the package schema
@@ -112,19 +110,9 @@ func expandDecl(decl kuboschema.ConnectionDecl, remaining []string, concrete []s
 	}
 	child, ok := nodeMap[seg]
 	if !ok {
-		// The field is absent. A selector has no deployer-provided value: its
-		// slot (and the intermediate objects) must exist for the substitution.
-		// For a ref: no name, no input, unless required (checked in emitDecl
-		// through the empty-name path only when the field exists, so enforce
-		// the required scalar case here as well).
-		if decl.Selector {
-			if len(remaining) == 1 {
-				return emitDecl(decl, append(append([]string{}, concrete...), seg), nil, inContext, releaseNamespace, generated, bindings)
-			}
-			created := map[string]interface{}{}
-			nodeMap[seg] = created
-			return expandDecl(decl, remaining[1:], append(append([]string{}, concrete...), seg), created, inContext, releaseNamespace, generated, bindings)
-		}
+		// The field is absent: no name, no input, unless required (emitDecl
+		// only sees the empty-name path when the field exists, so enforce the
+		// required scalar case here as well).
 		if decl.Required && len(remaining) == 1 {
 			return fmt.Errorf("parameter '%s' is required: no connection name provided", formatAlias(append(append([]string{}, concrete...), seg), inContext))
 		}
@@ -135,26 +123,6 @@ func expandDecl(decl kuboschema.ConnectionDecl, remaining []string, concrete []s
 
 func emitDecl(decl kuboschema.ConnectionDecl, concrete []string, value interface{}, inContext bool, releaseNamespace string, generated *[]kubopackage.InputRendered, bindings *[]RefBinding) error {
 	alias := formatAlias(concrete, inContext)
-	if decl.Selector {
-		if value != nil {
-			return fmt.Errorf("parameter '%s' is a %s: it cannot be set by the release, the query lives in the package", alias, kuboschema.TypeConnectionSelector)
-		}
-		var ir kubopackage.InputRendered
-		ir.Interface = decl.Interface
-		ir.Alias = alias
-		ir.Kind = kv1alpha1.Kind(decl.KindFilter)
-		ir.AllowMultiple = true
-		ir.Optional = !decl.Required
-		ir.MatchLabels = decl.MatchLabels
-		// Same rule as the ref branch below: a cluster-scoped lookup has no
-		// namespace to search in
-		if ir.Kind != kv1alpha1.KindClusterConnection {
-			ir.InterfaceLookup.Namespace = releaseNamespace
-		}
-		*generated = append(*generated, ir)
-		*bindings = append(*bindings, RefBinding{Alias: alias, Path: concrete, InContext: inContext, List: true})
-		return nil
-	}
 	name, ok := value.(string)
 	if !ok {
 		return fmt.Errorf("parameter '%s' is a %s: it must carry a connection name (string), got %T", alias, kuboschema.TypeConnectionRef, value)
@@ -186,37 +154,25 @@ func emitDecl(decl kuboschema.ConnectionDecl, concrete []string, value interface
 }
 
 // ApplyRefBindings substitutes the resolved values at the declaration points
-// and removes the generated entries from the input model, so that .Inputs and
-// .InputLists only expose the hand-written stanza. Must be called once the
-// release is NOT gated: every non-optional generated input is resolved.
-func ApplyRefBindings(bindings []RefBinding, inputModel, inputListModel, parameters, context map[string]interface{}) error {
+// and removes the generated entries from the input model, so that .Inputs only
+// exposes the hand-written stanza. Must be called once the release is NOT
+// gated: every non-optional generated input is resolved.
+func ApplyRefBindings(bindings []RefBinding, inputModel, parameters, context map[string]interface{}) error {
 	for _, b := range bindings {
 		tree := parameters
 		if b.InContext {
 			tree = context
 		}
-		if b.List {
-			list, ok := inputListModel[b.Alias]
-			if !ok {
-				// Optional selector with no match: an empty list
-				list = []map[string]interface{}{}
-			}
-			if err := setAtPath(tree, b.Path, list); err != nil {
-				return fmt.Errorf("could not substitute '%s': %w", b.Alias, err)
-			}
-		} else {
-			values, ok := inputModel[b.Alias]
-			if !ok {
-				// Only possible for an unresolved input, which would have
-				// gated the release before this point
-				return fmt.Errorf("internal: no resolved values for '%s'", b.Alias)
-			}
-			if err := setAtPath(tree, b.Path, values); err != nil {
-				return fmt.Errorf("could not substitute '%s': %w", b.Alias, err)
-			}
+		values, ok := inputModel[b.Alias]
+		if !ok {
+			// Only possible for an unresolved input, which would have gated
+			// the release before this point
+			return fmt.Errorf("internal: no resolved values for '%s'", b.Alias)
+		}
+		if err := setAtPath(tree, b.Path, values); err != nil {
+			return fmt.Errorf("could not substitute '%s': %w", b.Alias, err)
 		}
 		delete(inputModel, b.Alias)
-		delete(inputListModel, b.Alias)
 	}
 	return nil
 }
@@ -245,7 +201,7 @@ func formatAlias(concrete []string, inContext bool) string {
 // already rendered. An empty rendering means "not set".
 func RenderRefDefaults(decls []kuboschema.ConnectionDecl, parameters map[string]interface{}, model map[string]interface{}) error {
 	for _, decl := range decls {
-		if decl.Selector || decl.Default == "" {
+		if decl.Default == "" {
 			continue
 		}
 		if err := renderRefDefaultAt(decl.Path, nil, parameters, model); err != nil {

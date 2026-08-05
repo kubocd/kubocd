@@ -32,7 +32,7 @@ func TestDesugarConnectionRefScalar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect failed: %v", err)
 	}
-	if len(decls) != 1 || decls[0].Interface != "database-server" || !decls[0].Required || decls[0].Selector {
+	if len(decls) != 1 || decls[0].Interface != "database-server" || !decls[0].Required {
 		t.Errorf("unexpected decl: %+v", decls)
 	}
 }
@@ -190,73 +190,6 @@ func TestDesugarConnectionRefKindInContext(t *testing.T) {
 	}
 	if len(decls[0].Path) != 2 || decls[0].Path[0] != "platform" || decls[0].Path[1] != "oidc" {
 		t.Errorf("unexpected path: %v", decls[0].Path)
-	}
-}
-
-func TestDesugarConnectionSelector(t *testing.T) {
-	schema := KuboSchema{
-		"properties": map[string]interface{}{
-			"databases": map[string]interface{}{
-				"type":        TypeConnectionSelector,
-				"interface":   "database-server",
-				"matchLabels": map[string]interface{}{"backup": "enabled"},
-				"required":    true,
-			},
-		},
-	}
-	openAPI, err := Kubo2openAPI(schema, false)
-	if err != nil {
-		t.Fatalf("Kubo2openAPI failed: %v", err)
-	}
-	// The selector must never be required at the openAPI level
-	if reqList, ok := openAPI["required"].([]string); ok {
-		for _, r := range reqList {
-			if r == "databases" {
-				t.Errorf("selector must not be required in the openAPI schema")
-			}
-		}
-	}
-	decls, err := CollectConnectionDecls(openAPI, false)
-	if err != nil {
-		t.Fatalf("collect failed: %v", err)
-	}
-	if len(decls) != 1 || !decls[0].Selector || !decls[0].Required || decls[0].MatchLabels["backup"] != "enabled" {
-		t.Errorf("unexpected decl: %+v", decls)
-	}
-}
-
-func TestSelectorRejectedInArrayAndContext(t *testing.T) {
-	inArray := KuboSchema{
-		"properties": map[string]interface{}{
-			"list": map[string]interface{}{
-				"items": map[string]interface{}{
-					"properties": map[string]interface{}{
-						"sel": map[string]interface{}{"type": TypeConnectionSelector, "interface": "s3"},
-					},
-				},
-			},
-		},
-	}
-	openAPI, err := Kubo2openAPI(inArray, false)
-	if err != nil {
-		t.Fatalf("Kubo2openAPI failed: %v", err)
-	}
-	if _, err := CollectConnectionDecls(openAPI, false); err == nil ||
-		!strings.Contains(err.Error(), "arrays") {
-		t.Fatalf("expected an in-array rejection, got %v", err)
-	}
-	inContext := KuboSchema{
-		"properties": map[string]interface{}{
-			"sel": map[string]interface{}{"type": TypeConnectionSelector, "interface": "s3"},
-		},
-	}
-	openAPI, err = Kubo2openAPI(inContext, true)
-	if err != nil {
-		t.Fatalf("Kubo2openAPI failed: %v", err)
-	}
-	if _, err := CollectConnectionDecls(openAPI, true); err == nil ||
-		!strings.Contains(err.Error(), "schema.context") {
-		t.Fatalf("expected a context rejection, got %v", err)
 	}
 }
 

@@ -166,9 +166,6 @@ type InputRendered struct {
 	Alias         string `json:"alias"`
 	Optional      bool   `json:"optional"`
 	AllowMultiple bool   `json:"allowMultiple"`
-	// Only set on inputs generated from a connectionSelector parameter:
-	// candidate connections must carry these labels
-	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
 func (i *Input) Render(model map[string]interface{}, defaultNamespace string) (*InputRendered, error) {

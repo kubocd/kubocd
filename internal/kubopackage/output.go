@@ -47,8 +47,8 @@ type Output struct {
 	Description KcdTemplateString `json:"description,omitempty"`
 	// Optional. Default to false
 	Disabled KcdTemplateBool `json:"disabled,omitempty"`
-	// Optional. Labels set on the created (Cluster)Connection, so it can be
-	// targeted by label-based selection
+	// Optional. Labels set on the created (Cluster)Connection, for operators
+	// and tooling ('kubectl get connections -l backup=enabled')
 	Labels KcdTemplateMap `json:"labels,omitempty"`
 	// Optional. A connection without values can be used to mark dependencies
 	Values KcdTemplateMap `json:"values,omitempty"`

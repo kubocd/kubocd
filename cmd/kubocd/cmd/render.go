@@ -311,7 +311,7 @@ var renderCmd = &cobra.Command{
 			if len(buildInputModelResult.Messages) > 0 {
 				return fmt.Errorf("missing connection(s):\n  %s", strings.Join(buildInputModelResult.Messages, "\n  "))
 			}
-			err = controller.ApplyRefBindings(refBindings, buildInputModelResult.InputModel, buildInputModelResult.InputListModel, parameters, kcontext)
+			err = controller.ApplyRefBindings(refBindings, buildInputModelResult.InputModel, parameters, kcontext)
 			if err != nil {
 				return err
 			}

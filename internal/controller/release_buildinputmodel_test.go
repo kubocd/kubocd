@@ -310,7 +310,7 @@ func TestGeneratedRefKindResolvesHomonym(t *testing.T) {
 	if len(result.Messages) != 0 {
 		t.Fatalf("expected no gating message, got %v", result.Messages)
 	}
-	if err := ApplyRefBindings(bindings, result.InputModel, result.InputListModel, params, nil); err != nil {
+	if err := ApplyRefBindings(bindings, result.InputModel, params, nil); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	resolved, ok := params["metadataDb"].(map[string]interface{})
@@ -371,35 +371,6 @@ func TestElectionOrdering(t *testing.T) {
 	}
 }
 
-// A right-interface candidate whose labels do not match must still be watched
-// (a label added later has to wake the release up), but not elected.
-func TestSelectorNonMatchingLabelsStillWatched(t *testing.T) {
-	c := readyConnection("silver-db", "okdp", "database-server", `{"host":"x"}`)
-	c.Labels = map[string]string{"tier": "silver"}
-	var ir kubopackage.InputRendered
-	ir.Interface = "database-server"
-	ir.Alias = "parameters.golds"
-	ir.AllowMultiple = true
-	ir.Optional = true
-	ir.MatchLabels = map[string]string{"tier": "gold"}
-
-	collector := &BuildInputModelResult{
-		InputModel:                make(map[string]interface{}),
-		InputListModel:            make(map[string]interface{}),
-		WatchedInputConnections:   []kv1alpha1.InputConnectionReference{},
-		EffectiveInputConnections: make([]kv1alpha1.InputConnectionReference, 1),
-	}
-	if err := bimFilterConnection([]kv1alpha1.ConnectionFacade{c}, 0, ir, collector); err != nil {
-		t.Fatalf("bimFilterConnection failed: %v", err)
-	}
-	if len(collector.WatchedInputConnections) != 1 || collector.WatchedInputConnections[0].Name != "silver-db" {
-		t.Fatalf("non-matching candidate must be watched, got %+v", collector.WatchedInputConnections)
-	}
-	if _, elected := collector.InputListModel["parameters.golds"]; elected {
-		t.Fatalf("non-matching candidate must not be elected: %+v", collector.InputListModel)
-	}
-}
-
 // A consumer waiting on an existing but broken connection must surface the
 // root cause (phase, producer release, message), not a bare 'waiting'.
 func TestWaitingMessageCarriesRootCause(t *testing.T) {
@@ -422,6 +393,81 @@ func TestWaitingMessageCarriesRootCause(t *testing.T) {
 	for _, want := range []string{"ERROR", "producer release trino", "helm install failed"} {
 		if !strings.Contains(m, want) {
 			t.Fatalf("message must carry %q, got: %s", want, m)
+		}
+	}
+}
+
+// A candidate that is NOT ready must already be watched, otherwise its
+// transition to READY would only be seen at the next periodic requeue.
+func TestNotReadyCandidateIsWatched(t *testing.T) {
+	c := readyConnection("pending-db", "okdp", "database-server", `{"host":"pg"}`)
+	c.Status.Phase = kv1alpha1.ConnectionPhaseError
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(c).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	inputs := []kubopackage.InputRendered{namedInput("database-server", "db", "pending-db", "okdp", "")}
+	result, rerr := BuildInputModel(context.Background(), helper, inputs)
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	var watched bool
+	for _, w := range result.WatchedInputConnections {
+		if w.Name == "pending-db" && w.Kind == kv1alpha1.KindConnection {
+			watched = true
+		}
+	}
+	if !watched {
+		t.Fatalf("a non-ready candidate must be watched, got %+v", result.WatchedInputConnections)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected the release to be gated, got %v", result.Messages)
+	}
+}
+
+// The data model exposed to the templates: a hand-written stanza input keeps
+// feeding .Inputs / .InputLists, while a generated ref input is substituted in
+// place and removed from both.
+func TestDataModelSplitsStanzaAndGeneratedRefs(t *testing.T) {
+	stanzaCnx := readyConnection("shared-s3", "okdp", "s3", `{"endpoint":"s3.okdp"}`)
+	refCnx := readyConnection("kcd-pg-app", "okdp", "database-server", `{"host":"pg.okdp"}`)
+	cl := fake.NewClientBuilder().WithScheme(bimScheme(t)).WithObjects(stanzaCnx, refCnx).Build()
+	helper := &bimTestHelper{Client: cl}
+
+	stanza := namedInput("s3", "store", "shared-s3", "okdp", "")
+	stanza.AllowMultiple = true
+	parameters := map[string]interface{}{"db": "kcd-pg-app"}
+	generated, bindings, err := GenerateRefInputs(
+		[]kuboschema.ConnectionDecl{{Path: []string{"db"}, Interface: "database-server", Required: true}},
+		nil, parameters, nil, "okdp", []kubopackage.InputRendered{stanza})
+	if err != nil {
+		t.Fatalf("GenerateRefInputs failed: %v", err)
+	}
+	result, rerr := BuildInputModel(context.Background(), helper, append([]kubopackage.InputRendered{stanza}, generated...))
+	if rerr != nil {
+		t.Fatalf("BuildInputModel failed: %v", rerr)
+	}
+	if err := ApplyRefBindings(bindings, result.InputModel, parameters, nil); err != nil {
+		t.Fatalf("ApplyRefBindings failed: %v", err)
+	}
+	model := BuildModel(nil, parameters, &kv1alpha1.Release{}, nil)
+	model["Inputs"] = result.InputModel
+	model["InputLists"] = result.InputListModel
+
+	// The stanza is still served by both spaces
+	if _, ok := model["Inputs"].(map[string]interface{})["store"]; !ok {
+		t.Fatalf(".Inputs must expose the stanza alias, got %#v", model["Inputs"])
+	}
+	if _, ok := model["InputLists"].(map[string]interface{})["store"]; !ok {
+		t.Fatalf(".InputLists must expose the stanza alias, got %#v", model["InputLists"])
+	}
+	// The generated ref is substituted in place and absent from both
+	values, ok := parameters["db"].(map[string]interface{})
+	if !ok || values["host"] != "pg.okdp" {
+		t.Fatalf("the ref must be substituted in place, got %#v", parameters["db"])
+	}
+	for _, space := range []string{"Inputs", "InputLists"} {
+		if _, leaked := model[space].(map[string]interface{})["parameters.db"]; leaked {
+			t.Fatalf("the generated input must not leak into .%s", space)
 		}
 	}
 }

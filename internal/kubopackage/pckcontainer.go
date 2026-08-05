@@ -36,7 +36,7 @@ type PckContainer struct {
 	DefaultContext    map[string]interface{} `json:"defaultContext"`
 	ParameterSchema   *gojsonschema.Schema   `json:"parameterSchema"`
 	ContextSchema     *gojsonschema.Schema   `json:"contextSchema"`
-	// The connectionRef / connectionSelector declarations of both schemas
+	// The connectionRef declarations of both schemas
 	ParamConnectionDecls   []kuboschema.ConnectionDecl `json:"paramConnectionDecls,omitempty"`
 	ContextConnectionDecls []kuboschema.ConnectionDecl `json:"contextConnectionDecls,omitempty"`
 }

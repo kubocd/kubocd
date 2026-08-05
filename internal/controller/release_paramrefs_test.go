@@ -25,14 +25,14 @@ func TestGenerateScalarRef(t *testing.T) {
 		gen[0].NamedConnection.Namespace != "okdp" || gen[0].Optional {
 		t.Fatalf("unexpected generated input: %+v", gen)
 	}
-	if len(bindings) != 1 || bindings[0].InContext || bindings[0].List {
+	if len(bindings) != 1 || bindings[0].InContext {
 		t.Fatalf("unexpected binding: %+v", bindings)
 	}
 	// Substitution in place, flat values
 	inputModel := map[string]interface{}{
 		"parameters.metadataDb": map[string]interface{}{"host": "pg.okdp.svc", "port": 5432},
 	}
-	if err := ApplyRefBindings(bindings, inputModel, map[string]interface{}{}, params, nil); err != nil {
+	if err := ApplyRefBindings(bindings, inputModel, params, nil); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	resolved, ok := params["metadataDb"].(map[string]interface{})
@@ -125,7 +125,7 @@ func TestGenerateArrayRefs(t *testing.T) {
 		"parameters.datasources[0].trino": map[string]interface{}{"internalUri": "trino://t1:8080"},
 		"parameters.datasources[1].trino": map[string]interface{}{"internalUri": "trino://t2:8080"},
 	}
-	if err := ApplyRefBindings(bindings, inputModel, map[string]interface{}{}, params, nil); err != nil {
+	if err := ApplyRefBindings(bindings, inputModel, params, nil); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	el1 := params["datasources"].([]interface{})[1].(map[string]interface{})
@@ -156,46 +156,12 @@ func TestGenerateContextRef(t *testing.T) {
 	inputModel := map[string]interface{}{
 		"context.platform.connections.oidc": map[string]interface{}{"issuerUri": "http://keycloak/realms/okdp"},
 	}
-	if err := ApplyRefBindings(bindings, inputModel, map[string]interface{}{}, map[string]interface{}{}, context); err != nil {
+	if err := ApplyRefBindings(bindings, inputModel, map[string]interface{}{}, context); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	oidc := context["platform"].(map[string]interface{})["connections"].(map[string]interface{})["oidc"].(map[string]interface{})
 	if oidc["issuerUri"] != "http://keycloak/realms/okdp" {
 		t.Errorf("context substitution failed: %#v", oidc)
-	}
-}
-
-func TestGenerateSelector(t *testing.T) {
-	params := map[string]interface{}{}
-	decl := kuboschema.ConnectionDecl{
-		Path: []string{"databases"}, Interface: "database-server",
-		Selector: true, Required: false,
-		MatchLabels: map[string]string{"backup": "enabled"},
-	}
-	gen, bindings, err := GenerateRefInputs([]kuboschema.ConnectionDecl{decl}, nil, params, nil, "okdp", nil)
-	if err != nil {
-		t.Fatalf("generate failed: %v", err)
-	}
-	if len(gen) != 1 || !gen[0].AllowMultiple || !gen[0].Optional ||
-		gen[0].MatchLabels["backup"] != "enabled" || gen[0].InterfaceLookup.Namespace != "okdp" {
-		t.Fatalf("unexpected generated input: %+v", gen)
-	}
-	// Optional selector with no match: empty list substituted
-	if err := ApplyRefBindings(bindings, map[string]interface{}{}, map[string]interface{}{}, params, nil); err != nil {
-		t.Fatalf("apply failed: %v", err)
-	}
-	list, ok := params["databases"].([]map[string]interface{})
-	if !ok || len(list) != 0 {
-		t.Fatalf("expected an empty resolved list, got %#v", params["databases"])
-	}
-}
-
-func TestSelectorSetByDeployerRejected(t *testing.T) {
-	params := map[string]interface{}{"databases": "nope"}
-	decl := kuboschema.ConnectionDecl{Path: []string{"databases"}, Interface: "database-server", Selector: true}
-	if _, _, err := GenerateRefInputs([]kuboschema.ConnectionDecl{decl}, nil, params, nil, "okdp", nil); err == nil ||
-		!strings.Contains(err.Error(), "cannot be set by the release") {
-		t.Fatalf("expected a rejection, got %v", err)
 	}
 }
 
@@ -206,6 +172,18 @@ func TestRequiredRefEmptyRejected(t *testing.T) {
 		nil, params, nil, "okdp", nil); err == nil ||
 		!strings.Contains(err.Error(), "required") {
 		t.Fatalf("expected a required error, got %v", err)
+	}
+}
+
+// A required ref whose field is entirely ABSENT (not just empty) must be
+// rejected too: that check lives in expandDecl, not in emitDecl.
+func TestRequiredRefAbsentRejected(t *testing.T) {
+	params := map[string]interface{}{"somethingElse": "x"}
+	if _, _, err := GenerateRefInputs(
+		[]kuboschema.ConnectionDecl{refDecl([]string{"metadataDb"}, "database-server", true)},
+		nil, params, nil, "okdp", nil); err == nil ||
+		!strings.Contains(err.Error(), "required") {
+		t.Fatalf("expected a required error on an absent field, got %v", err)
 	}
 }
 
@@ -238,17 +216,5 @@ func TestRenderRefDefaults(t *testing.T) {
 	}
 	if params["oidc"] != "kcd-keycloak-oidc" {
 		t.Errorf("default not rendered: %v", params["oidc"])
-	}
-}
-
-func TestMatchesLabelsFilter(t *testing.T) {
-	if !matchesLabels(map[string]string{"a": "1", "b": "2"}, map[string]string{"a": "1"}) {
-		t.Error("subset should match")
-	}
-	if matchesLabels(map[string]string{"a": "1"}, map[string]string{"a": "2"}) {
-		t.Error("wrong value should not match")
-	}
-	if !matchesLabels(nil, nil) {
-		t.Error("empty filter should match everything")
 	}
 }

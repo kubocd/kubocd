@@ -1,10 +1,10 @@
-# Types de paramètres connectionRef et connectionSelector
+# Type de paramètre connectionRef
 
-Deux types de schéma génèrent les entrées d'input à la place de la stanza `inputs:` et reçoivent l'objet résolu SUR
-PLACE, au point de déclaration. Les templates ne manipulent que `.Parameters` / `.Context`, jamais `.Inputs` (réservé à
-la stanza).
+Ce type de schéma génère les entrées d'input à la place de la stanza `inputs:` et reçoit l'objet résolu SUR PLACE, au
+point de déclaration. Les templates ne manipulent que `.Parameters` / `.Context`, jamais `.Inputs` (réservé à la
+stanza).
 
-## connectionRef : câblage nommé
+## Câblage nommé
 
 ```yaml
 schema:
@@ -40,31 +40,9 @@ schema:
   interface qui ne correspond pas est une erreur (en recherche dans les deux types, le candidat qui ne correspond pas
   est simplement écarté).
 
-## connectionSelector : requête
-
-```yaml
-schema:
-  parameters:
-    properties:
-      databases:
-        type: connectionSelector
-        interface: database-server # requis
-        matchLabels: { backup: enabled } # optionnel, labels k8s des Connections
-        kind: Connection # optionnel
-# Release : rien, la requête vit dans le package (une valeur fournie = erreur)
-# Template : {{ range .Parameters.databases }}{{ .host }}{{ end }}
-```
-
-- La liste résolue est triée par `priority` décroissante puis nom croissant, et ne contient que les connexions READY :
-  une candidate qui matche mais n'est pas prête est absente de la liste, sans message.
-- `required: true` = la liste ne doit pas être vide (sinon WAIT_ICNX). `required: false` + aucun match = liste vide
-  substituée.
-- `kind` : restreint la recherche à `Connection` ou `ClusterConnection`, comme sur le ref. Absent = les deux.
-- Interdit dans les arrays et dans `schema.context`.
-
 ## Identité et statut
 
 L'alias interne d'un input généré est le chemin de sa déclaration (`parameters.datasources[1].trino`,
 `context.platform.connections.oidc`), visible dans `status.watchedInputConnections`, `status.effectiveInputConnections`
 et les messages WAIT_ICNX. Une collision avec un alias de la stanza `inputs:` est une erreur. Les entrées générées
-n'apparaissent pas dans `.Inputs`/`.InputLists`.
+n'apparaissent pas dans `.Inputs`.
