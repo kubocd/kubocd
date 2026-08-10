@@ -95,7 +95,7 @@ type Package struct {
 	// Intended to be used to compute some global values
 	TemplateHeader string `json:"templateHeader,omitempty"`
 	// List of inputs referencing connections.
-	Inputs []Input `json:"inputs,omitempty"`
+	Inputs KcdTemplateObjectList `json:"inputs,omitempty"`
 	// List of outputs, to generate connections
 	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
 	// ------------------- Private part
@@ -196,16 +196,17 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
-	for idx := range pck.Inputs {
-		err = pck.Inputs[idx].groom(pck)
-		if err != nil {
-			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
-		}
+
+	pck.templates.inputs, err = tmpl.NewFromAny("", pck.Inputs, pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'inputs' template: %w", err)
 	}
+
 	pck.templates.outputs, err = tmpl.NewFromAny("", pck.Outputs, pck.TemplateHeader)
 	if err != nil {
 		return fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
+
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -216,10 +217,10 @@ type packageTemplates struct {
 	dependencies tmpl.Tmpl
 	description  tmpl.Tmpl
 	outputs      tmpl.Tmpl
-	//inputs       []tmpl.Tmpl
+	inputs       tmpl.Tmpl
 }
 
-// Rendered object is a proxy for a release e of a package.
+// Rendered object is a proxy for a release of a package.
 // Aim is to concentrate all error detection in its constructor
 // Standard way should be to have Getters on package and module object.
 // But each getter may generate an error, thus complicate the code.
@@ -230,7 +231,39 @@ type Rendered struct {
 	ModuleRenderedByName map[string]*ModuleRendered
 	Description          string
 	Outputs              []*OutputRendered
-	Inputs               []InputRendered // Warning: Lifecycle is different. Computed in advance
+	Inputs               []*InputRendered // Warning: Lifecycle is different. Computed in advance
+}
+
+// OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
+type OutputRendered struct {
+	Name        string                 `json:"name"`
+	Interface   string                 `json:"interface"`
+	Kind        kv1alpha1.Kind         `json:"kind"`
+	DisplayName string                 `json:"displayName,omitempty"`
+	Priority    int                    `json:"priority,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Values      map[string]interface{} `json:"values,omitempty"`
+}
+
+// InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
+type InputRendered struct {
+	Interface       string         `json:"interface"`
+	Kind            kv1alpha1.Kind `json:"kind,omitempty"`
+	InterfaceLookup struct {
+		Namespace string `json:"namespace"`
+	} `json:"interfaceLookup"`
+	NamedConnection struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+	} `json:"namedConnection"`
+	Release struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		Output    string `json:"output,omitempty"`
+	} `json:"release"`
+	Alias         string `json:"alias"`
+	Optional      bool   `json:"optional"`
+	AllowMultiple bool   `json:"allowMultiple"`
 }
 
 func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
@@ -283,7 +316,7 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'outputs' template: %w", err)
 	}
-	a := make([]*OutputRendered, len(pck.templates.usage))
+	a := make([]*OutputRendered, 0)
 	err = yaml.UnmarshalStrict([]byte(txt), &a)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse 'outputs' template: %w", err)
@@ -291,6 +324,7 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	r.Outputs = a
 	// ------- Adjust each output
 	for idx, ro := range r.Outputs {
+		// WARNING: This works for []*OutputRendered. []OutputRendered will be bogus.
 		if ro.Interface == "" {
 			return nil, fmt.Errorf("output[%d]: 'interface' is a required parameters", idx)
 		}
@@ -319,14 +353,50 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 	return r, nil
 }
 
-func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]InputRendered, error) {
-	result := make([]InputRendered, len(pck.Inputs))
-	for idx, input := range pck.Inputs {
-		ir, err := input.Render(model, defaultNamespace)
-		if err != nil {
-			return nil, fmt.Errorf("could not render 'inputs[%d]': %w", idx, err)
+func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]*InputRendered, error) {
+	txt, err := pck.templates.inputs.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'inputs' template: %w", err)
+	}
+	result := make([]*InputRendered, 0)
+	err = yaml.UnmarshalStrict([]byte(txt), &result)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse 'inputs' template: %w", err)
+	}
+
+	//fmt.Printf("***************************************** Rendering %d inputs\n%v\n", len(result), result)
+
+	for idx, ir := range result {
+		if ir.Alias == "" {
+			ir.Alias = ir.Interface
 		}
-		result[idx] = *ir
+		if ir.Interface == "" {
+			return nil, fmt.Errorf("input[%d]: interface is required", idx)
+		}
+		if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
+			return nil, fmt.Errorf("input[%d]: invalid kind '%s' value ", idx, ir.Kind)
+		}
+		if ir.NamedConnection.Name != "" {
+			if ir.NamedConnection.Namespace == "" {
+				if ir.Kind == kv1alpha1.KindConnection {
+					ir.NamedConnection.Namespace = defaultNamespace
+				} // else "" is ok
+			} else {
+				if ir.Kind == kv1alpha1.KindClusterConnection {
+					return nil, fmt.Errorf("input[%d]: namedConnection.namespace must be empty if kind is ClusterConnection", idx)
+				}
+			}
+		}
+		if ir.Release.Name != "" && ir.Release.Namespace == "" {
+			ir.Release.Namespace = defaultNamespace
+		}
+		x := misc.CountNonZero(ir.InterfaceLookup.Namespace, ir.NamedConnection.Name, ir.Release.Name)
+		if x > 1 {
+			return nil, fmt.Errorf("input[%d]: 0 or one of 'interfaceLookup.namespace', 'namedConnection.name' or 'release.name' sub element may be specified", idx)
+		}
+		if x == 0 {
+			ir.InterfaceLookup.Namespace = defaultNamespace
+		}
 	}
 	return result, nil
 }

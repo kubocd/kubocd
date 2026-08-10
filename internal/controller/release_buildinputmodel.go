@@ -36,7 +36,7 @@ type BuildInputModelResult struct {
 }
 
 // BuildInputModel build the '.Inputs' in the data model for rendering values.
-func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs []kubopackage.InputRendered) (*BuildInputModelResult, ReconcileError) {
+func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs []*kubopackage.InputRendered) (*BuildInputModelResult, ReconcileError) {
 	resultCollector := &BuildInputModelResult{
 		InputModel:                make(map[string]interface{}),
 		InputListModel:            make(map[string]interface{}),
@@ -67,7 +67,7 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 	return resultCollector, nil
 }
 
-func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 
 	var bimFetchNamedConnection = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
 		var connectionFacade kv1alpha1.ConnectionFacade
@@ -118,7 +118,7 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input kubopackage.In
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleReleaseConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
 		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Release.Namespace, Name: input.Release.Name})
@@ -141,7 +141,7 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input kubopackage.
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleInterfaceConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
 		cnx, err := helper.FindConnectionsFromInterface(ctx, input.InterfaceLookup.Namespace, input.Interface)
@@ -165,7 +165,7 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input kubopackag
 }
 
 // Called in case of search by Release or by interface
-func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
+func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input *kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
 	for _, connection := range connections {
