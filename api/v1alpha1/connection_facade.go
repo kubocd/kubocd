@@ -44,6 +44,5 @@ type ConnectionPhase string
 
 const ConnectionPhaseReady = ConnectionPhase("READY")
 const ConnectionPhaseError = ConnectionPhase("ERROR")
-const ConnectionPhaseDisabled = ConnectionPhase("DISABLED")
 
 // const ConnectionPhasePending = ConnectionPhase("PENDING")

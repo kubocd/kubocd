@@ -88,14 +88,7 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		connection.Status.Message = message
 		finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
 	} else {
-		if connection.Spec.Disabled {
-			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
-				r.Event(connection, "Normal", "Status", "Set in DISABLED state")
-			}
-			connection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
-			connection.Status.Message = "Disabled"
-			finalError = nil
-		} else if err := checkConnection(iface, connection); err != nil {
+		if err := checkConnection(iface, connection); err != nil {
 			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())
 			message := err.Error()
 			if connection.Status.Message != message {

@@ -71,14 +71,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 		clusterConnection.Status.Message = message
 		finalError = err
 	} else {
-		if clusterConnection.Spec.Disabled {
-			if previous.Status.Phase != kv1alpha1.ConnectionPhaseDisabled {
-				r.Event(clusterConnection, "Normal", "Status", "Set in DISABLED state")
-			}
-			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseDisabled
-			clusterConnection.Status.Message = "Disabled"
-			finalError = nil
-		} else if err := checkConnection(clusterIface, clusterConnection); err != nil {
+		if err := checkConnection(clusterIface, clusterConnection); err != nil {
 			logger.V(0).Error(err, "unable to validate clusterConnection", "clusterConnection", req.NamespacedName.String())
 			message := err.Error()
 			if clusterConnection.Status.Message != message {

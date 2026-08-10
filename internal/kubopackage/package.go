@@ -18,11 +18,14 @@ package kubopackage
 
 import (
 	"fmt"
+	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/global"
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+
+	"sigs.k8s.io/yaml"
 )
 
 // KcdTemplateMap A template where expected result is a map[string]interface{}.
@@ -41,6 +44,10 @@ type KcdTemplateDuration string
 // KcdTemplateStringList A template where expected result is a []string
 // May be a string or a []string
 type KcdTemplateStringList interface{}
+
+// KcdTemplateObjectList A template where expected result is a []interface{}
+// May be a string or a []string
+type KcdTemplateObjectList interface{}
 
 // KcdTemplateInt A template where expected result is an integer
 type KcdTemplateInt string
@@ -90,7 +97,7 @@ type Package struct {
 	// List of inputs referencing connections.
 	Inputs []Input `json:"inputs,omitempty"`
 	// List of outputs, to generate connections
-	Outputs []Output `json:"outputs,omitempty"`
+	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -195,11 +202,9 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 			return fmt.Errorf("error on 'inputs[%d]': %w", idx, err)
 		}
 	}
-	for idx := range pck.Outputs {
-		err = pck.Outputs[idx].groom(pck)
-		if err != nil {
-			return fmt.Errorf("error on 'output[%d]': %w", idx, err)
-		}
+	pck.templates.outputs, err = tmpl.NewFromAny("", pck.Outputs, pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
@@ -210,6 +215,7 @@ type packageTemplates struct {
 	roles        tmpl.Tmpl
 	dependencies tmpl.Tmpl
 	description  tmpl.Tmpl
+	outputs      tmpl.Tmpl
 	//inputs       []tmpl.Tmpl
 }
 
@@ -273,14 +279,35 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 	}
 	// ---------------------------- Render outputs
-	r.Outputs = make([]*OutputRendered, len(pck.Outputs))
-	for idx, output := range pck.Outputs {
-		or, err := output.Render(model)
-		if err != nil {
-			return nil, fmt.Errorf("could not render 'output[%d]': %w", idx, err)
-		}
-		r.Outputs[idx] = or
+	txt, err = pck.templates.outputs.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'outputs' template: %w", err)
 	}
+	a := make([]*OutputRendered, len(pck.templates.usage))
+	err = yaml.UnmarshalStrict([]byte(txt), &a)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse 'outputs' template: %w", err)
+	}
+	r.Outputs = a
+	// ------- Adjust each output
+	for idx, ro := range r.Outputs {
+		if ro.Interface == "" {
+			return nil, fmt.Errorf("output[%d]: 'interface' is a required parameters", idx)
+		}
+		if ro.Name == "" {
+			ro.Name = ro.Interface
+		}
+		if ro.DisplayName == "" {
+			ro.DisplayName = ro.Name
+		}
+		if ro.Kind == "" {
+			ro.Kind = kv1alpha1.KindConnection
+		}
+		if ro.Kind != kv1alpha1.KindConnection && ro.Kind != kv1alpha1.KindClusterConnection {
+			return nil, fmt.Errorf("output[%d]: 'kind' Must be one of 'Connection' or 'ClusterConnection'", idx)
+		}
+	}
+
 	// --------------- Must ensure output name are uniques
 	dupDetect := make(map[string]struct{})
 	for _, output := range r.Outputs {

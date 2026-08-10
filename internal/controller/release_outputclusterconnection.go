@@ -36,58 +36,43 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		if !apierrors.IsNotFound(err) {
 			return nil, NewReconcileError(fmt.Errorf("on ClusterConnection '%s': %w", clusterConnectionName, err), false, "ClusterConnectionAccess")
 		}
-		if !outputRendered.Disabled {
-			// Must create it
-			op.logger.V(0).Info("Will create clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
-			op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
-			err := r.createClusterConnection(op, outputRendered, clusterConnectionName)
-			if err != nil {
-				return nil, NewReconcileError(err, false, "ConnectionCreate")
-			}
-			r.Event(op.release, "Normal", "ClusterConnectionCreated", fmt.Sprintf("Created ClusterConnection %q", clusterConnectionName))
-			op.logger.V(1).Info("Launched clusterConnection", "connectionName", clusterConnectionName)
-			op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-				Kind:      kv1alpha1.Kind(clusterConnection.Kind),
-				Name:      clusterConnection.Name,
-				Namespace: "",
-				Phase:     "",
-				Message:   "",
-			}
-			return clusterConnection, nil
-		}
-		op.logger.V(1).Info("Disabled connection", "connection", clusterConnection)
-		delete(op.outputConnectionByName, outputRendered.Name)
-		// Nothing to do.
-		return nil, nil
-	}
-	// Connection exist. Update if needed
-	if !outputRendered.Disabled {
+		// Must create it
+		op.logger.V(0).Info("Will create clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
-		changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
+		err := r.createClusterConnection(op, outputRendered, clusterConnectionName)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "ClusterConnectionPatch")
+			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
-		if changed {
-			op.logger.V(0).Info("ClusterConnection updated", "name", clusterConnectionName, "output", outputRendered.Name)
-		} else {
-			op.logger.V(1).Info("ClusterConnection unchanged", "name", clusterConnectionName, "output", outputRendered.Name)
-		}
+		r.Event(op.release, "Normal", "ClusterConnectionCreated", fmt.Sprintf("Created ClusterConnection %q", clusterConnectionName))
+		op.logger.V(1).Info("Launched clusterConnection", "connectionName", clusterConnectionName)
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
 			Kind:      kv1alpha1.Kind(clusterConnection.Kind),
 			Name:      clusterConnection.Name,
 			Namespace: "",
-			Phase:     clusterConnection.Status.Phase,
-			Message:   clusterConnection.Status.Message,
+			Phase:     "",
+			Message:   "",
 		}
 		return clusterConnection, nil
 	}
-	op.logger.V(0).Info("Delete clusterConnection as disabled", "name", clusterConnectionName)
-	err = r.Delete(op.ctx, clusterConnection)
+	// Connection exist. Update if needed
+	op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
+	changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
 	if err != nil {
-		return nil, NewReconcileError(err, false, "ClusterConnectionDelete")
+		return nil, NewReconcileError(err, false, "ClusterConnectionPatch")
 	}
-	delete(op.outputConnectionByName, outputRendered.Name)
-	return nil, nil
+	if changed {
+		op.logger.V(0).Info("ClusterConnection updated", "name", clusterConnectionName, "output", outputRendered.Name)
+	} else {
+		op.logger.V(1).Info("ClusterConnection unchanged", "name", clusterConnectionName, "output", outputRendered.Name)
+	}
+	op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
+		Kind:      kv1alpha1.Kind(clusterConnection.Kind),
+		Name:      clusterConnection.Name,
+		Namespace: "",
+		Phase:     clusterConnection.Status.Phase,
+		Message:   clusterConnection.Status.Message,
+	}
+	return clusterConnection, nil
 }
 
 func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) (bool, error) {
@@ -140,7 +125,6 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 }
 
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
-	clusterConnection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
 		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)

@@ -37,58 +37,43 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		if !apierrors.IsNotFound(err) {
 			return nil, NewReconcileError(fmt.Errorf("on Connection '%s': %w", connectionName, err), false, "ConnectionAccess")
 		}
-		if !outputRendered.Disabled {
-			// Must create it
-			op.logger.V(0).Info("Will create connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
-			op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
-			err := r.createConnection(op, outputRendered, connectionName)
-			if err != nil {
-				return nil, NewReconcileError(err, false, "ConnectionCreate")
-			}
-			r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
-			op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
-			op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-				Kind:      kv1alpha1.Kind(connection.Kind),
-				Name:      connection.Name,
-				Namespace: connection.Namespace,
-				Phase:     "",
-				Message:   "",
-			}
-			return connection, nil
-		}
-		op.logger.V(1).Info("Disabled connection", "connection", connectionName)
-		delete(op.outputConnectionByName, outputRendered.Name)
-		// Nothing to do.
-		return nil, nil
-	}
-	// Connection exist. Update if needed
-	if !outputRendered.Disabled {
+		// Must create it
+		op.logger.V(0).Info("Will create connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
-		changed, err := patchConnection(r, op, connection, outputRendered)
+		err := r.createConnection(op, outputRendered, connectionName)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "ConnectionPatch")
+			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
-		if changed {
-			op.logger.V(0).Info("Connection updated", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
-		} else {
-			op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
-		}
+		r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
+		op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
 			Kind:      kv1alpha1.Kind(connection.Kind),
 			Name:      connection.Name,
 			Namespace: connection.Namespace,
-			Phase:     connection.Status.Phase,
-			Message:   connection.Status.Message,
+			Phase:     "",
+			Message:   "",
 		}
 		return connection, nil
 	}
-	op.logger.V(0).Info("Delete connection as disabled", "name", connectionName)
-	err = r.Delete(op.ctx, connection)
+	// Connection exist. Update if needed
+	op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
+	changed, err := patchConnection(r, op, connection, outputRendered)
 	if err != nil {
-		return nil, NewReconcileError(err, false, "ConnectionDelete")
+		return nil, NewReconcileError(err, false, "ConnectionPatch")
 	}
-	delete(op.outputConnectionByName, outputRendered.Name)
-	return nil, nil
+	if changed {
+		op.logger.V(0).Info("Connection updated", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
+	} else {
+		op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
+	}
+	op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
+		Kind:      kv1alpha1.Kind(connection.Kind),
+		Name:      connection.Name,
+		Namespace: connection.Namespace,
+		Phase:     connection.Status.Phase,
+		Message:   connection.Status.Message,
+	}
+	return connection, nil
 }
 
 func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) (bool, error) {
@@ -138,7 +123,6 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 }
 
 func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
-	connection.Spec.Disabled = false // Always false for managed connections
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
 		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)

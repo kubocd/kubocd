@@ -47,13 +47,6 @@ type ClusterConnectionSpec struct {
 	// +kubebuilder:validation:Optional
 	OutputName string `json:"outputName,omitempty"`
 
-	// Allow temporary suspension of this connection
-	// NB: This is only relevant for unmanaged connection.
-	// For managed one, always false, or object is deleted.
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=false
-	Disabled bool `json:"disabled"`
-
 	// A human oriented description
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`

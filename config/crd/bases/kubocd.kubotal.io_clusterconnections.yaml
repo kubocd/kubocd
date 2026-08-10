@@ -64,13 +64,6 @@ spec:
               description:
                 description: A human oriented description
                 type: string
-              disabled:
-                default: false
-                description: |-
-                  Allow temporary suspension of this connection
-                  NB: This is only relevant for unmanaged connection.
-                  For managed one, always false, or object is deleted.
-                type: boolean
               interface:
                 description: Define the service type and allow validation of rendered
                   'values'
