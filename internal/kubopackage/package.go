@@ -340,6 +340,9 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		if ro.Kind != kv1alpha1.KindConnection && ro.Kind != kv1alpha1.KindClusterConnection {
 			return nil, fmt.Errorf("output[%d]: 'kind' Must be one of 'Connection' or 'ClusterConnection'", idx)
 		}
+		if ro.Priority == 0 {
+			ro.Priority = 100
+		}
 	}
 
 	// --------------- Must ensure output name are uniques

@@ -79,14 +79,24 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		}
 	}
 	if iface == nil {
-		connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		connection.Status.InterfaceKind = ""
-		message := fmt.Sprintf("Interface or ClusterInterface '%s' missing", connection.Spec.Interface)
-		if connection.Status.Message != message {
-			r.Event(connection, "Warning", "Status", message)
+		if misc.IsZero(connection.Spec.Values) {
+			// If no Values, this is legal
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+				r.Event(connection, "Normal", "Status", "Connection ready")
+			}
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseReady
+			connection.Status.Message = ""
+			finalError = nil
+		} else {
+			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
+			connection.Status.InterfaceKind = ""
+			message := fmt.Sprintf("Interface or ClusterInterface '%s' missing", connection.Spec.Interface)
+			if connection.Status.Message != message {
+				r.Event(connection, "Warning", "Status", message)
+			}
+			connection.Status.Message = message
+			finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
 		}
-		connection.Status.Message = message
-		finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
 	} else {
 		if err := checkConnection(iface, connection); err != nil {
 			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())

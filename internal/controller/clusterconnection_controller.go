@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/misc"
 	"reflect"
 
 	"github.com/go-logr/logr"
@@ -57,19 +58,30 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	previous := clusterConnection.DeepCopy()
 
 	clusterIface := &kv1alpha1.ClusterInterface{}
-	// Interface is cluster-scoped, so no namespace.
+	// ClusterInterface is cluster-scoped, so no namespace.
 	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, clusterIface)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-		message := fmt.Sprintf("ClusterInterface '%s' missing", clusterConnection.Spec.Interface)
-		if clusterConnection.Status.Message != message {
-			r.Event(clusterConnection, "Warning", "Status", message)
+		// No corresponding ClusterInterface found
+		if misc.IsZero(clusterConnection.Spec.Values) {
+			// If no Values, this is legal
+			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
+				r.Event(clusterConnection, "Normal", "Status", "ClusterConnection ready")
+			}
+			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseReady
+			clusterConnection.Status.Message = ""
+			finalError = nil
+		} else {
+			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
+			message := fmt.Sprintf("ClusterInterface '%s' missing", clusterConnection.Spec.Interface)
+			if clusterConnection.Status.Message != message {
+				r.Event(clusterConnection, "Warning", "Status", message)
+			}
+			clusterConnection.Status.Message = message
+			finalError = err
 		}
-		clusterConnection.Status.Message = message
-		finalError = err
 	} else {
 		if err := checkConnection(clusterIface, clusterConnection); err != nil {
 			logger.V(0).Error(err, "unable to validate clusterConnection", "clusterConnection", req.NamespacedName.String())
