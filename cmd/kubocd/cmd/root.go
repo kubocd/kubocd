@@ -40,6 +40,7 @@ func init() {
 	rootCmd.AddCommand(dumpCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(packageCmd)
+	rootCmd.AddCommand(connectionsCmd)
 
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
