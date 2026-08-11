@@ -22,6 +22,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-logr/logr v1.4.4
 	github.com/mittwald/go-helm-client v0.13.2
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	github.com/opencontainers/go-digest v1.0.0
@@ -229,7 +230,6 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.18.4 // indirect
-	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/opencontainers/go-digest/blake3 v0.0.0-20260721143128-e5208fdd9cb0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
