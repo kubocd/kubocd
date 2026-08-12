@@ -40,6 +40,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -232,6 +233,63 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		roleStore := rolestore.New(theConfigStore, controllerRootLog.WithName("roleStore"))
+
+		// -------------------------------------------------------------------------------------- Replication controller setup
+
+		// Create an index to retrieve a Replication from a Secret/ConfigMap in an efficient way.
+		// A Replication is indexed on both its source and its destination, as a modification of any of
+		// them must be reverted/propagated.
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Replication{}, controller.ResourceIndexOnReplication, func(rawObj client.Object) []string {
+			return controller.ReplicationResourceKeys(rawObj.(*kubocdv1alpha1.Replication))
+		})
+		if err != nil {
+			setupLog.Error(err, "Unable to index Replication by resource")
+			os.Exit(1)
+		}
+
+		// The resource kind is not carried by the event, so we build one map function per watched kind.
+		findReplicationFromResource := func(kind string) handler.MapFunc {
+			return func(ctx context.Context, resource client.Object) []reconcile.Request {
+				replications := kubocdv1alpha1.ReplicationList{}
+				listOps := &client.ListOptions{
+					FieldSelector: fields.OneTermEqualSelector(controller.ResourceIndexOnReplication, controller.ResourceKey(resource.GetNamespace(), kind, resource.GetName())),
+				}
+				err := mgr.GetClient().List(ctx, &replications, listOps)
+				if err != nil {
+					if !apierrors.IsNotFound(err) {
+						controllerRootLog.Error(err, "findReplicationFromResource(): Unable to find replications", "kind", kind)
+					}
+					return []reconcile.Request{}
+				}
+				requests := make([]reconcile.Request, 0, len(replications.Items))
+				for _, item := range replications.Items {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      item.GetName(),
+							Namespace: item.GetNamespace(),
+						},
+					})
+				}
+				return requests
+			}
+		}
+
+		replicationReconciler := &controller.ReplicationReconciler{
+			Client:        mgr.GetClient(),
+			EventRecorder: mgr.GetEventRecorderFor("replication"),
+			Logger:        controllerRootLog.WithName("replicationReconciler"),
+		}
+
+		err = ctrl.NewControllerManagedBy(mgr).
+			For(&kubocdv1alpha1.Replication{}).
+			Named("kubocd-replication-controller").
+			Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindSecret))).
+			Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindConfigMap))).
+			Complete(replicationReconciler)
+		if err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "replication")
+			os.Exit(1)
+		}
 
 		// -------------------------------------------------------------------------------------- Interface controller setup
 

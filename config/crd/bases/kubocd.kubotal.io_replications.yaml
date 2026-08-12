@@ -1,0 +1,122 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: replications.kubocd.kubotal.io
+spec:
+  group: kubocd.kubotal.io
+  names:
+    kind: Replication
+    listKind: ReplicationList
+    plural: replications
+    shortNames:
+    - rep
+    singular: replication
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.source.kind
+      name: Kind
+      type: string
+    - jsonPath: .spec.source.name
+      name: Src name
+      type: string
+    - jsonPath: .spec.destination.namespace
+      name: Dst namespace
+      type: string
+    - jsonPath: .status.destinationName
+      name: Dst name
+      type: string
+    - jsonPath: .status.phase
+      name: Status
+      type: string
+    - jsonPath: .status.message
+      name: Message
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              destination:
+                properties:
+                  name:
+                    description: Default to source name
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - namespace
+                type: object
+              source:
+                properties:
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+            required:
+            - destination
+            - source
+            type: object
+          status:
+            properties:
+              destination:
+                description: |-
+                  The resource currently handled by this Replication. Allow its removal when the spec is modified
+                  to target another resource, or when this Replication is deleted. Unset when nothing is replicated.
+                properties:
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - kind
+                - name
+                - namespace
+                type: object
+              destinationName:
+                description: |-
+                  The effective destination name, defaulted to the source name when not set in the spec.
+                  Always set, as intended for display.
+                type: string
+              message:
+                type: string
+              phase:
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -61,7 +61,32 @@ rules:
   - apiGroups:
       - kubocd.kubotal.io
     resources:
+      - replications
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+  # Required by the replication controller, to duplicate Secret/ConfigMap across namespaces
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+      - delete
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
       - releases/finalizers
+      - replications/finalizers
     verbs:
       - update
   - apiGroups:
@@ -73,6 +98,7 @@ rules:
       - clusterconnections/status
       - interfaces/status
       - clusterinterfaces/status
+      - replications/status
     verbs:
       - get
       - patch

@@ -5,6 +5,19 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - kubocd.kubotal.io
   resources:
   - clusterconnections
@@ -13,6 +26,7 @@ rules:
   - contexts
   - interfaces
   - releases
+  - replications
   verbs:
   - create
   - delete
@@ -30,6 +44,7 @@ rules:
   - contexts/finalizers
   - interfaces/finalizers
   - releases/finalizers
+  - replications/finalizers
   verbs:
   - update
 - apiGroups:
@@ -41,6 +56,7 @@ rules:
   - contexts/status
   - interfaces/status
   - releases/status
+  - replications/status
   verbs:
   - get
   - patch
