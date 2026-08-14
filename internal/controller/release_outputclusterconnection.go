@@ -54,6 +54,12 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		}
 		return clusterConnection, nil
 	}
+	// ClusterConnection exists: no adoption. One this release does not own is
+	// never patched nor deleted, whoever put it there keeps it.
+	pr := clusterConnection.Spec.ParentRelease
+	if pr == nil || pr.Name != op.release.Name || pr.Namespace != op.release.Namespace {
+		return nil, NewReconcileError(fmt.Errorf("clusterConnection '%s' already exists and is not owned by this release", clusterConnectionName), false, "ConnectionOwnership")
+	}
 	// Connection exist. Update if needed
 	op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 	changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
@@ -125,6 +131,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 }
 
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
+	ApplyManagedLabels(&clusterConnection.ObjectMeta, outputRendered.Labels)
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
 		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)

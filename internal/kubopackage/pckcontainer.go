@@ -36,6 +36,9 @@ type PckContainer struct {
 	DefaultContext    map[string]interface{} `json:"defaultContext"`
 	ParameterSchema   *gojsonschema.Schema   `json:"parameterSchema"`
 	ContextSchema     *gojsonschema.Schema   `json:"contextSchema"`
+	// The connectionRef declarations of both schemas
+	ParamConnectionDecls   []kuboschema.ConnectionDecl `json:"paramConnectionDecls,omitempty"`
+	ContextConnectionDecls []kuboschema.ConnectionDecl `json:"contextConnectionDecls,omitempty"`
 }
 
 var _ cache.Entry = &PckContainer{}
@@ -81,6 +84,14 @@ func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string,
 			if err != nil {
 				return fmt.Errorf("contextSchema: %w", err)
 			}
+		}
+		p.ParamConnectionDecls, err = kuboschema.CollectConnectionDecls(pck.Schema.Parameters, false)
+		if err != nil {
+			return fmt.Errorf("schema.parameters: %w", err)
+		}
+		p.ContextConnectionDecls, err = kuboschema.CollectConnectionDecls(pck.Schema.Context, true)
+		if err != nil {
+			return fmt.Errorf("schema.context: %w", err)
 		}
 	} else {
 		p.DefaultParameters = map[string]interface{}{}

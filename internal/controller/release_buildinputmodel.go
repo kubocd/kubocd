@@ -71,18 +71,21 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.I
 
 	var bimFetchNamedConnection = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
 		var connectionFacade kv1alpha1.ConnectionFacade
+		var nsName types.NamespacedName
 		if kind == kv1alpha1.KindConnection {
-			connectionFacade = &kv1alpha1.ClusterConnection{}
-		} else {
 			connectionFacade = &kv1alpha1.Connection{}
+			nsName = types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
+		} else {
+			// A ClusterConnection is cluster-scoped: lookup by name only
+			connectionFacade = &kv1alpha1.ClusterConnection{}
+			nsName = types.NamespacedName{Name: input.NamedConnection.Name}
 		}
-		nsName := types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
 		err := helper.Get(ctx, nsName, connectionFacade)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				// We set in the status list even if not found or in error. As we want to be notified if created.
 				resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
-					Kind:      connectionFacade.GetKind(),
+					Kind:      kind,
 					Name:      nsName.Name,
 					Namespace: nsName.Namespace,
 				})
@@ -91,6 +94,12 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.I
 			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get %s '%s': %w", idx+1, kind, nsName.String(), err), false, "")
 		}
 		if connectionFacade.GetInterface() != input.Interface {
+			if input.Kind == "" {
+				// Dual lookup: discard this candidate, the other kind may
+				// carry the right interface. If none does, the release waits
+				// with the 'Waiting for namedConnection' message.
+				return nil, nil
+			}
 			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx+1, input.Interface, connectionFacade.GetInterface()), false, "")
 		}
 		return connectionFacade, nil
@@ -164,10 +173,27 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input *kubopacka
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
+// qualifiedName renders '<namespace>:<name>', or the bare name for a
+// cluster-scoped target, so that a message never shows a dangling colon.
+func qualifiedName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return fmt.Sprintf("%s:%s", namespace, name)
+}
+
+// describeCandidate identifies a candidate in the 'Too many' message. The name
+// alone is ambiguous: the very case this message reports is a Connection and a
+// ClusterConnection sharing one name.
+func describeCandidate(connection kv1alpha1.ConnectionFacade) string {
+	return fmt.Sprintf("%s %s", connection.GetKind(), qualifiedName(connection.GetNamespace(), connection.GetName()))
+}
+
 // Called in case of search by Release or by interface
 func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input *kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
+	notReady := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	for _, connection := range connections {
 		if connection.GetInterface() != input.Interface {
 			continue
@@ -178,28 +204,45 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 				continue
 			}
 		}
-		possibleConnectionNames = append(possibleConnectionNames, connection.GetName())
+		// Watch BEFORE the READY test: a candidate that is not ready yet must
+		// still wake the release up when it becomes ready
 		resultCollector.WatchedInputConnections = append(resultCollector.WatchedInputConnections, kv1alpha1.InputConnectionReference{
 			Kind:      connection.GetKind(),
 			Name:      connection.GetName(),
 			Namespace: connection.GetNamespace(),
 		})
+		possibleConnectionNames = append(possibleConnectionNames, describeCandidate(connection))
 		if connection.GetStatusPhase() == kv1alpha1.ConnectionPhaseReady {
 			electedConnections = append(electedConnections, connection)
+		} else {
+			notReady = append(notReady, connection)
 		}
 	}
 	if len(electedConnections) == 0 {
 		if !input.Optional {
 			var mess string
 			if input.Release.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for connection from release '%s:%s'", idx+1, input.Release.Namespace, input.Release.Name)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for connection from release '%s:%s'", idx+1, input.Alias, input.Release.Namespace, input.Release.Name)
 			} else if input.NamedConnection.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for namedConnection '%s:%s'", idx+1, input.NamedConnection.Namespace, input.NamedConnection.Name)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for namedConnection '%s'", idx+1, input.Alias, qualifiedName(input.NamedConnection.Namespace, input.NamedConnection.Name))
 			} else {
-				mess = fmt.Sprintf("input#%d: Waiting for a connection with interface '%s'", idx+1, input.Interface)
+				mess = fmt.Sprintf("input#%d (%s): Waiting for a connection with interface '%s'", idx+1, input.Alias, input.Interface)
 			}
-			if len(possibleConnectionNames) > 0 {
-				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))
+			if len(notReady) > 0 {
+				// Surface the ROOT CAUSE: a consumer must not just say
+				// 'waiting' while its producer is broken
+				details := make([]string, 0, len(notReady))
+				for _, c := range notReady {
+					d := fmt.Sprintf("%s is %s", c.GetName(), c.GetStatusPhase())
+					if parent := c.GetParent(); parent != "" {
+						d = fmt.Sprintf("%s (producer release %s)", d, parent)
+					}
+					if msg := c.GetStatusMessage(); msg != "" {
+						d = fmt.Sprintf("%s: %s", d, msg)
+					}
+					details = append(details, d)
+				}
+				mess = fmt.Sprintf("%s  [%s]", mess, strings.Join(details, " | "))
 			}
 			resultCollector.Messages = append(resultCollector.Messages, mess)
 		}
@@ -207,7 +250,7 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	if !input.AllowMultiple {
 		if len(possibleConnectionNames) > 1 {
-			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d: Too many possible connections: %s", idx+1, strings.Join(possibleConnectionNames, ",")))
+			resultCollector.Messages = append(resultCollector.Messages, fmt.Sprintf("input#%d (%s): Too many possible connections: %s", idx+1, input.Alias, strings.Join(possibleConnectionNames, ", ")))
 			return nil
 		}
 		// len(electedConnections) == 1, by construction
@@ -225,7 +268,8 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	sort.Slice(electedConnections, func(i, j int) bool {
 		if electedConnections[i].GetPriority() == electedConnections[j].GetPriority() {
-			return electedConnections[i].GetName() > electedConnections[j].GetName()
+			// Deterministic tie-break: ascending name order
+			return electedConnections[i].GetName() < electedConnections[j].GetName()
 		}
 		return electedConnections[i].GetPriority() > electedConnections[j].GetPriority()
 	})

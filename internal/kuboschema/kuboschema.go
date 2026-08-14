@@ -98,6 +98,8 @@ func handleNode(path string, node2 map[string]interface{}, additionalProperties 
 		}
 	}
 	switch typ {
+	case TypeConnectionRef:
+		return desugarConnectionRef(path, node)
 	case "string", "integer", "number", "boolean":
 		// It is a scalar type. Can use the openAPI directly, except 'required'
 		required, err := handleRequired(node)
@@ -189,6 +191,7 @@ func handleRequired(node map[string]interface{}) (bool, error) {
 }
 
 var allowedPropertiesByTypes = map[string]map[string]bool{
+	TypeConnectionRef: connectionRefAllowedProperties,
 	"string": {
 		"type":        true,
 		"title":       true,

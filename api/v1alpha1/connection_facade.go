@@ -29,6 +29,8 @@ type ConnectionFacade interface {
 
 	GetInterface() string
 	GetStatusPhase() ConnectionPhase
+	GetStatusMessage() string
+	GetParent() string
 	GetOutputName() string
 	GetPriority() int
 	GetValuesRaw() []byte

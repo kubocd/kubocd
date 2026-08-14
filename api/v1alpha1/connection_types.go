@@ -131,3 +131,11 @@ func (cnx *Connection) GetPriority() int {
 func (cnx *Connection) GetStatusPhase() ConnectionPhase {
 	return cnx.Status.Phase
 }
+
+func (cnx *Connection) GetStatusMessage() string {
+	return cnx.Status.Message
+}
+
+func (cnx *Connection) GetParent() string {
+	return cnx.Status.Parent
+}

@@ -17,6 +17,8 @@ limitations under the License.
 package kubopackage
 
 import (
+	"strings"
+
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -24,6 +26,8 @@ import (
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"sigs.k8s.io/yaml"
 )
@@ -243,6 +247,13 @@ type OutputRendered struct {
 	Priority    int                    `json:"priority,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Values      map[string]interface{} `json:"values,omitempty"`
+	// Name of the produced (Cluster)Connection. Empty means the generated
+	// kcd-<release>-<output>, which two releases of the same package would
+	// collide on when they mean to publish the same thing.
+	ConnectionName string `json:"connectionName,omitempty"`
+	// Labels set on the produced (Cluster)Connection, for operators that
+	// select connections rather than name them.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
@@ -342,6 +353,14 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 		if ro.Priority == 0 {
 			ro.Priority = 100
+		}
+		for k, v := range ro.Labels {
+			if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+				return nil, fmt.Errorf("output[%d]: invalid label key '%s': %s", idx, k, strings.Join(errs, ", "))
+			}
+			if errs := validation.IsValidLabelValue(v); len(errs) > 0 {
+				return nil, fmt.Errorf("output[%d]: invalid value '%s' for label '%s': %s", idx, v, k, strings.Join(errs, ", "))
+			}
 		}
 	}
 

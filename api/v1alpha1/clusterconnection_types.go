@@ -133,3 +133,11 @@ func (cnx *ClusterConnection) GetPriority() int {
 func (cnx *ClusterConnection) GetStatusPhase() ConnectionPhase {
 	return cnx.Status.Phase
 }
+
+func (cnx *ClusterConnection) GetStatusMessage() string {
+	return cnx.Status.Message
+}
+
+func (cnx *ClusterConnection) GetParent() string {
+	return cnx.Status.Parent
+}

@@ -373,6 +373,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error while validating context: %w", err), true, "Context"), forceUpdate)
 	}
+	if len(op.pckContainer.ContextConnectionDecls) > 0 {
+		// The in-place substitution of resolved connections needs an owned
+		// copy (the merged context can share subtrees with cached defaults)
+		theContext = DeepCopyTree(theContext)
+	}
 	// ----------------------------------------------------------------------- Handle parameters
 	parameters, err := HandleParameters(release, theContext, r.ConfigStore, op.pckContainer)
 	if err != nil {
@@ -404,6 +409,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if err != nil {
 		return r.reportError(op, NewReconcileError(err, true, "Inputs"), forceUpdate)
 	}
+	// ------------------------------------------- Generate inputs from connection parameters
+	generatedInputs, refBindings, err := GenerateRefInputs(op.pckContainer.ParamConnectionDecls, op.pckContainer.ContextConnectionDecls, parameters, theContext, release.Namespace, inputs)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, true, "ConnectionParameters"), forceUpdate)
+	}
+	inputs = append(inputs, generatedInputs...)
 	// -------------------------------------------------------------------- Enrich model with inputs
 	buildInputModelResult, err := BuildInputModel(op.ctx, r, inputs)
 	if err != nil {
@@ -432,6 +443,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{
 			RequeueAfter: time.Second * 5,
 		}, nil
+	}
+	// ------------------------------ Substitute resolved connections in place
+	// (.Parameters.x / .Context.y) and keep .Inputs for the stanza only
+	err = ApplyRefBindings(refBindings, buildInputModelResult.InputModel, parameters, theContext)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, false, "ConnectionParameters"), forceUpdate)
 	}
 	model["Inputs"] = buildInputModelResult.InputModel
 	model["InputLists"] = buildInputModelResult.InputListModel
@@ -559,14 +576,18 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	op.outputConnectionByName = make(map[string]kv1alpha1.ReleaseOutputConnection)
 	op.outputConnectionK8sName = make(map[string]struct{})
 	op.outputClusterConnectionK8sName = make(map[string]struct{})
-	for _, outputRendered := range rendered.Outputs {
+	// Effective names (explicit connectionName or generated), validated and
+	// checked for duplicates BEFORE any connection is touched.
+	effectiveNames, nameErr := ComputeEffectiveOutputNames(op.release.Name, op.release.Namespace, rendered.Outputs)
+	if nameErr != nil {
+		return r.reportError(op, NewReconcileError(nameErr, false, "OutputConnectionName"), forceUpdate)
+	}
+	for idx, outputRendered := range rendered.Outputs {
 		var reconcileError ReconcileError
 		if outputRendered.Kind == kv1alpha1.KindClusterConnection {
-			clusterConnectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
-			_, reconcileError = r.handleOutputClusterConnection(op, clusterConnectionName, outputRendered)
+			_, reconcileError = r.handleOutputClusterConnection(op, effectiveNames[idx], outputRendered)
 		} else {
-			connectionName := BuildConnectionName(op.release.Name, outputRendered.Name)
-			_, reconcileError = r.handleOutputConnection(op, connectionName, outputRendered)
+			_, reconcileError = r.handleOutputConnection(op, effectiveNames[idx], outputRendered)
 		}
 		if reconcileError != nil {
 			return r.reportError(op, reconcileError, forceUpdate)
