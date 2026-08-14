@@ -54,6 +54,7 @@ var renderParams struct {
 	namespace       string
 	debug           bool
 	trace           bool
+	skipConditions  bool
 }
 
 var renderLog logr.Logger
@@ -65,6 +66,7 @@ func init() {
 	renderCmd.PersistentFlags().StringVarP(&renderParams.namespace, "namespace", "n", "default", "Value to set if release.metadata.namespace is empty")
 	renderCmd.PersistentFlags().BoolVar(&renderParams.debug, "debug", false, "Enable debug logging")
 	renderCmd.PersistentFlags().BoolVar(&renderParams.trace, "trace", false, "Enable trace logging")
+	renderCmd.PersistentFlags().BoolVarP(&renderParams.skipConditions, "skipConditions", "s", false, "Skip test(s) of condition(s)")
 }
 
 var renderCmd = &cobra.Command{
@@ -308,7 +310,7 @@ var renderCmd = &cobra.Command{
 			// -------------------------------------------------------------------- Render all values
 
 			cmn.Dump(output, "model.yaml", model)
-			rendered, err := pkgContainer.Package.Render(model)
+			rendered, err := pkgContainer.Package.Render(model, release)
 			if err != nil {
 				return fmt.Errorf("could not render package: %w", err)
 			}
@@ -357,6 +359,20 @@ var renderCmd = &cobra.Command{
 			repoUrl := fmt.Sprintf("http://%s/%s", "HelmRepoAdvAddr", helmRepositoryPath)
 			controller.PopulateHelmRepository(helmRepository, release, repoUrl)
 			cmn.Dump(output, "helmRepository.yaml", helmRepository)
+
+			// -------------------------------------------------------------------- Check conditions
+			if !renderParams.skipConditions {
+				for idx, condition := range rendered.Conditions {
+					fmt.Printf("Check condition %d: (%s %s:%s)\n", idx, condition.Kind, condition.Namespace, condition.Name)
+					ok, message, reconcileError := controller.CheckCondition(context.Background(), k8sClient, condition)
+					if reconcileError != nil {
+						return fmt.Errorf("condition#%d: error: %w", idx, reconcileError)
+					}
+					if !ok {
+						return fmt.Errorf("condition#%d: : %s", idx, message)
+					}
+				}
+			}
 
 			// ---------------------------------------------------------------------- Generate stuff by module
 			helmReleaseNameByModuleName := make(map[string]string)

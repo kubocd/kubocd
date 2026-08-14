@@ -21,6 +21,7 @@ require (
 	github.com/fluxcd/source-controller/api v1.9.3
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/go-logr/logr v1.4.4
+	github.com/google/cel-go v0.29.2
 	github.com/mittwald/go-helm-client v0.13.2
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/onsi/ginkgo/v2 v2.32.0
@@ -158,7 +159,6 @@ require (
 	github.com/golangci/revgrep v0.5.3 // indirect
 	github.com/golangci/unconvert v0.0.0-20240309020433-c5143eacb3ed // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/cel-go v0.29.2 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260709232956-b9395ee17fa0 // indirect

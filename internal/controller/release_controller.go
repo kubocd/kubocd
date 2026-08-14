@@ -436,7 +436,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	model["Inputs"] = buildInputModelResult.InputModel
 	model["InputLists"] = buildInputModelResult.InputListModel
 	// -------------------------------------------------------------------- Render all values
-	rendered, err := op.pckContainer.Package.Render(model)
+	rendered, err := op.pckContainer.Package.Render(model, release)
 	if err != nil {
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
 	}
@@ -491,6 +491,29 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{
 			RequeueAfter: time.Second * 5,
 		}, nil
+	}
+
+	// ---------------------------------------------------- Check our conditions in green state
+	for idx, condition := range rendered.Conditions {
+		ok, message, reconcileError := CheckCondition(op.ctx, r, condition)
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError, forceUpdate)
+		}
+		if !ok {
+			message := fmt.Sprintf("Waiting for cond.#%d: %s", idx+1, message)
+			r.Event(op.release, "Normal", "UnsetCondition", message)
+			r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitConditions, message, forceUpdate)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if r.RequeueAfter > 0 {
+				// It is a Requeue due to update status error
+				return r, nil
+			}
+			return ctrl.Result{
+				RequeueAfter: time.Second * 5,
+			}, nil
+		}
 	}
 
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)

@@ -96,6 +96,8 @@ type Package struct {
 	TemplateHeader string `json:"templateHeader,omitempty"`
 	// List of inputs referencing connections.
 	Inputs KcdTemplateObjectList `json:"inputs,omitempty"`
+	// List of conditions
+	Conditions KcdTemplateObjectList `json:"conditions,omitempty"`
 	// List of outputs, to generate connections
 	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
 	// ------------------- Private part
@@ -207,6 +209,11 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 		return fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
 
+	pck.templates.conditions, err = tmpl.NewFromAny("", pck.Conditions, pck.TemplateHeader)
+	if err != nil {
+		return fmt.Errorf("could not parse 'inputs' template: %w", err)
+	}
+
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -218,6 +225,7 @@ type packageTemplates struct {
 	description  tmpl.Tmpl
 	outputs      tmpl.Tmpl
 	inputs       tmpl.Tmpl
+	conditions   tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release of a package.
@@ -230,8 +238,9 @@ type Rendered struct {
 	Dependencies         []string
 	ModuleRenderedByName map[string]*ModuleRendered
 	Description          string
-	Outputs              []*OutputRendered
 	Inputs               []*InputRendered // Warning: Lifecycle is different. Computed in advance
+	Conditions           []*ConditionRendered
+	Outputs              []*OutputRendered
 }
 
 // OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
@@ -266,7 +275,15 @@ type InputRendered struct {
 	AllowMultiple bool   `json:"allowMultiple"`
 }
 
-func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
+type ConditionRendered struct {
+	Group     string         `json:"group"`
+	Kind      kv1alpha1.Kind `json:"kind"`
+	Name      string         `json:"name"`
+	Namespace string         `json:"namespace"`
+	Cel       string         `json:"cel"`
+}
+
+func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Release) (*Rendered, error) {
 	r := &Rendered{
 		ModuleRenderedByName: make(map[string]*ModuleRendered),
 	}
@@ -353,6 +370,31 @@ func (pck *Package) Render(model map[string]interface{}) (*Rendered, error) {
 		}
 		dupDetect[output.Name] = struct{}{}
 	}
+
+	// ------------------------- Render conditions
+	txt, err = pck.templates.conditions.RenderToText(model)
+	if err != nil {
+		return nil, fmt.Errorf("could not render 'conditions' template: %w", err)
+	}
+	conditions := make([]*ConditionRendered, 0)
+	err = yaml.UnmarshalStrict([]byte(txt), &conditions)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse 'conditions' template: %w", err)
+	}
+	r.Conditions = conditions
+
+	for idx, condition := range r.Conditions {
+		if condition.Kind == "" {
+			return nil, fmt.Errorf("condition[%d]: kind is a required parameters", idx)
+		}
+		if condition.Name == "" {
+			return nil, fmt.Errorf("condition[%d]: name is a required parameters", idx)
+		}
+		if condition.Namespace == "" {
+			condition.Namespace = release.Spec.TargetNamespace
+		}
+	}
+
 	return r, nil
 }
 
