@@ -1,10 +1,36 @@
 # v0.4.0
 
+## Upgrading from v0.3.x
+
+- Four CRDs are added: `interfaces`, `clusterinterfaces`, `connections`, `clusterconnections`. They live in the chart
+  `crds/` directory, which **Helm never updates on upgrade**. Apply them by hand before upgrading the controller,
+  otherwise reconciliation fails on unknown kinds.
+
+## Core
+
 - Implementation of Connection sub system
+- `Interface` is namespaced and `ClusterInterface` has been added. A Connection is validated against the schema its
+  interface declares.
+- Packages declare `outputs` to publish Connections, and `inputs` to consume them. Both are now a single template
+  rendering a list.
+- New `connectionRef` parameter type. A package parameter typed this way declares its own input, and the resolved values
+  are substituted in place, so templates read `.Parameters.<name>.<field>` like any other parameter.
+- A Release waits in `WAIT_ICNX` until its non optional inputs resolve, and the message reports the root cause from the
+  producing Release rather than a bare "waiting".
+- A Connection a Release does not own is never patched nor deleted.
 - The Release.Status has been modified. Error message are reported in a single field, decreasing the need to dig inside
   child resources to retrieve errors.
 - Internally now using helm v4 (Following up fluxCD)
 - Updated go and go libraries dependencies to latest current version.
+
+## Fixes
+
+- Bump go-git to v5.19.2, addressing two advisories on worktree operations and reference names, reached through the
+  `git` chart source.
+
+## CLI
+
+- New `kubocd connections` command, dumping the producer to consumer relationships across namespaces or cluster wide.
 
 # v0.3.1
 
