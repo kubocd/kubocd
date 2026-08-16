@@ -1,16 +1,18 @@
-# v0.4.0
+# v0.3.1
 
-- Implementation of 'Conditions' to check Release pre-requisite
-- Implementation of Replication resources
-- Implementation of Connection sub system
+WARNING: All feature tagged as EXPERIMENTAL are under active development. Their resources, fields and behaviour may
+change, or be removed, in any future release without prior notice and without a migration path. Do not use for
+production and be ready to modify any application using them.
+
+Core:
+
+- EXPERIMENTAL: Implementation of 'Conditions' to check Release pre-requisite
+- EXPERIMENTAL: Implementation of Replication resources
+- EXPERIMENTAL: Implementation of Connection sub system
 - The Release.Status has been modified. Error message are reported in a single field, decreasing the need to dig inside
   child resources to retrieve errors.
 - Internally now using helm v4 (Following up fluxCD)
 - Updated go and go libraries dependencies to latest current version.
-
-# v0.3.1
-
-Core
 
 - Empty entries are pruned from generated values object.
 
