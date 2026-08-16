@@ -17,21 +17,21 @@ import (
 
 // Aim of this controller is only to validate its spec and handle error
 
-type InterfaceReconciler struct {
+type ContractReconciler struct {
 	client.Client
 	record.EventRecorder
 	Logger logr.Logger
 }
 
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=interfaces,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=interfaces/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=interfaces/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
-func (r *InterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ContractReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	logger.V(1).Info(fmt.Sprintf("vv..............vv  %s:%s", req.NamespacedName.Namespace, req.NamespacedName.Name))
 	result, err := r.reconcile2(ctx, req, logger)
@@ -39,13 +39,13 @@ func (r *InterfaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return result, err
 }
 
-func (r *InterfaceReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
+func (r *ContractReconciler) reconcile2(ctx context.Context, req ctrl.Request, logger logr.Logger) (ctrl.Result, error) {
 	// We don't use logger provided by the manager, as it is quite verbose
 	//logger := log.FromContext(ctx)
 	//logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
 
-	iface := &kv1alpha1.Interface{}
-	err := r.Get(ctx, req.NamespacedName, iface)
+	contract := &kv1alpha1.Contract{}
+	err := r.Get(ctx, req.NamespacedName, contract)
 	if err != nil {
 		logger.V(1).Info("Unable to fetch resource. Seems deleted")
 		// we'll ignore not-found errors, since they can't be fixed by an immediate requeue
@@ -54,26 +54,26 @@ func (r *InterfaceReconciler) reconcile2(ctx context.Context, req ctrl.Request, 
 	}
 	// NB: As there is no non-k8s related object, there is no need for finalizer
 
-	previous := iface.DeepCopy()
+	previous := contract.DeepCopy()
 
-	_, _, err = resolveInterface(iface)
+	_, _, err = resolveContract(contract)
 	if err != nil {
-		logger.V(0).Error(err, "Error on interface", "interface", iface.Name)
-		r.Event(iface, "Warning", "Invalid", err.Error())
-		iface.Status.Phase = kv1alpha1.InterfacePhaseError
-		iface.Status.Message = err.Error()
+		logger.V(0).Error(err, "Error on contract", "contract", contract.Name)
+		r.Event(contract, "Warning", "Invalid", err.Error())
+		contract.Status.Phase = kv1alpha1.ContractPhaseError
+		contract.Status.Message = err.Error()
 	} else {
-		if previous.Status.Phase != kv1alpha1.InterfacePhaseReady {
-			r.Event(iface, "Normal", "OK", "interface ok")
+		if previous.Status.Phase != kv1alpha1.ContractPhaseReady {
+			r.Event(contract, "Normal", "OK", "contract ok")
 		}
-		iface.Status.Phase = kv1alpha1.InterfacePhaseReady
-		iface.Status.Message = ""
+		contract.Status.Phase = kv1alpha1.ContractPhaseReady
+		contract.Status.Message = ""
 	}
-	if reflect.DeepEqual(previous.Status, iface.Status) {
+	if reflect.DeepEqual(previous.Status, contract.Status) {
 		// Status unmodified. End of works (Using Patch does not prevent an unnecessary round trip)
 		return ctrl.Result{}, nil
 	}
-	err = r.Status().Patch(ctx, iface, client.MergeFrom(previous))
+	err = r.Status().Patch(ctx, contract, client.MergeFrom(previous))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -81,11 +81,11 @@ func (r *InterfaceReconciler) reconcile2(ctx context.Context, req ctrl.Request, 
 	return ctrl.Result{}, nil
 }
 
-func resolveInterface(iface kv1alpha1.InterfaceFacade) (defaultValues map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
+func resolveContract(contract kv1alpha1.ContractFacade) (defaultValues map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
 	// Convert k8s form to KuboSchema
 	sch := make(kuboschema.KuboSchema)
-	if iface.GetSchemaRaw() != nil {
-		err = yaml.UnmarshalStrict(iface.GetSchemaRaw(), &sch)
+	if contract.GetSchemaRaw() != nil {
+		err = yaml.UnmarshalStrict(contract.GetSchemaRaw(), &sch)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to parse schema: %w", err)
 		}

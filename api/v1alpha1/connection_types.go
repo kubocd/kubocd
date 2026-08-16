@@ -25,13 +25,13 @@ type ConnectionSpec struct {
 
 	// Define the service type and allow validation of rendered 'values'
 	// +kubebuilder:validation:Required
-	Interface string `json:"interface"`
+	Contract string `json:"contract"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=100
 	Priority int `json:"priority"`
 
-	// Must comply to the schema defined by interface
+	// Must comply to the schema defined by contract
 	// +kubebuilder:validation:Optional
 	Values *apiextensionsv1.JSON `json:"values"`
 
@@ -53,22 +53,22 @@ type ConnectionStatus struct {
 	Parent string `json:"parent,omitempty"`
 	// +kubebuilder:validation:Optional
 	Message string `json:"message,omitempty"`
-	// InterfaceGeneration is the .metadata.generation of the interface this
+	// ContractGeneration is the .metadata.generation of the contract this
 	// connection was last checked against.
 	// +kubebuilder:validation:Optional
-	InterfaceGeneration int64 `json:"interfaceGeneration,omitempty"`
-	// Interface or ClusterInterface. For user usage
+	ContractGeneration int64 `json:"contractGeneration,omitempty"`
+	// Contract or ClusterContract. For user usage
 	// +kubebuilder:validation:Optional as empty in initial state
-	InterfaceKind Kind `json:"interfaceKind,omitempty"`
-	// Decorated interface name, for user display
+	ContractKind Kind `json:"contractKind,omitempty"`
+	// Decorated contract name, for user display
 	// +kubebuilder:validation:Optional as empty in initial state
-	InterfaceDisplay string `json:"interfaceDisplay,omitempty"`
+	ContractDisplay string `json:"contractDisplay,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=cnx
-// +kubebuilder:printcolumn:name="Interface",type=string,JSONPath=`.status.interfaceDisplay`
+// +kubebuilder:printcolumn:name="Contract",type=string,JSONPath=`.status.contractDisplay`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
@@ -116,8 +116,8 @@ func (cnx *Connection) GetValuesRaw() []byte {
 	return cnx.Spec.Values.Raw
 }
 
-func (cnx *Connection) GetInterface() string {
-	return cnx.Spec.Interface
+func (cnx *Connection) GetContract() string {
+	return cnx.Spec.Contract
 }
 
 func (cnx *Connection) GetOutputName() string {

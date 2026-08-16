@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Aim of this controller is to validate its spec against interface and handle error
+// Aim of this controller is to validate its spec against contract and handle error
 
 // ClusterConnectionReconciler feed connectionStore (Memory storage) with connections
 type ClusterConnectionReconciler struct {
@@ -57,14 +57,14 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	var finalError error = nil
 	previous := clusterConnection.DeepCopy()
 
-	clusterIface := &kv1alpha1.ClusterInterface{}
-	// ClusterInterface is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Interface}, clusterIface)
+	clusterContract := &kv1alpha1.ClusterContract{}
+	// ClusterContract is cluster-scoped, so no namespace.
+	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Contract}, clusterContract)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		// No corresponding ClusterInterface found
+		// No corresponding ClusterContract found
 		if misc.IsZero(clusterConnection.Spec.Values) {
 			// If no Values, this is legal
 			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
@@ -75,7 +75,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			finalError = nil
 		} else {
 			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-			message := fmt.Sprintf("ClusterInterface '%s' missing", clusterConnection.Spec.Interface)
+			message := fmt.Sprintf("ClusterContract '%s' missing", clusterConnection.Spec.Contract)
 			if clusterConnection.Status.Message != message {
 				r.Event(clusterConnection, "Warning", "Status", message)
 			}
@@ -83,7 +83,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			finalError = err
 		}
 	} else {
-		if err := checkConnection(clusterIface, clusterConnection); err != nil {
+		if err := checkConnection(clusterContract, clusterConnection); err != nil {
 			logger.V(0).Error(err, "unable to validate clusterConnection", "clusterConnection", req.NamespacedName.String())
 			message := err.Error()
 			if clusterConnection.Status.Message != message {
@@ -100,7 +100,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			clusterConnection.Status.Message = ""
 			finalError = nil
 		}
-		clusterConnection.Status.InterfaceGeneration = clusterIface.Generation
+		clusterConnection.Status.ContractGeneration = clusterContract.Generation
 	}
 	if clusterConnection.Status.Parent == "" && clusterConnection.Spec.ParentRelease != nil {
 		clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", clusterConnection.Spec.ParentRelease.Namespace, clusterConnection.Spec.ParentRelease.Name)

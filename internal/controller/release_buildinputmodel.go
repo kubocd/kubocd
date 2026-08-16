@@ -18,8 +18,8 @@ type BuildInputModelHelper interface {
 	client.Client
 	FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError)
 	FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.ClusterConnection, ReconcileError)
-	FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError)
-	FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kv1alpha1.ClusterConnection, ReconcileError)
+	FindConnectionsFromContract(ctx context.Context, namespace string, contract string) ([]kv1alpha1.Connection, ReconcileError)
+	FindClusterConnectionsFromContract(ctx context.Context, contract string) ([]kv1alpha1.ClusterConnection, ReconcileError)
 }
 
 type BuildInputModelResult struct {
@@ -45,38 +45,41 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 		Messages:                  make([]string, 0, len(inputs)),
 	}
 	for idx, input := range inputs {
-		if input.NamedConnection.Name != "" {
+		if input.ConnectionRef.Name != "" {
 			// ----------------------------------------------------------Connection is explicit.
-			err := bimHandleNamedConnection(ctx, idx, input, helper, resultCollector)
+			err := bimHandleConnectionRef(ctx, idx, input, helper, resultCollector)
 			if err != nil {
 				return resultCollector, err
 			}
-		} else if input.Release.Name != "" {
-			err := bimHandleReleaseConnection(ctx, idx, input, helper, resultCollector)
+		} else if input.ReleaseRef.Name != "" {
+			err := bimHandleReleaseRef(ctx, idx, input, helper, resultCollector)
+			if err != nil {
+				return resultCollector, err
+			}
+		} else if input.GetContractLookupNamespace() != "" {
+			// ---------------------------------------------------------- We lookup connections by contract
+			err := bimHandleContractConnection(ctx, idx, input, helper, resultCollector)
 			if err != nil {
 				return resultCollector, err
 			}
 		} else {
-			// ---------------------------------------------------------- We lookup connections by interface
-			err := bimHandleInterfaceConnection(ctx, idx, input, helper, resultCollector)
-			if err != nil {
-				return resultCollector, err
-			}
+			// Should never happen, See input rendering
+			return nil, NewReconcileError(fmt.Errorf("input[%d]: Missing information", idx), true, "InputError")
 		}
 	}
 	return resultCollector, nil
 }
 
-func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleConnectionRef(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 
-	var bimFetchNamedConnection = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
+	var bimFetchConnectionRef = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
 		var connectionFacade kv1alpha1.ConnectionFacade
 		if kind == kv1alpha1.KindConnection {
 			connectionFacade = &kv1alpha1.ClusterConnection{}
 		} else {
 			connectionFacade = &kv1alpha1.Connection{}
 		}
-		nsName := types.NamespacedName{Namespace: input.NamedConnection.Namespace, Name: input.NamedConnection.Name}
+		nsName := types.NamespacedName{Namespace: input.ConnectionRef.Namespace, Name: input.ConnectionRef.Name}
 		err := helper.Get(ctx, nsName, connectionFacade)
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
@@ -90,15 +93,15 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.I
 			}
 			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get %s '%s': %w", idx+1, kind, nsName.String(), err), false, "")
 		}
-		if connectionFacade.GetInterface() != input.Interface {
-			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Interface mismatch: '%s' != '%s'", idx+1, input.Interface, connectionFacade.GetInterface()), false, "")
+		if connectionFacade.GetContract() != input.Contract {
+			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Contract mismatch: '%s' != '%s'", idx+1, input.Contract, connectionFacade.GetContract()), false, "")
 		}
 		return connectionFacade, nil
 	}
 
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 2)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
-		cf, err := bimFetchNamedConnection(kv1alpha1.KindConnection)
+		cf, err := bimFetchConnectionRef(kv1alpha1.KindConnection)
 		if err != nil {
 			return err
 		}
@@ -107,7 +110,7 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.I
 		}
 	}
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
-		cf, err := bimFetchNamedConnection(kv1alpha1.KindClusterConnection)
+		cf, err := bimFetchConnectionRef(kv1alpha1.KindClusterConnection)
 		if err != nil {
 			return err
 		}
@@ -118,10 +121,10 @@ func bimHandleNamedConnection(ctx context.Context, idx int, input *kubopackage.I
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-func bimHandleReleaseConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleReleaseRef(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
-		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Release.Namespace, Name: input.Release.Name})
+		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.ReleaseRef.Namespace, Name: input.ReleaseRef.Name})
 		if err != nil {
 			return err
 		}
@@ -130,7 +133,7 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input *kubopackage
 		}
 	}
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
-		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.Release.Namespace, Name: input.Release.Name})
+		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.ReleaseRef.Namespace, Name: input.ReleaseRef.Name})
 		if err != nil {
 			return err
 		}
@@ -141,10 +144,10 @@ func bimHandleReleaseConnection(ctx context.Context, idx int, input *kubopackage
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-func bimHandleInterfaceConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
+func bimHandleContractConnection(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
-		cnx, err := helper.FindConnectionsFromInterface(ctx, input.InterfaceLookup.Namespace, input.Interface)
+		cnx, err := helper.FindConnectionsFromContract(ctx, input.GetContractLookupNamespace(), input.Contract)
 		if err != nil {
 			return err
 		}
@@ -153,7 +156,7 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input *kubopacka
 		}
 	}
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
-		cnx, err := helper.FindClusterConnectionsFromInterface(ctx, input.Interface)
+		cnx, err := helper.FindClusterConnectionsFromContract(ctx, input.Contract)
 		if err != nil {
 			return err
 		}
@@ -164,17 +167,17 @@ func bimHandleInterfaceConnection(ctx context.Context, idx int, input *kubopacka
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
-// Called in case of search by Release or by interface
+// Called in case of search by Release or by contract
 func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, input *kubopackage.InputRendered, resultCollector *BuildInputModelResult) ReconcileError {
 	electedConnections := make([]kv1alpha1.ConnectionFacade, 0, len(connections))
 	possibleConnectionNames := make([]string, 0, len(connections))
 	for _, connection := range connections {
-		if connection.GetInterface() != input.Interface {
+		if connection.GetContract() != input.Contract {
 			continue
 		}
-		if input.Release.Name != "" && input.Release.Output != "" {
+		if input.ReleaseRef.Name != "" && input.ReleaseRef.Output != "" {
 			// Must filter also on output
-			if input.Release.Output != connection.GetOutputName() {
+			if input.ReleaseRef.Output != connection.GetOutputName() {
 				continue
 			}
 		}
@@ -191,12 +194,14 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	if len(electedConnections) == 0 {
 		if !input.Optional {
 			var mess string
-			if input.Release.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for connection from release '%s:%s'", idx+1, input.Release.Namespace, input.Release.Name)
-			} else if input.NamedConnection.Name != "" {
-				mess = fmt.Sprintf("input#%d: Waiting for namedConnection '%s:%s'", idx+1, input.NamedConnection.Namespace, input.NamedConnection.Name)
+			if input.ReleaseRef.Name != "" {
+				mess = fmt.Sprintf("input#%d: Waiting for connection from release '%s:%s'", idx+1, input.ReleaseRef.Namespace, input.ReleaseRef.Name)
+			} else if input.ConnectionRef.Name != "" {
+				mess = fmt.Sprintf("input#%d: Waiting for connection '%s:%s'", idx+1, input.ConnectionRef.Namespace, input.ConnectionRef.Name)
+			} else if input.GetContractLookupNamespace() != "" {
+				mess = fmt.Sprintf("input#%d: Waiting for a connection with contract '%s' in namespace '%s' or cluster scoped", idx+1, input.Contract, input.GetContractLookupNamespace())
 			} else {
-				mess = fmt.Sprintf("input#%d: Waiting for a connection with interface '%s'", idx+1, input.Interface)
+				mess = fmt.Sprintf("input#%d: Waiting for a connection with contract '%s'", idx+1, input.Contract)
 			}
 			if len(possibleConnectionNames) > 0 {
 				mess = fmt.Sprintf("%s  (%s not ready)", mess, strings.Join(possibleConnectionNames, ", "))

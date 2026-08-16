@@ -9,11 +9,12 @@
 - [Resources](#resources)
   - [Connection.kubocd.kubotal.io](#connectionkubocdkubotalio)
   - [ClusterConnection.kubocd.kubotal.io](#clusterconnectionkubocdkubotalio)
-  - [Interface](#interface)
+  - [Contract](#contract)
+  - [ClusterContract](#clustercontract)
   - [output](#output)
   - [input](#input)
-  - [NamespacedInterface](#namespacedinterface)
 - [Usage](#usage)
+  - [Contract/Connection relationship.](#contractconnection-relationship)
   - [Connection Binding](#connection-binding)
   - [Connections managées vs autonomes](#connections-manag%C3%A9es-vs-autonomes)
   - [Connection validation](#connection-validation)
@@ -61,7 +62,7 @@ metadata:
   name: <string>
   namespace: <string>
 spec:
-  interface: <string>  # Required
+  contract: <string>  # Required
   priority: <int> # Optionnal
   values: <map[string]interface{}>
   disabled: <bool> # default false
@@ -70,7 +71,7 @@ spec:
 ```
 
 - Une Connection est une resource K8S namespaced.
-- Le type de service fourni est défini par référence a une 'Interface'. Cette interface défine le schémas des 'values'
+- Le type de service fourni est défini par référence a un 'Contract'. Ce contract défine le schémas des 'values'
   fournis.
 - Une Connection peut être créée explicitement, ou bien automatiquement, lors du déploiement d'une Instance KuboCD
 
@@ -82,7 +83,7 @@ kind: ClusterConnection
 metadata:
   name: <string>
 spec:
-  interface: <string>  # Required
+  contract: <string>  # Required
   priority: <int> # Optionnal
   values: <map[string]interface{}
   disabled: <bool> # default false
@@ -92,20 +93,20 @@ spec:
 
 - Une ClusterConnection est analogue à une Connection, mais elle permet de décrire un service disponible par tous les
   namespaces du cluster.
-- Le type de service fourni est défini par référence a une 'Interface'. Cette interface défine le schémas des 'values'
+- Le type de service fourni est défini par référence a un 'Contract'. Ce contract défine le schémas des 'values'
   fournis.
 - Une ClusterConnection peut être définie explicitement, ou bien lors du déploiement d'une Instance KuboCD
 
-### Interface
+### Contract
 
-Une Interface permet de décrire le schéma auquel doit se conformer l'attribut 'values' d'une
-connection/clusterConnextion. An Interface is a namespaced resource
+Un Contract permet de décrire le schéma auquel doit se conformer l'attribut 'values' d'une connection/clusterConnextion.
+A Contract is a namespaced resource
 
 ```
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
-  name: <string>  # Le nom k8s est le nom de l'interface
+  name: <string>  # Le nom k8s est le nom du contract
   namespace: <string>
 spec:
   description: <string>
@@ -114,16 +115,16 @@ spec:
       ....
 ```
 
-### ClusterInterface
+### ClusterContract
 
-Une ClusterInterface, cluster scoped resource, permet aussi de décrire le schéma auquel doit se conformer l'attribut
+Un ClusterContract, cluster scoped resource, permet aussi de décrire le schéma auquel doit se conformer l'attribut
 'values' d'une connection/clusterConnextion.
 
 ```
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: ClusterInterface
+kind: ClusterContract
 metadata:
-  name: <string>  # Le nom k8s est le nom de l'interface
+  name: <string>  # Le nom k8s est le nom du contract
 spec:
   description: <string>
   schema: # <schema_json_or_kubocd>
@@ -140,7 +141,7 @@ Il permet de définir une ou plusieurs Connections qui seront générées lors d
 ```
 output:
   - name: <string>  # Required
-    interface: <string> # required
+    contract: <string> # required
     kind: <template_string> # Connection or ClusterConnection. Optional. Default to Connection
     displayName: <template_string> # Optional. Default to .name
     priority: <template_int> # Optional. Default 100
@@ -160,43 +161,37 @@ existante.
 
 ```
 input:
-  - interface: <template_string> # required
+  - contract: <template_string> # required
     kind: <template_string> # Connection or ClusterConnection. If "", then loopkup both
-    interfaceLookup:
-      namespace: <template_string> # Default to relase namespace.
-    namedConnection:
+    connectionRef:
       name: <template_string>
       namespace: <template_string> # Default to relase namespace. If "", then it is a clusterConnection
-    release:
+    releaseRef:
       name: <template_string>
       namespace: <template_string> # Default to relase namespace
       outputName: <template_string>
-    alias: <template_string> # optional. Default to interface
+    alias: <template_string> # optional. Default to contract
     optional: <template_bool> # Default: false. If true and the connection is missing, there is no error, and `.Inputs.<alias>` does not exists.
     allowMultiple: <bool> # Optional. If false, error in case of multiple providers on a binding. Default false
 
 ```
 
-interfaceLookup, namedConnection and release are exclusive
+connectionRef and releaseRef are exclusive
 
-If none, then:
+If connectionRef or releaseRef specify only a namespace, then system will lookup by contract in this namespace
 
-```
-input:
-  - interface: <template_string> # required
-    interfaceLookup:
-      namespace: targetNamespace
-```
+If neither connectionRef and releaseRef is defined, then system will look for a connection with given contract in
+default namespace.
 
 ## Usage
 
-### Interface/Connection relationship.
+### Contract/Connection relationship.
 
-- A clusterConnection will lookup its interface by name as ClusterInterface
-- A Connection will lookup its Interface by name in its namespace. If not found, it will lookup a ClusterInterface of
+- A clusterConnection will lookup its contract by name as ClusterContract
+- A Connection will lookup its Contract by name in its namespace. If not found, it will lookup a ClusterContract of
   appropriate name.
 
-NB: Le Release controller n'accède pas aux resources (Cluster)Interface. Il ne se fi qu'à l'état des (Cluster)Connection
+NB: Le Release controller n'accède pas aux resources (Cluster)Contract. Il ne se fi qu'à l'état des (Cluster)Connection
 d'entrée ou de sortie. Cet état est géré par les controlleurs de (Cluster)Connection.
 
 ### Connection Binding
@@ -204,7 +199,7 @@ d'entrée ou de sortie. Cet état est géré par les controlleurs de (Cluster)Co
 Lors du déploiement d'une instance, les éléments de la liste 'input' sont insérés dans le data model, à l'emplacement
 `.Inputs.<alias>.*`
 
-C'est en fait un filtre permettant de sélectionner une ou plusieurs Connections. Seul l'élément 'interface' est
+C'est en fait un filtre permettant de sélectionner une ou plusieurs Connections. Seul l'élément 'contract' est
 obligatoire.
 
 - Une liste de connections est donc retournée, même si dans la plupart des cas, elle se réduira à un seul élément.
@@ -238,7 +233,7 @@ Concernant les connections autonomes, il appartient aux différents administrate
 
 ### Connection validation
 
-L'attribut value d'une Connection ou d'une ClusterConnection est donc validé par un schéma porté par un Interface.
+L'attribut value d'une Connection ou d'une ClusterConnection est donc validé par un schéma porté par un Contract.
 
 Cette validation intervient :
 
@@ -246,7 +241,7 @@ Cette validation intervient :
 - Dans un webhook pour les connections autonomes
 
 La validation peut être supprimée par l'utilisation du flag 'skipValidation'. Dans ce cas, l'existence même d'une
-resource Interface n'est pas requise. Le interface devient implicite.
+resource Contract n'est pas requise. Le contract devient implicite.
 
 ### DisplayName
 
@@ -292,7 +287,7 @@ En premier lieu, une ClusterConnection permettant de définir un environment glo
 ```
 ---
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
   name: environment
 spec:
@@ -307,7 +302,7 @@ kind: ClusterConnection
 metadata:
   name: environment
 spec:
-  interface: environement
+  contract: environement
   values:
     domain: mycluster.mycompany.com
 
@@ -330,14 +325,14 @@ output:
 
   - name: ingress
     displayName: Treafik ingress controller
-    interface: ingress
+    contract: ingress
     type: ClusterConnection
     values:
       domain: ingress.{{ .Input.env.domain }}
       className: traefik
 
   - name: gatewayApi
-    interface: gateway-api
+    contract: gateway-api
     displayName: Treafik gateway
     type: ClusterConnection
     values:
@@ -351,17 +346,17 @@ output:
           passthrough: passthrough
 
 input:
-  - interface: environement
+  - contract: environement
     alias: env
 
 ```
 
-Les Interface correspondant
+Les Contract correspondant
 
 ```
 ---
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
   name: ingress
 spec:
@@ -372,7 +367,7 @@ spec:
 
 ---
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
   name: gateway-api
 spec:
@@ -421,7 +416,7 @@ components:
                 pathType: ImplementationSpecific
 
 input:
-  - interface: ingress
+  - contract: ingress
 ```
 
 Et une version utilisant GatewayApi
@@ -472,7 +467,7 @@ components:
               port: 4040
 
 input:
-  - interface: gateway-api
+  - contract: gateway-api
 ```
 
 ### Example 2 : Connexion SGBD
@@ -483,7 +478,7 @@ Une application connectée à une DB PostgreSQL.
 
 Les 2 DB et l'application sont déployées dans le même namespace (projet)
 
-Pas de Interface pour cet exemple
+Pas de Contract pour cet exemple
 
 ```
 ---
@@ -501,7 +496,7 @@ components:
 
 output:
   - name: db
-    interface: database-pg
+    contract: database-pg
     displayName: Database {{ .Parameter.displayName | default .Instance.metadata.name }}
     values:
       host: {{ .Instance.targetNamespace }}-svc
@@ -509,7 +504,7 @@ output:
       dbName: app
       user: app-user
       password: {{ .Parameters.password }}
-      skipValidation: true    # No Interface. Too lazy !!
+      skipValidation: true    # No Contract. Too lazy !!
 
 ```
 
@@ -536,7 +531,7 @@ components:
 
 input:
   - connectionName: {{ .Parameters.database }}
-    interface: database-pg
+    contract: database-pg
     alias: db
 
 ```
@@ -566,7 +561,7 @@ components:
         password: {{ .password }}
     {{- end }}
 input:
-  - interface: database-pg
+  - contract: database-pg
     alias: db
 
 ```
@@ -575,12 +570,12 @@ input:
 
 Configuration de DEX
 
-Ce Interface permet de définir ce qu'est un connecteur DEX:
+Ce Contract permet de définir ce qu'est un connecteur DEX:
 
 ```
 ---
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
   name: dex-connector
 spec:
@@ -628,7 +623,7 @@ components:
           {{- end }}
 
 input:
-  - interface: dex-connector
+  - contract: dex-connector
     alias: dexConnector
 ```
 
@@ -646,7 +641,7 @@ schema:
 components:
   ......
 output:
-  - interface: dex-connector
+  - contract: dex-connector
     type: ClusterConnection
     values:
       type: ldap
@@ -676,12 +671,12 @@ output:
 ### Example 5 : Backup
 
 Une application de backup S3 est déployée. Les applications qui le souhaitent peuvent lui soumettre leur demande.
-Celle-ci est structurée par un Interface:
+Celle-ci est structurée par un Contract:
 
 ```
 ---
 apiVersion: kubocd.kubotal.io/v2alpha1
-kind: Interface
+kind: Contract
 metadata:
   name: backup-s3-request
 spec:
@@ -709,7 +704,7 @@ components:
 
 output:
   - name: backup-request
-    interface: backup-s3
+    contract: backup-s3
     type: ClusterConnection
     values:
       baseURL: https://s3.mycompany.com
@@ -745,7 +740,7 @@ components:
 
 
 input:
-  - interface: backup-s3-request
+  - contract: backup-s3-request
     alias: bcks
 
 ```
@@ -848,6 +843,6 @@ Comme il y a une relation ownerReference entre Connection et Releases en outputs
 de la Release.
 
 Si cette Connection référence un secret, celui-ci sera créé par l'application elle même, donc dans le targetNamespace.
-L'interface de la Connection devra donc comprendre une référence à ce namespace.
+Le contract de la Connection devra donc comprendre une référence à ce namespace.
 
 Une autre approche serait de toujours créer la Release dans le namespace cible (targetNamespace == Release.namespace).

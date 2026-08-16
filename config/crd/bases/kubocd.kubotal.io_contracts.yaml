@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.1
-  name: interfaces.kubocd.kubotal.io
+  name: contracts.kubocd.kubotal.io
 spec:
   group: kubocd.kubotal.io
   names:
-    kind: Interface
-    listKind: InterfaceList
-    plural: interfaces
+    kind: Contract
+    listKind: ContractList
+    plural: contracts
     shortNames:
-    - iface
-    singular: interface
+    - ct
+    singular: contract
   scope: Namespaced
   versions:
   - additionalPrinterColumns:

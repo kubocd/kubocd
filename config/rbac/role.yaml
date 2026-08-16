@@ -21,10 +21,11 @@ rules:
   - kubocd.kubotal.io
   resources:
   - clusterconnections
+  - clustercontracts
   - configs
   - connections
   - contexts
-  - interfaces
+  - contracts
   - releases
   - replications
   verbs:
@@ -39,10 +40,11 @@ rules:
   - kubocd.kubotal.io
   resources:
   - clusterconnections/finalizers
+  - clustercontracts/finalizers
   - configs/finalizers
   - connections/finalizers
   - contexts/finalizers
-  - interfaces/finalizers
+  - contracts/finalizers
   - releases/finalizers
   - replications/finalizers
   verbs:
@@ -51,10 +53,11 @@ rules:
   - kubocd.kubotal.io
   resources:
   - clusterconnections/status
+  - clustercontracts/status
   - configs/status
   - connections/status
   - contexts/status
-  - interfaces/status
+  - contracts/status
   - releases/status
   - replications/status
   verbs:

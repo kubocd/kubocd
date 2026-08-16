@@ -752,34 +752,34 @@ func (r *ReleaseReconciler) FindOutputClusterConnectionsFromRelease(ctx context.
 	return clusterConnections.Items, nil
 }
 
-const InterfaceIndexOnConnection = "interfaceIndexOnConnection"
+const ContractIndexOnConnection = "contractIndexOnConnection"
 
-func (r *ReleaseReconciler) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kv1alpha1.Connection, ReconcileError) {
+func (r *ReleaseReconciler) FindConnectionsFromContract(ctx context.Context, namespace string, contract string) ([]kv1alpha1.Connection, ReconcileError) {
 	connections := &kv1alpha1.ConnectionList{}
 	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnConnection, iface),
+		FieldSelector: fields.OneTermEqualSelector(ContractIndexOnConnection, contract),
 		Namespace:     namespace,
 	}
 	err := r.List(ctx, connections, listOps)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+			return nil, NewReconcileError(fmt.Errorf("FindConnectionsFromContract(): Unable to find contract bindings: %w", err), false, "")
 		}
 	}
 	return connections.Items, nil
 }
 
-const InterfaceIndexOnClusterConnection = "interfaceIndexOnClusterConnection"
+const ContractIndexOnClusterConnection = "contractIndexOnClusterConnection"
 
-func (r *ReleaseReconciler) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kv1alpha1.ClusterConnection, ReconcileError) {
+func (r *ReleaseReconciler) FindClusterConnectionsFromContract(ctx context.Context, contract string) ([]kv1alpha1.ClusterConnection, ReconcileError) {
 	clusterConnections := &kv1alpha1.ClusterConnectionList{}
 	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(InterfaceIndexOnClusterConnection, iface),
+		FieldSelector: fields.OneTermEqualSelector(ContractIndexOnClusterConnection, contract),
 	}
 	err := r.List(ctx, clusterConnections, listOps)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): Unable to find interface bindings: %w", err), false, "")
+			return nil, NewReconcileError(fmt.Errorf("FindClusterConnectionsFromContract(): Unable to find contract bindings: %w", err), false, "")
 		}
 	}
 	return clusterConnections.Items, nil

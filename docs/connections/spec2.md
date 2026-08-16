@@ -7,7 +7,7 @@ metadata:
   name: <string>
   namespace: <string>
 spec:
-  interface: <string>  # Required
+  contract: <string>  # Required
   priority: <int> # Optionnal
   values: <map[string]interface{}>
   disabled: <bool> # default false
@@ -30,7 +30,7 @@ metadata:
   namespace: <string>
 spec:
   source:
-    interface: <string>
+    contract: <string>
     release:
       name: <string>
       namespace: <string>

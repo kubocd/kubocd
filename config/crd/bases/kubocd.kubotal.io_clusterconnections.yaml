@@ -17,8 +17,8 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.interface
-      name: Interface
+    - jsonPath: .spec.contract
+      name: Contract
       type: string
     - jsonPath: .spec.description
       name: Description
@@ -61,12 +61,12 @@ spec:
             type: object
           spec:
             properties:
-              description:
-                description: A human oriented description
-                type: string
-              interface:
+              contract:
                 description: Define the service type and allow validation of rendered
                   'values'
+                type: string
+              description:
+                description: A human oriented description
                 type: string
               outputName:
                 description: For managed connections, the output name (Set by the
@@ -87,16 +87,16 @@ spec:
                 default: 100
                 type: integer
               values:
-                description: Must comply to the schema defined by interface
+                description: Must comply to the schema defined by contract
                 x-kubernetes-preserve-unknown-fields: true
             required:
-            - interface
+            - contract
             type: object
           status:
             properties:
-              interfaceGeneration:
+              contractGeneration:
                 description: |-
-                  InterfaceGeneration is the .metadata.generation of the interface this
+                  ContractGeneration is the .metadata.generation of the contract this
                   connection was last checked against.
                 format: int64
                 type: integer

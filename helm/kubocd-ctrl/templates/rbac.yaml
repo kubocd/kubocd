@@ -29,8 +29,8 @@ rules:
     resources:
       - releases
       - contexts
-      - interfaces
-      - clusterinterfaces
+      - contracts
+      - clustercontracts
     verbs:
       - get
       - list
@@ -96,8 +96,8 @@ rules:
       - contexts/status
       - connections/status
       - clusterconnections/status
-      - interfaces/status
-      - clusterinterfaces/status
+      - contracts/status
+      - clustercontracts/status
       - replications/status
     verbs:
       - get

@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// Aim of this controller is to validate its spec against interface and handle error
+// Aim of this controller is to validate its spec against contract and handle error
 
 // ConnectionReconciler feed connectionStore (Memory storage) with connections
 type ConnectionReconciler struct {
@@ -60,25 +60,25 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	var finalError error = nil
 	previous := connection.DeepCopy()
 
-	var iface kv1alpha1.InterfaceFacade
+	var contract kv1alpha1.ContractFacade
 
-	iface = &kv1alpha1.Interface{}
-	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface, Namespace: connection.GetNamespace()}, iface)
+	contract = &kv1alpha1.Contract{}
+	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract, Namespace: connection.GetNamespace()}, contract)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
-		// Not Found. Try ClusterInterface
-		iface = &kv1alpha1.ClusterInterface{}
-		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Interface}, iface)
+		// Not Found. Try ClusterContract
+		contract = &kv1alpha1.ClusterContract{}
+		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract}, contract)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
-			iface = nil // Mark not found
+			contract = nil // Mark not found
 		}
 	}
-	if iface == nil {
+	if contract == nil {
 		if misc.IsZero(connection.Spec.Values) {
 			// If no Values, this is legal
 			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
@@ -89,16 +89,16 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			finalError = nil
 		} else {
 			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
-			connection.Status.InterfaceKind = ""
-			message := fmt.Sprintf("Interface or ClusterInterface '%s' missing", connection.Spec.Interface)
+			connection.Status.ContractKind = ""
+			message := fmt.Sprintf("Contract or ClusterContract '%s' missing", connection.Spec.Contract)
 			if connection.Status.Message != message {
 				r.Event(connection, "Warning", "Status", message)
 			}
 			connection.Status.Message = message
-			finalError = fmt.Errorf("interface/clusterInterface '%s' missing", connection.Spec.Interface)
+			finalError = fmt.Errorf("contract/clusterContract '%s' missing", connection.Spec.Contract)
 		}
 	} else {
-		if err := checkConnection(iface, connection); err != nil {
+		if err := checkConnection(contract, connection); err != nil {
 			logger.V(0).Error(err, "unable to validate connection", "connection", req.NamespacedName.String())
 			message := err.Error()
 			if connection.Status.Message != message {
@@ -115,17 +115,17 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 			connection.Status.Message = ""
 			finalError = nil
 		}
-		connection.Status.InterfaceGeneration = iface.GetGeneration()
-		connection.Status.InterfaceKind = iface.GetKind()
+		connection.Status.ContractGeneration = contract.GetGeneration()
+		connection.Status.ContractKind = contract.GetKind()
 	}
-	// For prettier interface display
-	switch connection.Status.InterfaceKind {
-	case kv1alpha1.KindInterface:
-		connection.Status.InterfaceDisplay = connection.Spec.Interface
-	case kv1alpha1.KindClusterInterface:
-		connection.Status.InterfaceDisplay = fmt.Sprintf("[%s]", connection.Spec.Interface)
+	// For prettier contract display
+	switch connection.Status.ContractKind {
+	case kv1alpha1.KindContract:
+		connection.Status.ContractDisplay = connection.Spec.Contract
+	case kv1alpha1.KindClusterContract:
+		connection.Status.ContractDisplay = fmt.Sprintf("[%s]", connection.Spec.Contract)
 	default:
-		connection.Status.InterfaceDisplay = fmt.Sprintf("%s?", connection.Spec.Interface)
+		connection.Status.ContractDisplay = fmt.Sprintf("%s?", connection.Spec.Contract)
 	}
 	if connection.Status.Parent == "" {
 		owner := metav1.GetControllerOf(connection)
@@ -146,14 +146,14 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	return ctrl.Result{}, finalError
 }
 
-func checkConnection(iface kv1alpha1.InterfaceFacade, connection kv1alpha1.ConnectionFacade) error {
-	if iface.GetStatusPhase() != kv1alpha1.InterfacePhaseReady {
-		return fmt.Errorf("interface is not ready")
+func checkConnection(contract kv1alpha1.ContractFacade, connection kv1alpha1.ConnectionFacade) error {
+	if contract.GetStatusPhase() != kv1alpha1.ContractPhaseReady {
+		return fmt.Errorf("contract is not ready")
 	}
-	defaultValue, goSchema, err := resolveInterface(iface)
+	defaultValue, goSchema, err := resolveContract(contract)
 	if err != nil {
-		// NB: This should newer occurs, as interface should be in error case.
-		return fmt.Errorf("interface in error: %w", err)
+		// NB: This should newer occurs, as contract should be in error case.
+		return fmt.Errorf("contract in error: %w", err)
 	}
 	values := make(map[string]interface{})
 	if connection.GetValuesRaw() != nil {
@@ -163,7 +163,7 @@ func checkConnection(iface kv1alpha1.InterfaceFacade, connection kv1alpha1.Conne
 		}
 	}
 	values = misc.MergeMaps(defaultValue, values)
-	// Must check against interface schema
+	// Must check against contract schema
 	validate, err := goSchema.Validate(gojsonschema.NewGoLoader(values))
 	if err != nil {
 		return fmt.Errorf("error on values: %w", err)

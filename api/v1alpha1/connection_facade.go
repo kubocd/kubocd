@@ -27,7 +27,7 @@ type ConnectionFacade interface {
 
 	GetKind() Kind
 
-	GetInterface() string
+	GetContract() string
 	GetStatusPhase() ConnectionPhase
 	GetOutputName() string
 	GetPriority() int

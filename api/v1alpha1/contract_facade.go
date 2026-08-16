@@ -18,13 +18,13 @@ package v1alpha1
 
 import "sigs.k8s.io/controller-runtime/pkg/client"
 
-// InterfaceFacade is the interface hiding differences between Interface and ClusterInterface
+// ContractFacade is the interface hiding differences between Contract and ClusterContract
 // +kubebuilder:object:generate=false
-type InterfaceFacade interface {
+type ContractFacade interface {
 	client.Object
 
 	GetKind() Kind
-	GetStatusPhase() InterfacePhase
+	GetStatusPhase() ContractPhase
 	GetSchemaRaw() []byte
 
 	// Also used, but provided by client.Object
@@ -34,7 +34,7 @@ type InterfaceFacade interface {
 
 }
 
-type InterfacePhase string
+type ContractPhase string
 
-const InterfacePhaseReady = InterfacePhase("READY")
-const InterfacePhaseError = InterfacePhase("ERROR")
+const ContractPhaseReady = ContractPhase("READY")
+const ContractPhaseError = ContractPhase("ERROR")

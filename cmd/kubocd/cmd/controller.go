@@ -291,62 +291,62 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// -------------------------------------------------------------------------------------- Interface controller setup
+		// -------------------------------------------------------------------------------------- Contract controller setup
 
-		interfaceReconciler := &controller.InterfaceReconciler{
+		contractReconciler := &controller.ContractReconciler{
 			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("interface"),
-			Logger:        controllerRootLog.WithName("interfaceReconciler"),
+			EventRecorder: mgr.GetEventRecorderFor("contract"),
+			Logger:        controllerRootLog.WithName("contractReconciler"),
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Interface{}).
-			Named("kubocd-interface-controller").
-			Complete(interfaceReconciler)
+			For(&kubocdv1alpha1.Contract{}).
+			Named("kubocd-contract-controller").
+			Complete(contractReconciler)
 		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "interface")
+			setupLog.Error(err, "unable to create controller", "controller", "contract")
 			os.Exit(1)
 		}
 
-		// -------------------------------------------------------------------------------------- ClusterInterface controller setup
+		// -------------------------------------------------------------------------------------- ClusterContract controller setup
 
-		clusterInterfaceReconciler := &controller.ClusterInterfaceReconciler{
+		clusterContractReconciler := &controller.ClusterContractReconciler{
 			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("clusterInterface"),
-			Logger:        controllerRootLog.WithName("clusterInterfaceReconciler"),
+			EventRecorder: mgr.GetEventRecorderFor("clusterContract"),
+			Logger:        controllerRootLog.WithName("clusterContractReconciler"),
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.ClusterInterface{}).
-			Named("kubocd-cluster-interface-controller").
-			Complete(clusterInterfaceReconciler)
+			For(&kubocdv1alpha1.ClusterContract{}).
+			Named("kubocd-cluster-contract-controller").
+			Complete(clusterContractReconciler)
 		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "clusterInterface")
+			setupLog.Error(err, "unable to create controller", "controller", "clusterContract")
 			os.Exit(1)
 		}
 
 		// -------------------------------------------------------------------------------------- Connection controller setup
 
-		// Create an index to retrieve a Connection from an Interface in an efficient way
-		// index connection by interface
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.InterfaceIndexOnConnection, func(rawObj client.Object) []string {
+		// Create an index to retrieve a Connection from a Contract in an efficient way
+		// index connection by contract
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.ContractIndexOnConnection, func(rawObj client.Object) []string {
 			connection := rawObj.(*kubocdv1alpha1.Connection)
-			return []string{connection.Spec.Interface}
+			return []string{connection.Spec.Contract}
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index Connection by Interface")
+			setupLog.Error(err, "Unable to index Connection by Contract")
 			os.Exit(1)
 		}
 
-		findConnectionFromInterface := func(ctx context.Context, iface client.Object) []reconcile.Request {
+		findConnectionFromContract := func(ctx context.Context, contract client.Object) []reconcile.Request {
 			connections := kubocdv1alpha1.ConnectionList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnConnection, iface.GetName()),
+				FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnConnection, contract.GetName()),
 			}
 			err := mgr.GetClient().List(context.Background(), &connections, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findConnectionFromInterface(): Unable to find interface bindings")
+					controllerRootLog.Error(err, "findConnectionFromContract(): Unable to find contract bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -371,8 +371,8 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.Connection{}).
 			Named("kubocd-connection-controller").
-			Watches(&kubocdv1alpha1.Interface{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromInterface)).
-			Watches(&kubocdv1alpha1.ClusterInterface{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromInterface)).
+			Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
+			Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
 			Complete(connectionReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "connection")
@@ -381,26 +381,26 @@ var controllerCmd = &cobra.Command{
 
 		// -------------------------------------------------------------------------------------- ClusterConnection controller setup
 
-		// Create an index to retrieve a ClusterConnection from an Interface in an efficient way
-		// index connection by interface
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.InterfaceIndexOnClusterConnection, func(rawObj client.Object) []string {
+		// Create an index to retrieve a ClusterConnection from a Contract in an efficient way
+		// index connection by contract
+		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.ContractIndexOnClusterConnection, func(rawObj client.Object) []string {
 			clusterConnection := rawObj.(*kubocdv1alpha1.ClusterConnection)
-			return []string{clusterConnection.Spec.Interface}
+			return []string{clusterConnection.Spec.Contract}
 		})
 		if err != nil {
-			setupLog.Error(err, "Unable to index clusterConnection by Interface")
+			setupLog.Error(err, "Unable to index clusterConnection by Contract")
 			os.Exit(1)
 		}
 
-		findClusterConnectionFromClusterInterface := func(ctx context.Context, clusterIface client.Object) []reconcile.Request {
+		findClusterConnectionFromClusterContract := func(ctx context.Context, clusterContract client.Object) []reconcile.Request {
 			clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
 			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(controller.InterfaceIndexOnClusterConnection, clusterIface.GetName()),
+				FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnClusterConnection, clusterContract.GetName()),
 			}
 			err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findClusterConnectionFromClusterInterface(): Unable to find interface bindings")
+					controllerRootLog.Error(err, "findClusterConnectionFromClusterContract(): Unable to find contract bindings")
 				}
 				return []reconcile.Request{}
 			}
@@ -425,7 +425,7 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.ClusterConnection{}).
 			Named("kubocd-cluster-connection-controller").
-			Watches(&kubocdv1alpha1.ClusterInterface{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterInterface)).
+			Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterContract)).
 			Complete(clusterConnectionReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")

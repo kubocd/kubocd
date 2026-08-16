@@ -55,7 +55,7 @@ corresponding side of the Link is empty.
 - Implement cmd.kubocd.cmd.connections.go following instructions in comments
 - For connection with no consumer, do list list them by default, but add a flag to list them
 - Add namespace on release in all cases (even if scope is namespaced)
-- Add an option --interface (-i) which will filter on interface
+- Add an option --contract (-i) which will filter on contract
 - On table view only, condition the CONNECTION column displaying to a flag
 - Refactor to allow multiple namespaces option
 */
@@ -64,7 +64,7 @@ var connectionsParams struct {
 	namespaces     []string
 	allNamespaces  bool
 	unused         bool
-	itf            string
+	contract       string
 	showConnection bool
 	output         string
 }
@@ -73,8 +73,8 @@ func init() {
 	connectionsCmd.PersistentFlags().StringArrayVarP(&connectionsParams.namespaces, "namespace", "n", []string{"default"}, "The namespace to look inside. May be repeated.")
 	connectionsCmd.PersistentFlags().BoolVarP(&connectionsParams.allNamespaces, "all-namespaces", "A", false, "Lookup in all namespaces")
 	connectionsCmd.PersistentFlags().BoolVarP(&connectionsParams.unused, "unused", "u", false, "Also display the connections not used by any release")
-	connectionsCmd.PersistentFlags().StringVarP(&connectionsParams.itf, "interface", "i", "", "Only display the connections of this interface")
-	connectionsCmd.PersistentFlags().BoolVarP(&connectionsParams.showConnection, "connection", "c", false, "Display the connection column (table output only)")
+	connectionsCmd.PersistentFlags().StringVarP(&connectionsParams.contract, "contract", "c", "", "Only display the connections of this contract")
+	connectionsCmd.PersistentFlags().BoolVar(&connectionsParams.showConnection, "connection", false, "Display the connection column (table output only)")
 	connectionsCmd.PersistentFlags().StringVarP(&connectionsParams.output, "output", "o", "table", "Output format. One of: table|json|yaml")
 }
 
@@ -83,7 +83,7 @@ type Link struct {
 		Name      string `json:"name"` // "" if connection is unmanaged
 		Namespace string `json:"namespace"`
 	} `json:"sourceRelease"`
-	Interface  string `json:"interface"`
+	Contract   string `json:"contract"`
 	Connection struct {
 		Kind      v1alpha1.Kind `json:"kind"`
 		Name      string        `json:"name"`
@@ -115,8 +115,8 @@ var connectionsCmd = &cobra.Command{
 	Also display the connections which are used by no release:
 	$ kubocd connections --all-namespaces --unused
 
-	Display only the links of the 'ingress' interface:
-	$ kubocd connections --all-namespaces --interface ingress
+	Display only the links of the 'ingress' contract:
+	$ kubocd connections --all-namespaces --contract ingress
 
 	Display all the links as yaml:
 	$ kubocd connections --all-namespaces --output yaml`,
@@ -190,7 +190,7 @@ func buildLinks(ctx context.Context, k8sClient client.Client, releaseName string
 			source.Name = owner.Name
 		}
 		links = append(links, linksForConnection(v1alpha1.KindConnection, connection.Namespace, connection.Name,
-			connection.Spec.Interface, source, targetsByConnection)...)
+			connection.Spec.Contract, source, targetsByConnection)...)
 	}
 	for _, clusterConnection := range clusterConnectionList.Items {
 		// The parent release of a ClusterConnection is explicitly referenced in its spec
@@ -200,16 +200,16 @@ func buildLinks(ctx context.Context, k8sClient client.Client, releaseName string
 			source.Name = clusterConnection.Spec.ParentRelease.Name
 		}
 		links = append(links, linksForConnection(v1alpha1.KindClusterConnection, "", clusterConnection.Name,
-			clusterConnection.Spec.Interface, source, targetsByConnection)...)
+			clusterConnection.Spec.Contract, source, targetsByConnection)...)
 	}
-	// ------------------------------------------ Filter on the release and the interface, if provided
+	// ------------------------------------------ Filter on the release and the contract, if provided
 	filtered := make([]Link, 0, len(links))
 	for _, link := range links {
 		if releaseName != "" && !isRelease(link.SourceRelease.Name, link.SourceRelease.Namespace, releaseName) &&
 			!isRelease(link.TargetRelease.Name, link.TargetRelease.Namespace, releaseName) {
 			continue
 		}
-		if connectionsParams.itf != "" && link.Interface != connectionsParams.itf {
+		if connectionsParams.contract != "" && link.Contract != connectionsParams.contract {
 			continue
 		}
 		filtered = append(filtered, link)
@@ -221,7 +221,7 @@ func buildLinks(ctx context.Context, k8sClient client.Client, releaseName string
 
 // linksForConnection build one link per release using this connection. A connection used by nobody
 // provides a single link with an empty target, and only if such connections are requested.
-func linksForConnection(kind v1alpha1.Kind, namespace, name, itf string, source v1alpha1.NamespacedName, targetsByConnection map[string][]v1alpha1.NamespacedName) []Link {
+func linksForConnection(kind v1alpha1.Kind, namespace, name, contract string, source v1alpha1.NamespacedName, targetsByConnection map[string][]v1alpha1.NamespacedName) []Link {
 	targets := targetsByConnection[connectionKey(kind, namespace, name)]
 	if len(targets) == 0 {
 		if !connectionsParams.unused {
@@ -233,7 +233,7 @@ func linksForConnection(kind v1alpha1.Kind, namespace, name, itf string, source 
 	for idx, target := range targets {
 		links[idx].SourceRelease.Namespace = source.Namespace
 		links[idx].SourceRelease.Name = source.Name // "" if the connection is unmanaged
-		links[idx].Interface = itf
+		links[idx].Contract = contract
 		links[idx].Connection.Kind = kind
 		links[idx].Connection.Namespace = namespace // "" if ClusterConnection
 		links[idx].Connection.Name = name
@@ -324,7 +324,7 @@ func displayLinks(links []Link) error {
 
 func displayLinksAsTable(links []Link) {
 	table := tablewriter.NewWriter(os.Stdout)
-	header := []string{"Source release", "Interface"}
+	header := []string{"Source release", "Contract"}
 	if connectionsParams.showConnection {
 		header = append(header, "Connection")
 	}
@@ -334,7 +334,7 @@ func displayLinksAsTable(links []Link) {
 	for _, link := range links {
 		row := []string{
 			displayNamespacedName(link.SourceRelease.Namespace, link.SourceRelease.Name),
-			link.Interface,
+			link.Contract,
 		}
 		if connectionsParams.showConnection {
 			row = append(row, displayConnection(link.Connection.Kind, link.Connection.Namespace, link.Connection.Name))

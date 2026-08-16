@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type InterfaceSpec struct {
+type ContractSpec struct {
 
 	// Allow validation of the 'values' attribute on Release.output[x]
 	// May be a JSON/openAPI schema or the kubocd simplified schema format.
@@ -33,8 +33,8 @@ type InterfaceSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-type InterfaceStatus struct {
-	Phase InterfacePhase `json:"phase"`
+type ContractStatus struct {
+	Phase ContractPhase `json:"phase"`
 	// +optional
 	// +kubebuilder:validation:Optional
 	Message string `json:"message"`
@@ -42,46 +42,46 @@ type InterfaceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=iface
+// +kubebuilder:resource:scope=Namespaced,shortName=ct
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-type Interface struct {
+type Contract struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              InterfaceSpec   `json:"spec,omitempty"`
-	Status            InterfaceStatus `json:"status,omitempty"`
+	Spec              ContractSpec   `json:"spec,omitempty"`
+	Status            ContractStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-type InterfaceList struct {
+type ContractList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Interface `json:"items"`
+	Items           []Contract `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Interface{}, &InterfaceList{})
+	SchemeBuilder.Register(&Contract{}, &ContractList{})
 }
 
 // ----------------------------------------------------------------------
 
-var _ InterfaceFacade = &Interface{}
+var _ ContractFacade = &Contract{}
 
-func (iface *Interface) GetKind() Kind {
-	return KindInterface
+func (contract *Contract) GetKind() Kind {
+	return KindContract
 }
 
-func (iface *Interface) GetSchemaRaw() []byte {
-	if iface.Spec.Schema == nil {
+func (contract *Contract) GetSchemaRaw() []byte {
+	if contract.Spec.Schema == nil {
 		return nil
 	}
-	return iface.Spec.Schema.Raw
+	return contract.Spec.Schema.Raw
 }
 
-func (iface *Interface) GetStatusPhase() InterfacePhase {
-	return iface.Status.Phase
+func (contract *Contract) GetStatusPhase() ContractPhase {
+	return contract.Status.Phase
 }

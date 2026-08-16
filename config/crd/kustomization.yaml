@@ -7,8 +7,8 @@ resources:
 - bases/kubocd.kubotal.io_configs.yaml
 - bases/kubocd.kubotal.io_connections.yaml
 - bases/kubocd.kubotal.io_clusterconnections.yaml
-- bases/kubocd.kubotal.io_interfaces.yaml
-- bases/kubocd.kubotal.io_clusterinterfaces.yaml
+- bases/kubocd.kubotal.io_contracts.yaml
+- bases/kubocd.kubotal.io_clustercontracts.yaml
 - bases/kubocd.kubotal.io_replications.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 

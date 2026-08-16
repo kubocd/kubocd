@@ -130,7 +130,7 @@ func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha
 		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
 	}
 	clusterConnection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-	clusterConnection.Spec.Interface = outputRendered.Interface
+	clusterConnection.Spec.Contract = outputRendered.Contract
 	clusterConnection.Spec.Description = outputRendered.Description
 	clusterConnection.Spec.Priority = outputRendered.Priority
 	clusterConnection.Spec.OutputName = outputRendered.Name

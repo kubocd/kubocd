@@ -53,8 +53,8 @@ type Kind string
 const KindConnection = Kind("Connection")
 const KindClusterConnection = Kind("ClusterConnection")
 
-const KindInterface = Kind("Interface")
-const KindClusterInterface = Kind("ClusterInterface")
+const KindContract = Kind("Contract")
+const KindClusterContract = Kind("ClusterContract")
 
 //----------------------------------------------------
 

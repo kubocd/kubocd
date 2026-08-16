@@ -128,7 +128,7 @@ func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopa
 		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
 	}
 	connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-	connection.Spec.Interface = outputRendered.Interface
+	connection.Spec.Contract = outputRendered.Contract
 	connection.Spec.Description = outputRendered.Description
 	connection.Spec.Priority = outputRendered.Priority
 	connection.Spec.OutputName = outputRendered.Name

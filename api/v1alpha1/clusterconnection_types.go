@@ -33,13 +33,13 @@ type ClusterConnectionSpec struct {
 
 	// Define the service type and allow validation of rendered 'values'
 	// +kubebuilder:validation:Required
-	Interface string `json:"interface"`
+	Contract string `json:"contract"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=100
 	Priority int `json:"priority"`
 
-	// Must comply to the schema defined by interface
+	// Must comply to the schema defined by contract
 	// +kubebuilder:validation:Optional
 	Values *apiextensionsv1.JSON `json:"values"`
 
@@ -61,16 +61,16 @@ type ClusterConnectionStatus struct {
 	Parent string `json:"parent,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
-	// InterfaceGeneration is the .metadata.generation of the interface this
+	// ContractGeneration is the .metadata.generation of the contract this
 	// connection was last checked against.
 	// +optional
-	InterfaceGeneration int64 `json:"interfaceGeneration,omitempty"`
+	ContractGeneration int64 `json:"contractGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=ccnx
-// +kubebuilder:printcolumn:name="Interface",type=string,JSONPath=`.spec.interface`
+// +kubebuilder:printcolumn:name="Contract",type=string,JSONPath=`.spec.contract`
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Pri.",type=integer,JSONPath=`.spec.priority`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
@@ -118,8 +118,8 @@ func (cnx *ClusterConnection) GetValuesRaw() []byte {
 	return cnx.Spec.Values.Raw
 }
 
-func (cnx *ClusterConnection) GetInterface() string {
-	return cnx.Spec.Interface
+func (cnx *ClusterConnection) GetContract() string {
+	return cnx.Spec.Contract
 }
 
 func (cnx *ClusterConnection) GetOutputName() string {

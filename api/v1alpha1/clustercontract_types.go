@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type ClusterInterfaceSpec struct {
+type ClusterContractSpec struct {
 
 	// Allow validation of the 'values' attribute on Release.output[x]
 	// May be a JSON/openAPI schema or the kubocd simplified schema format.
@@ -33,8 +33,8 @@ type ClusterInterfaceSpec struct {
 	Description string `json:"description,omitempty"`
 }
 
-type ClusterInterfaceStatus struct {
-	Phase InterfacePhase `json:"phase"`
+type ClusterContractStatus struct {
+	Phase ContractPhase `json:"phase"`
 	// +optional
 	// +kubebuilder:validation:Optional
 	Message string `json:"message"`
@@ -42,46 +42,46 @@ type ClusterInterfaceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster,shortName=ciface
+// +kubebuilder:resource:scope=Cluster,shortName=cct
 // +kubebuilder:printcolumn:name="Description",type=string,JSONPath=`.spec.description`
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-type ClusterInterface struct {
+type ClusterContract struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              InterfaceSpec   `json:"spec,omitempty"`
-	Status            InterfaceStatus `json:"status,omitempty"`
+	Spec              ClusterContractSpec   `json:"spec,omitempty"`
+	Status            ClusterContractStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-type ClusterInterfaceList struct {
+type ClusterContractList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterInterface `json:"items"`
+	Items           []ClusterContract `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterInterface{}, &ClusterInterfaceList{})
+	SchemeBuilder.Register(&ClusterContract{}, &ClusterContractList{})
 }
 
 // ------------------------------------------------------
 
-var _ InterfaceFacade = &ClusterInterface{}
+var _ ContractFacade = &ClusterContract{}
 
-func (cIface *ClusterInterface) GetKind() Kind {
-	return KindClusterInterface
+func (cContract *ClusterContract) GetKind() Kind {
+	return KindClusterContract
 }
 
-func (cIface *ClusterInterface) GetSchemaRaw() []byte {
-	if cIface.Spec.Schema == nil {
+func (cContract *ClusterContract) GetSchemaRaw() []byte {
+	if cContract.Spec.Schema == nil {
 		return nil
 	}
-	return cIface.Spec.Schema.Raw
+	return cContract.Spec.Schema.Raw
 }
 
-func (cIface *ClusterInterface) GetStatusPhase() InterfacePhase {
-	return cIface.Status.Phase
+func (cContract *ClusterContract) GetStatusPhase() ContractPhase {
+	return cContract.Status.Phase
 }

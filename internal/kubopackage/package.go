@@ -246,7 +246,7 @@ type Rendered struct {
 // OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type OutputRendered struct {
 	Name        string                 `json:"name"`
-	Interface   string                 `json:"interface"`
+	Contract    string                 `json:"contract"`
 	Kind        kv1alpha1.Kind         `json:"kind"`
 	DisplayName string                 `json:"displayName,omitempty"`
 	Priority    int                    `json:"priority,omitempty"`
@@ -256,23 +256,26 @@ type OutputRendered struct {
 
 // InputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
 type InputRendered struct {
-	Interface       string         `json:"interface"`
-	Kind            kv1alpha1.Kind `json:"kind,omitempty"`
-	InterfaceLookup struct {
-		Namespace string `json:"namespace"`
-	} `json:"interfaceLookup"`
-	NamedConnection struct {
+	Contract      string         `json:"contract"`
+	Kind          kv1alpha1.Kind `json:"kind,omitempty"`
+	ConnectionRef struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
-	} `json:"namedConnection"`
-	Release struct {
+	} `json:"connectionRef"`
+	ReleaseRef struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
 		Output    string `json:"output,omitempty"`
-	} `json:"release"`
+	} `json:"releaseRef"`
 	Alias         string `json:"alias"`
 	Optional      bool   `json:"optional"`
 	AllowMultiple bool   `json:"allowMultiple"`
+	// Private field
+	contractLookupNamespace string
+}
+
+func (ir *InputRendered) GetContractLookupNamespace() string {
+	return ir.contractLookupNamespace
 }
 
 type ConditionRendered struct {
@@ -342,11 +345,11 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 	// ------- Adjust each output
 	for idx, ro := range r.Outputs {
 		// WARNING: This works for []*OutputRendered. []OutputRendered will be bogus.
-		if ro.Interface == "" {
-			return nil, fmt.Errorf("output[%d]: 'interface' is a required parameters", idx)
+		if ro.Contract == "" {
+			return nil, fmt.Errorf("output[%d]: 'contract' is a required parameters", idx)
 		}
 		if ro.Name == "" {
-			ro.Name = ro.Interface
+			ro.Name = ro.Contract
 		}
 		if ro.DisplayName == "" {
 			ro.DisplayName = ro.Name
@@ -413,34 +416,49 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 
 	for idx, ir := range result {
 		if ir.Alias == "" {
-			ir.Alias = ir.Interface
+			ir.Alias = ir.Contract
 		}
-		if ir.Interface == "" {
-			return nil, fmt.Errorf("input[%d]: interface is required", idx)
+		if ir.Contract == "" {
+			return nil, fmt.Errorf("input[%d]: contract is required", idx)
 		}
 		if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
 			return nil, fmt.Errorf("input[%d]: invalid kind '%s' value ", idx, ir.Kind)
 		}
-		if ir.NamedConnection.Name != "" {
-			if ir.NamedConnection.Namespace == "" {
+		if ir.ConnectionRef.Name != "" {
+			if ir.ConnectionRef.Namespace == "" {
 				if ir.Kind == kv1alpha1.KindConnection {
-					ir.NamedConnection.Namespace = defaultNamespace
+					ir.ConnectionRef.Namespace = defaultNamespace
 				} // else "" is ok
 			} else {
 				if ir.Kind == kv1alpha1.KindClusterConnection {
-					return nil, fmt.Errorf("input[%d]: namedConnection.namespace must be empty if kind is ClusterConnection", idx)
+					return nil, fmt.Errorf("input[%d]: connectionRef.namespace must be empty if kind is ClusterConnection", idx)
 				}
 			}
 		}
-		if ir.Release.Name != "" && ir.Release.Namespace == "" {
-			ir.Release.Namespace = defaultNamespace
+		if ir.ReleaseRef.Name != "" && ir.ReleaseRef.Namespace == "" {
+			ir.ReleaseRef.Namespace = defaultNamespace
 		}
-		x := misc.CountNonZero(ir.InterfaceLookup.Namespace, ir.NamedConnection.Name, ir.Release.Name)
+
+		x := misc.CountNonZero(ir.ConnectionRef.Name, ir.ReleaseRef.Name)
 		if x > 1 {
-			return nil, fmt.Errorf("input[%d]: 0 or one of 'interfaceLookup.namespace', 'namedConnection.name' or 'release.name' sub element may be specified", idx)
+			return nil, fmt.Errorf("input[%d]: 0 or one of 'connectionRef.name' or 'releaseRef.name' sub element may be specified", idx)
 		}
 		if x == 0 {
-			ir.InterfaceLookup.Namespace = defaultNamespace
+			// No name specified. Search will fallback by contract on specified or default namespace
+			x := misc.CountNonZero(ir.ConnectionRef.Namespace, ir.ReleaseRef.Namespace)
+			if x > 1 {
+				return nil, fmt.Errorf("input[%d]: only one of 'connectionRef.namespace' or 'releaseRef.namespace' sub element may be specified", idx)
+			}
+			if x == 0 {
+				ir.contractLookupNamespace = defaultNamespace
+			} else {
+				// x == 1
+				if ir.ConnectionRef.Namespace != "" {
+					ir.contractLookupNamespace = ir.ConnectionRef.Namespace
+				} else {
+					ir.contractLookupNamespace = ir.ReleaseRef.Namespace
+				}
+			}
 		}
 	}
 	return result, nil

@@ -438,7 +438,7 @@ var renderCmd = &cobra.Command{
 						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
 					}
 					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-					connection.Spec.Interface = outputRendered.Interface
+					connection.Spec.Contract = outputRendered.Contract
 					connection.Spec.Description = outputRendered.Description
 					connection.Spec.Priority = outputRendered.Priority
 					connection.Spec.OutputName = outputRendered.Name
@@ -464,7 +464,7 @@ var renderCmd = &cobra.Command{
 						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
 					}
 					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
-					connection.Spec.Interface = outputRendered.Interface
+					connection.Spec.Contract = outputRendered.Contract
 					connection.Spec.Description = outputRendered.Description
 					connection.Spec.Priority = outputRendered.Priority
 					connection.Spec.OutputName = outputRendered.Name
@@ -513,34 +513,34 @@ type buildInputModelHelper struct {
 
 var _ controller.BuildInputModelHelper = &buildInputModelHelper{}
 
-func (h *buildInputModelHelper) FindConnectionsFromInterface(ctx context.Context, namespace string, iface string) ([]kapi.Connection, controller.ReconcileError) {
+func (h *buildInputModelHelper) FindConnectionsFromContract(ctx context.Context, namespace string, contract string) ([]kapi.Connection, controller.ReconcileError) {
 	// No field indexer is configured for the render command, so we list all connections
-	// in the namespace and filter on the interface
+	// in the namespace and filter on the contract
 	connections := kapi.ConnectionList{}
 	err := h.List(ctx, &connections, &client.ListOptions{Namespace: namespace})
 	if err != nil {
-		return nil, controller.NewReconcileError(fmt.Errorf("FindConnectionsFromInterface(): unable to list connections: %w", err), false, "")
+		return nil, controller.NewReconcileError(fmt.Errorf("FindConnectionsFromContract(): unable to list connections: %w", err), false, "")
 	}
 	result := make([]kapi.Connection, 0, len(connections.Items))
 	for _, connection := range connections.Items {
-		if connection.Spec.Interface == iface {
+		if connection.Spec.Contract == contract {
 			result = append(result, connection)
 		}
 	}
 	return result, nil
 }
 
-func (h *buildInputModelHelper) FindClusterConnectionsFromInterface(ctx context.Context, iface string) ([]kapi.ClusterConnection, controller.ReconcileError) {
+func (h *buildInputModelHelper) FindClusterConnectionsFromContract(ctx context.Context, contract string) ([]kapi.ClusterConnection, controller.ReconcileError) {
 	// No field indexer is configured for the render command, so we list all clusterConnections
-	// filter on the interface
+	// filter on the contract
 	clusterConnections := kapi.ClusterConnectionList{}
 	err := h.List(ctx, &clusterConnections, &client.ListOptions{})
 	if err != nil {
-		return nil, controller.NewReconcileError(fmt.Errorf("FindClusterConnectionsFromInterface(): unable to list clusterConnections: %w", err), false, "")
+		return nil, controller.NewReconcileError(fmt.Errorf("FindClusterConnectionsFromContract(): unable to list clusterConnections: %w", err), false, "")
 	}
 	result := make([]kapi.ClusterConnection, 0, len(clusterConnections.Items))
 	for _, connection := range clusterConnections.Items {
-		if connection.Spec.Interface == iface {
+		if connection.Spec.Contract == contract {
 			result = append(result, connection)
 		}
 	}

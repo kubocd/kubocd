@@ -1,5 +1,7 @@
 # v0.4.0
 
+- Implementation of 'Conditions' to check Release pre-requisite
+- Implementation of Replication resources
 - Implementation of Connection sub system
 - The Release.Status has been modified. Error message are reported in a single field, decreasing the need to dig inside
   child resources to retrieve errors.
