@@ -426,7 +426,7 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 		}
 		if ir.ConnectionRef.Name != "" {
 			if ir.ConnectionRef.Namespace == "" {
-				if ir.Kind == kv1alpha1.KindConnection {
+				if ir.Kind == "" || ir.Kind == kv1alpha1.KindConnection {
 					ir.ConnectionRef.Namespace = defaultNamespace
 				} // else "" is ok
 			} else {

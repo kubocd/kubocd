@@ -75,9 +75,9 @@ func bimHandleConnectionRef(ctx context.Context, idx int, input *kubopackage.Inp
 	var bimFetchConnectionRef = func(kind kv1alpha1.Kind) (kv1alpha1.ConnectionFacade, ReconcileError) {
 		var connectionFacade kv1alpha1.ConnectionFacade
 		if kind == kv1alpha1.KindConnection {
-			connectionFacade = &kv1alpha1.ClusterConnection{}
-		} else {
 			connectionFacade = &kv1alpha1.Connection{}
+		} else {
+			connectionFacade = &kv1alpha1.ClusterConnection{}
 		}
 		nsName := types.NamespacedName{Namespace: input.ConnectionRef.Namespace, Name: input.ConnectionRef.Name}
 		err := helper.Get(ctx, nsName, connectionFacade)
