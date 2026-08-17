@@ -58,6 +58,10 @@ rules:
       - get
       - list
       - watch
+  {{- if .Values.controller.featureGates.replications }}
+  # All the rules below are only required by the replication controller, so they are granted only when
+  # the 'replications' feature gate is on. Note the Secret/ConfigMap one: this is the only part of
+  # kubocd accessing them.
   - apiGroups:
       - kubocd.kubotal.io
     resources:
@@ -68,7 +72,21 @@ rules:
       - watch
       - patch
       - update
-  # Required by the replication controller, to duplicate Secret/ConfigMap across namespaces
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
+      - replications/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
+      - replications/status
+    verbs:
+      - get
+      - patch
+      - update
+  # To duplicate Secret/ConfigMap across namespaces
   - apiGroups:
       - ""
     resources:
@@ -82,11 +100,11 @@ rules:
       - patch
       - update
       - delete
+  {{- end }}
   - apiGroups:
       - kubocd.kubotal.io
     resources:
       - releases/finalizers
-      - replications/finalizers
     verbs:
       - update
   - apiGroups:
@@ -98,7 +116,6 @@ rules:
       - clusterconnections/status
       - contracts/status
       - clustercontracts/status
-      - replications/status
     verbs:
       - get
       - patch

@@ -1,8 +1,8 @@
 # v0.3.1
 
-WARNING: All feature tagged as EXPERIMENTAL are under active development. Their resources, fields and behaviour may
+WARNING: All feature tagged as EXPERIMENTAL are under active development. Their resources, fields and behavior may
 change, or be removed, in any future release without prior notice and without a migration path. Do not use for
-production and be ready to modify any application using them.
+production and be ready to modify any application using one of these features.
 
 Core:
 

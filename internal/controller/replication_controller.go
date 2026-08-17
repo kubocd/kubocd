@@ -7,6 +7,7 @@ import (
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/global"
 	"reflect"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,11 @@ const KindConfigMap = "ConfigMap"
 
 const ReplicationAnnotation = "kubocd.kubotal.io/replication"
 const ReplicationSourceAnnotation = "kubocd.kubotal.io/replication-source"
+
+// ReplicationReconcilePeriod is the period of the systematic reconciliation. It also caps the retry
+// backoff (See the controller rate limiter setup), to allow recovery from conditions we can't watch,
+// the typical one being a destination namespace which does not exist yet.
+const ReplicationReconcilePeriod = time.Minute * 2
 
 // ResourceIndexOnReplication indexes a Replication on both its source and its destination resource,
 // to allow retrieving the Replications to reconcile on a Secret/ConfigMap event.
@@ -180,12 +186,17 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 		}
 	}
 	if retryable {
-		// Transient problem (API error). Returning the error will requeue with a backoff.
+		// Recoverable problem (API error, or a destination namespace not created yet). Returning the error
+		// requeues with a backoff, which the controller rate limiter caps at ReplicationReconcilePeriod.
 		return ctrl.Result{}, replicationError
 	}
-	// Even in case of error, we don't retry, as the only way to fix is to update object
-	// (or the source/destination resource, which is watched).
-	return ctrl.Result{}, nil
+	if replicationError != nil {
+		// Permanent error state. It can only be solved by updating this object, or the source/destination
+		// resource. All of them are watched, so there is nothing to poll for.
+		return ctrl.Result{}, nil
+	}
+	// In sync. Reconcile periodically anyway, to catch up on what the watches may have missed.
+	return ctrl.Result{RequeueAfter: ReplicationReconcilePeriod}, nil
 }
 
 // replicate performs the copy of the source to the destination. It returns a flag indicating if the

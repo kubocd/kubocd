@@ -186,3 +186,16 @@ controller:
   enabled: true   # Set to false for controller running outside kubernetes, for dev
 
 
+  # WARNING: All features listed below are EXPERIMENTAL and under active development. Their resources, fields and
+  # behavior may change, or be removed, in any future release without prior notice and without a migration path. Do not
+  # use for production and be ready to modify any application using one of these features.
+  #
+  # NB: The CRDs of a gated feature are always installed, as helm does not allow conditional CRDs. So a gate only
+  # controls the controller: with 'connections: false', (Cluster)Connection resources can be created, but are never
+  # reconciled, and so never used by a Release.
+  featureGates:
+    # Activate the Contract/Connection subsystem, allowing a Release to publish and consume services.
+    connections: false
+    # Activate the Replication subsystem, allowing a Secret/ConfigMap to be copied in other namespaces.
+    # NB: When on, the controller watches Secrets and ConfigMaps cluster wide.
+    replications: false

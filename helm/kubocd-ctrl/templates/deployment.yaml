@@ -74,6 +74,13 @@ spec:
             {{- else }}
             - --metricsBindAddress=0
             {{- end }}
+            {{- $gates := list }}
+            {{- range $name, $enabled := .Values.controller.featureGates }}
+            {{- $gates = append $gates (printf "%s=%v" $name $enabled) }}
+            {{- end }}
+            {{- if $gates }}
+            - --featureGates={{ join "," $gates }}
+            {{- end }}
           {{-  range .Values.controller.additionalArgs }}
             - {{ . }}
           {{- end }}

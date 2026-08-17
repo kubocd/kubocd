@@ -32,6 +32,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -45,9 +47,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -74,6 +78,41 @@ var controllerParams struct {
 	sourceControllerOverride string
 	helmRepoAdvAddr          string
 	helmRepoBindAddr         string
+
+	featureGates []string
+	// Resolved from featureGates by PersistentPreRun. Always hold an entry for each known gate.
+	gates map[string]bool
+}
+
+// WARNING: All features behind a gate are EXPERIMENTAL. Their resources, fields and behavior may change, or be
+// removed, in any future release without prior notice and without a migration path.
+
+const featureGateConnections = "connections"
+const featureGateReplications = "replications"
+
+var knownFeatureGates = []string{featureGateConnections, featureGateReplications}
+
+// parseFeatureGates convert the '--featureGates' entries ('<name>=<bool>') in a map, with all known gates defined.
+func parseFeatureGates(entries []string) (map[string]bool, error) {
+	gates := make(map[string]bool, len(knownFeatureGates))
+	for _, name := range knownFeatureGates {
+		gates[name] = false
+	}
+	for _, entry := range entries {
+		name, value, found := strings.Cut(entry, "=")
+		if !found {
+			return nil, fmt.Errorf("invalid feature gate '%s': expected '<name>=true|false'", entry)
+		}
+		if _, ok := gates[name]; !ok {
+			return nil, fmt.Errorf("unknown feature gate '%s'. Valid names are: %s", name, strings.Join(knownFeatureGates, ", "))
+		}
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value '%s' for feature gate '%s': expected true or false", value, name)
+		}
+		gates[name] = enabled
+	}
+	return gates, nil
 }
 
 func init() {
@@ -94,6 +133,9 @@ func init() {
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
+
+	controllerCmd.PersistentFlags().StringSliceVar(&controllerParams.featureGates, "featureGates", nil,
+		fmt.Sprintf("Comma separated list of EXPERIMENTAL features to activate, as '<name>=true|false'. Valid names: %s", strings.Join(knownFeatureGates, ", ")))
 	controllerCmd.Hidden = true
 }
 
@@ -106,6 +148,11 @@ var controllerCmd = &cobra.Command{
 		controllerRootLog, err = misc.HandleLog(&controllerParams.logConfig)
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "Unable to load logging configuration: %v\n", err)
+			os.Exit(2)
+		}
+		controllerParams.gates, err = parseFeatureGates(controllerParams.featureGates)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Unable to parse feature gates: %v\n", err)
 			os.Exit(2)
 		}
 	},
@@ -234,98 +281,81 @@ var controllerCmd = &cobra.Command{
 		}
 		roleStore := rolestore.New(theConfigStore, controllerRootLog.WithName("roleStore"))
 
-		// -------------------------------------------------------------------------------------- Replication controller setup
+		// --------------------------------------------------------------- EXPERIMENTAL 'replications' feature gate
+		// Nothing outside of the Replication controller uses its index or its map functions, so the whole subsystem
+		// is gated. When off, the cluster wide Secret/ConfigMap watches are not set up either.
 
-		// Create an index to retrieve a Replication from a Secret/ConfigMap in an efficient way.
-		// A Replication is indexed on both its source and its destination, as a modification of any of
-		// them must be reverted/propagated.
-		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Replication{}, controller.ResourceIndexOnReplication, func(rawObj client.Object) []string {
-			return controller.ReplicationResourceKeys(rawObj.(*kubocdv1alpha1.Replication))
-		})
-		if err != nil {
-			setupLog.Error(err, "Unable to index Replication by resource")
-			os.Exit(1)
-		}
+		if controllerParams.gates[featureGateReplications] {
+			controllerRootLog.Info("EXPERIMENTAL feature gate is activated", "gate", featureGateReplications)
 
-		// The resource kind is not carried by the event, so we build one map function per watched kind.
-		findReplicationFromResource := func(kind string) handler.MapFunc {
-			return func(ctx context.Context, resource client.Object) []reconcile.Request {
-				replications := kubocdv1alpha1.ReplicationList{}
-				listOps := &client.ListOptions{
-					FieldSelector: fields.OneTermEqualSelector(controller.ResourceIndexOnReplication, controller.ResourceKey(resource.GetNamespace(), kind, resource.GetName())),
-				}
-				err := mgr.GetClient().List(ctx, &replications, listOps)
-				if err != nil {
-					if !apierrors.IsNotFound(err) {
-						controllerRootLog.Error(err, "findReplicationFromResource(): Unable to find replications", "kind", kind)
+			// ----------------------------------------------------------------------------- Replication controller setup
+
+			// Create an index to retrieve a Replication from a Secret/ConfigMap in an efficient way.
+			// A Replication is indexed on both its source and its destination, as a modification of any of
+			// them must be reverted/propagated.
+			err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Replication{}, controller.ResourceIndexOnReplication, func(rawObj client.Object) []string {
+				return controller.ReplicationResourceKeys(rawObj.(*kubocdv1alpha1.Replication))
+			})
+			if err != nil {
+				setupLog.Error(err, "Unable to index Replication by resource")
+				os.Exit(1)
+			}
+
+			// The resource kind is not carried by the event, so we build one map function per watched kind.
+			findReplicationFromResource := func(kind string) handler.MapFunc {
+				return func(ctx context.Context, resource client.Object) []reconcile.Request {
+					replications := kubocdv1alpha1.ReplicationList{}
+					listOps := &client.ListOptions{
+						FieldSelector: fields.OneTermEqualSelector(controller.ResourceIndexOnReplication, controller.ResourceKey(resource.GetNamespace(), kind, resource.GetName())),
 					}
-					return []reconcile.Request{}
+					err := mgr.GetClient().List(ctx, &replications, listOps)
+					if err != nil {
+						if !apierrors.IsNotFound(err) {
+							controllerRootLog.Error(err, "findReplicationFromResource(): Unable to find replications", "kind", kind)
+						}
+						return []reconcile.Request{}
+					}
+					requests := make([]reconcile.Request, 0, len(replications.Items))
+					for _, item := range replications.Items {
+						requests = append(requests, reconcile.Request{
+							NamespacedName: types.NamespacedName{
+								Name:      item.GetName(),
+								Namespace: item.GetNamespace(),
+							},
+						})
+					}
+					return requests
 				}
-				requests := make([]reconcile.Request, 0, len(replications.Items))
-				for _, item := range replications.Items {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      item.GetName(),
-							Namespace: item.GetNamespace(),
-						},
-					})
-				}
-				return requests
+			}
+
+			replicationReconciler := &controller.ReplicationReconciler{
+				Client:        mgr.GetClient(),
+				EventRecorder: mgr.GetEventRecorderFor("replication"),
+				Logger:        controllerRootLog.WithName("replicationReconciler"),
+			}
+
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.Replication{}).
+				Named("kubocd-replication-controller").
+				// Same as the controller-runtime default, but with the delay capped to our reconcile period,
+				// instead of the default 1000s. This way, a Replication waiting for an external condition
+				// (typically its destination namespace to be created) is retried at least every period.
+				WithOptions(ctrlcontroller.Options{
+					RateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](time.Millisecond*5, controller.ReplicationReconcilePeriod),
+				}).
+				Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindSecret))).
+				Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindConfigMap))).
+				Complete(replicationReconciler)
+			if err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "replication")
+				os.Exit(1)
 			}
 		}
 
-		replicationReconciler := &controller.ReplicationReconciler{
-			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("replication"),
-			Logger:        controllerRootLog.WithName("replicationReconciler"),
-		}
-
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Replication{}).
-			Named("kubocd-replication-controller").
-			Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindSecret))).
-			Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindConfigMap))).
-			Complete(replicationReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "replication")
-			os.Exit(1)
-		}
-
-		// -------------------------------------------------------------------------------------- Contract controller setup
-
-		contractReconciler := &controller.ContractReconciler{
-			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("contract"),
-			Logger:        controllerRootLog.WithName("contractReconciler"),
-		}
-
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Contract{}).
-			Named("kubocd-contract-controller").
-			Complete(contractReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "contract")
-			os.Exit(1)
-		}
-
-		// -------------------------------------------------------------------------------------- ClusterContract controller setup
-
-		clusterContractReconciler := &controller.ClusterContractReconciler{
-			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("clusterContract"),
-			Logger:        controllerRootLog.WithName("clusterContractReconciler"),
-		}
-
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.ClusterContract{}).
-			Named("kubocd-cluster-contract-controller").
-			Complete(clusterContractReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "clusterContract")
-			os.Exit(1)
-		}
-
-		// -------------------------------------------------------------------------------------- Connection controller setup
+		// ------------------------------------------------------------------------------- Connection subsystem indexes
+		// These indexes are also used by the Release controller, to lookup its input connections. So, they are
+		// registered even when the 'connections' feature gate is off, for the lookup to return an empty list
+		// instead of failing.
 
 		// Create an index to retrieve a Connection from a Contract in an efficient way
 		// index connection by contract
@@ -338,49 +368,6 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findConnectionFromContract := func(ctx context.Context, contract client.Object) []reconcile.Request {
-			connections := kubocdv1alpha1.ConnectionList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnConnection, contract.GetName()),
-			}
-			err := mgr.GetClient().List(context.Background(), &connections, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findConnectionFromContract(): Unable to find contract bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range connections.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
-		connectionReconciler := &controller.ConnectionReconciler{
-			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("connection"),
-			Logger:        controllerRootLog.WithName("connectionReconciler"),
-		}
-
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Connection{}).
-			Named("kubocd-connection-controller").
-			Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
-			Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
-			Complete(connectionReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "connection")
-			os.Exit(1)
-		}
-
-		// -------------------------------------------------------------------------------------- ClusterConnection controller setup
-
 		// Create an index to retrieve a ClusterConnection from a Contract in an efficient way
 		// index connection by contract
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.ContractIndexOnClusterConnection, func(rawObj client.Object) []string {
@@ -392,44 +379,131 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findClusterConnectionFromClusterContract := func(ctx context.Context, clusterContract client.Object) []reconcile.Request {
-			clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnClusterConnection, clusterContract.GetName()),
+		// ---------------------------------------------------------------- EXPERIMENTAL 'connections' feature gate
+		// The Contract/Connection reconcilers are only started when the gate is on. Without them, no (Cluster)Connection
+		// is ever validated, so none reaches the READY state and no Release consumes one.
+
+		if controllerParams.gates[featureGateConnections] {
+			controllerRootLog.Info("EXPERIMENTAL feature gate is activated", "gate", featureGateConnections)
+
+			// ------------------------------------------------------------------------------ Contract controller setup
+
+			contractReconciler := &controller.ContractReconciler{
+				Client:        mgr.GetClient(),
+				EventRecorder: mgr.GetEventRecorderFor("contract"),
+				Logger:        controllerRootLog.WithName("contractReconciler"),
 			}
-			err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
+
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.Contract{}).
+				Named("kubocd-contract-controller").
+				Complete(contractReconciler)
 			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findClusterConnectionFromClusterContract(): Unable to find contract bindings")
+				setupLog.Error(err, "unable to create controller", "controller", "contract")
+				os.Exit(1)
+			}
+
+			// ----------------------------------------------------------------------- ClusterContract controller setup
+
+			clusterContractReconciler := &controller.ClusterContractReconciler{
+				Client:        mgr.GetClient(),
+				EventRecorder: mgr.GetEventRecorderFor("clusterContract"),
+				Logger:        controllerRootLog.WithName("clusterContractReconciler"),
+			}
+
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.ClusterContract{}).
+				Named("kubocd-cluster-contract-controller").
+				Complete(clusterContractReconciler)
+			if err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "clusterContract")
+				os.Exit(1)
+			}
+
+			// ---------------------------------------------------------------------------- Connection controller setup
+
+			findConnectionFromContract := func(ctx context.Context, contract client.Object) []reconcile.Request {
+				connections := kubocdv1alpha1.ConnectionList{}
+				listOps := &client.ListOptions{
+					FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnConnection, contract.GetName()),
 				}
-				return []reconcile.Request{}
+				err := mgr.GetClient().List(context.Background(), &connections, listOps)
+				if err != nil {
+					if !apierrors.IsNotFound(err) {
+						controllerRootLog.Error(err, "findConnectionFromContract(): Unable to find contract bindings")
+					}
+					return []reconcile.Request{}
+				}
+				requests := make([]reconcile.Request, 0, 10)
+				for _, item := range connections.Items {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      item.GetName(),
+							Namespace: item.GetNamespace(),
+						},
+					})
+				}
+				return requests
 			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range clusterConnections.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
+
+			connectionReconciler := &controller.ConnectionReconciler{
+				Client:        mgr.GetClient(),
+				EventRecorder: mgr.GetEventRecorderFor("connection"),
+				Logger:        controllerRootLog.WithName("connectionReconciler"),
 			}
-			return requests
-		}
 
-		clusterConnectionReconciler := &controller.ClusterConnectionReconciler{
-			Client:        mgr.GetClient(),
-			EventRecorder: mgr.GetEventRecorderFor("clusterConnection"),
-			Logger:        controllerRootLog.WithName("clusterConnectionReconciler"),
-		}
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.Connection{}).
+				Named("kubocd-connection-controller").
+				Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
+				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
+				Complete(connectionReconciler)
+			if err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "connection")
+				os.Exit(1)
+			}
 
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.ClusterConnection{}).
-			Named("kubocd-cluster-connection-controller").
-			Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterContract)).
-			Complete(clusterConnectionReconciler)
-		if err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")
-			os.Exit(1)
+			// --------------------------------------------------------------------- ClusterConnection controller setup
+
+			findClusterConnectionFromClusterContract := func(ctx context.Context, clusterContract client.Object) []reconcile.Request {
+				clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
+				listOps := &client.ListOptions{
+					FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnClusterConnection, clusterContract.GetName()),
+				}
+				err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
+				if err != nil {
+					if !apierrors.IsNotFound(err) {
+						controllerRootLog.Error(err, "findClusterConnectionFromClusterContract(): Unable to find contract bindings")
+					}
+					return []reconcile.Request{}
+				}
+				requests := make([]reconcile.Request, 0, 10)
+				for _, item := range clusterConnections.Items {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      item.GetName(),
+							Namespace: item.GetNamespace(),
+						},
+					})
+				}
+				return requests
+			}
+
+			clusterConnectionReconciler := &controller.ClusterConnectionReconciler{
+				Client:        mgr.GetClient(),
+				EventRecorder: mgr.GetEventRecorderFor("clusterConnection"),
+				Logger:        controllerRootLog.WithName("clusterConnectionReconciler"),
+			}
+
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.ClusterConnection{}).
+				Named("kubocd-cluster-connection-controller").
+				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterContract)).
+				Complete(clusterConnectionReconciler)
+			if err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")
+				os.Exit(1)
+			}
 		}
 
 		// -------------------------------------------------------------------------------------- Config controller setup
