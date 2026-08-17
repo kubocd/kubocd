@@ -4,9 +4,11 @@ WARNING: All feature tagged as EXPERIMENTAL are under active development. Their 
 change, or be removed, in any future release without prior notice and without a migration path. Do not use for
 production and be ready to modify any application using one of these features.
 
-Core:
+Tu use them, such feature must be explicitly enabled when deploying the Helm chart. See `controller.featureGates` in the
+`values.yaml` file.
 
-- EXPERIMENTAL: Implementation of 'Conditions' to check Release pre-requisite
+## Controller:
+
 - EXPERIMENTAL: Implementation of Replication resources
 - EXPERIMENTAL: Implementation of Connection sub system
 - The Release.Status has been modified. Error message are reported in a single field, decreasing the need to dig inside
@@ -34,9 +36,46 @@ Core:
       stuff: null
   ```
 
-CLI:
+  NOTE: The pruning also removes entries explicitly set to `null`, as well as empty maps (`{}`), including inside a
+  list. As a consequence, the Helm idiom `key: null`, which removes a value defined in the chart's `values.yaml` file,
+  is not effective anymore. The chart default value is kept.
+
+## CLI:
 
 - On render command, the targetNamespace was not properly set in resulting 'manifests'. Fixed
+
+## Upgrading from v0.3.0
+
+**The CRDs must be applied manually, before upgrading the Helm chart.** They are shipped in the `crds/` folder of the
+`kubocd-ctrl` chart, which Helm applies on `install`, but never on `upgrade`. As v0.3.1 both modifies the `Release` CRD
+and adds new ones, a plain `helm upgrade` leaves the controller unable to work.
+
+```
+helm pull oci://quay.io/kubocd/charts/kubocd-ctrl --version v0.3.1 --untar
+kubectl apply --server-side -f kubocd-ctrl/crds/crds.yaml
+```
+
+Skipping this step leads to one of the following:
+
+- The controller exits at startup with `no matches for kind "Connection" in version "kubocd.kubotal.io/v1alpha1"`. The
+  new `Contract`, `ClusterContract`, `Connection`, `ClusterConnection` and `Replication` CRDs must be present. Note the
+  controller sets up watches and indexes on `Connection` and `ClusterConnection` whatever the value of
+  `controller.featureGates`. So, having the `connections` feature gate off does NOT make these CRDs optional.
+- Every `Release` status update is rejected with `Release "xxx" is invalid: status.missingDependency: Required value`,
+  and no `Release` is reconciled anymore. This is because `Release.status.missingDependency` has been removed (replaced
+  by `Release.status.message`) while it is a required field of the v0.3.0 CRD.
+
+Other points to be aware of when upgrading:
+
+- The `kubectl get releases` columns have changed: `Ready` is now `Rel.`, `Wait` is now `Message`, and a new `Out`
+  column has been added. Scripts parsing this output must be adjusted.
+- Explicit `null` values are now pruned from the generated values object (see below). A package relying on the Helm
+  idiom `key: null` to remove a value defined in the chart's `values.yaml` will now keep the chart default. This may
+  change the manifests generated for an already deployed `Release`.
+- The `image.repository` Helm value does not default to `quay.io/kubocd/kubocd` anymore. The controller and webhook
+  images are now published under `<registry>/exec/kubocd`, and the chart default is provided by the
+  `kubotal_image_repository` annotation of the `Chart.yaml` file. A deployment pinning `image.repository` to the old
+  value in its own values file must drop or update this setting.
 
 # v0.3.0
 
