@@ -1,3 +1,5 @@
+# v0.3.2
+
 # v0.3.1
 
 WARNING: All feature tagged as EXPERIMENTAL are under active development. Their resources, fields and behavior may
