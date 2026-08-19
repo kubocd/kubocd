@@ -67,6 +67,17 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	}
 
 	parameters = misc.MergeMaps(pckContainer.DefaultParameters, parameters)
+	if len(pckContainer.ParamConnectionDecls) > 0 {
+		// The merge shares subtrees with the cached package defaults: the
+		// in-place substitution of resolved connections needs an owned copy
+		parameters = DeepCopyTree(parameters)
+		// Templated defaults of connectionRef parameters are rendered against
+		// the Context (a literal default is rejected at groom time)
+		err = RenderRefDefaults(pckContainer.ParamConnectionDecls, parameters, pModel)
+		if err != nil {
+			return nil, err
+		}
+	}
 	err = pckContainer.ValidateParameters(parameters)
 	if err != nil {
 		return nil, fmt.Errorf("could not validate parameters: %w", err)
