@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A new push to the same branch or PR cancels the run still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     name: build · vet · test
@@ -41,6 +46,19 @@ jobs:
 
       - name: go vet
         run: make vet
+
+      # `make setup-envtest` installs setup-envtest under bin/ and the kube-apiserver,
+      # etcd and kubectl assets under bin/k8s/<version>-<os>-<arch>. Only those paths
+      # are cached, not the whole bin/, because `make build-kubocd` writes there too.
+      # go.mod carries the k8s.io/api and controller-runtime versions that pick the assets.
+      - name: Cache envtest binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin/k8s
+            bin/setup-envtest
+            bin/setup-envtest-*
+          key: envtest-${{ runner.os }}-${{ hashFiles('go.mod') }}
 
       # `make test-only` skips the manifests/generate/fmt/vet prerequisites — they
       # already ran as dedicated gates above; re-running them here would waste time
