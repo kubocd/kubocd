@@ -28,6 +28,7 @@ import (
 	"sort"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -307,7 +308,7 @@ func sortLinks(links []Link) {
 func displayLinks(links []Link) error {
 	switch connectionsParams.output {
 	case "table":
-		displayLinksAsTable(links)
+		return displayLinksAsTable(links)
 	case "json":
 		out, err := json.MarshalIndent(links, "", "  ")
 		if err != nil {
@@ -322,15 +323,14 @@ func displayLinks(links []Link) error {
 	return nil
 }
 
-func displayLinksAsTable(links []Link) {
-	table := tablewriter.NewWriter(os.Stdout)
+func displayLinksAsTable(links []Link) error {
+	table := tablewriter.NewTable(os.Stdout, tablewriter.WithRowAutoWrap(tw.WrapNone))
 	header := []string{"Source release", "Contract"}
 	if connectionsParams.showConnection {
 		header = append(header, "Connection")
 	}
 	header = append(header, "Target release")
-	table.SetHeader(header)
-	table.SetAutoWrapText(false)
+	table.Header(header)
 	for _, link := range links {
 		row := []string{
 			displayNamespacedName(link.SourceRelease.Namespace, link.SourceRelease.Name),
@@ -340,9 +340,11 @@ func displayLinksAsTable(links []Link) {
 			row = append(row, displayConnection(link.Connection.Kind, link.Connection.Namespace, link.Connection.Name))
 		}
 		row = append(row, displayNamespacedName(link.TargetRelease.Namespace, link.TargetRelease.Name))
-		table.Append(row)
+		if err := table.Append(row); err != nil {
+			return err
+		}
 	}
-	table.Render()
+	return table.Render()
 }
 
 // displayNamespacedName render a release reference. The namespace is always displayed, as a release
