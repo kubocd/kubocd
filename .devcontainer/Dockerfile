@@ -1,7 +1,7 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/devcontainers/go:dev-1.25-bookworm
+FROM mcr.microsoft.com/devcontainers/go:dev-1.27-bookworm
 
-# Freeze the Go toolchain to ensure absolute determinism matching Go v1.25.0
+# Freeze the Go toolchain to ensure absolute determinism matching Go v1.27
 ENV GOTOOLCHAIN=local
 
 # Install system dependencies

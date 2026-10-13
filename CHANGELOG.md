@@ -1,5 +1,10 @@
 # v0.3.3
 
+- Add the secretRef parameter type.
+- EXPERIMENTAL: 'secretRefs' feature gate. When on, a Release waits (WAIT_SECRETS) until the Secrets named by its
+  secretRef values exist with the declared keys, and the controller is granted `get` on Secrets cluster wide.
+- Devcontainer: Go 1.27, matching go.mod
+
 # v0.3.2
 
 Add the connectionRef parameter

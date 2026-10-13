@@ -39,6 +39,9 @@ type PckContainer struct {
 	// The connectionRef declarations of both schemas
 	ParamConnectionDecls   []kuboschema.ConnectionDecl `json:"paramConnectionDecls,omitempty"`
 	ContextConnectionDecls []kuboschema.ConnectionDecl `json:"contextConnectionDecls,omitempty"`
+	// The secretRef declarations of both schemas
+	ParamSecretRefDecls   []kuboschema.SecretRefDecl `json:"paramSecretRefDecls,omitempty"`
+	ContextSecretRefDecls []kuboschema.SecretRefDecl `json:"contextSecretRefDecls,omitempty"`
 }
 
 var _ cache.Entry = &PckContainer{}
@@ -93,6 +96,8 @@ func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string,
 		if err != nil {
 			return fmt.Errorf("schema.context: %w", err)
 		}
+		p.ParamSecretRefDecls = kuboschema.CollectSecretRefDecls(pck.Schema.Parameters)
+		p.ContextSecretRefDecls = kuboschema.CollectSecretRefDecls(pck.Schema.Context)
 	} else {
 		p.DefaultParameters = map[string]interface{}{}
 		p.DefaultContext = map[string]interface{}{}

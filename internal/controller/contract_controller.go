@@ -82,23 +82,9 @@ func (r *ContractReconciler) reconcile2(ctx context.Context, req ctrl.Request, l
 }
 
 func resolveContract(contract kv1alpha1.ContractFacade) (defaultValues map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
-	// Convert k8s form to KuboSchema
-	sch := make(kuboschema.KuboSchema)
-	if contract.GetSchemaRaw() != nil {
-		err = yaml.UnmarshalStrict(contract.GetSchemaRaw(), &sch)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to parse schema: %w", err)
-		}
-	} else {
-		err = yaml.UnmarshalStrict([]byte(`{ "properties": {} }`), &sch)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to parse empty schema: %w", err)
-		}
-	}
-	// Translate potential KubocdSchema to JSON/openAPI format
-	sch, err = kuboschema.Kubo2openAPI(sch, false)
+	sch, err := contractOpenAPISchema(contract)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error on kubocd schema conversion: %w", err)
+		return nil, nil, err
 	}
 	// Test default value
 	defaultValues, err = kuboschema.Defaulter(sch)
@@ -112,4 +98,27 @@ func resolveContract(contract kv1alpha1.ContractFacade) (defaultValues map[strin
 		return nil, nil, fmt.Errorf("error on schema compilation: %w", err)
 	}
 	return defaultValues, goSchema, err
+}
+
+// contractOpenAPISchema returns the contract schema translated to the JSON/openAPI format
+func contractOpenAPISchema(contract kv1alpha1.ContractFacade) (map[string]interface{}, error) {
+	// Convert k8s form to KuboSchema
+	sch := make(kuboschema.KuboSchema)
+	if contract.GetSchemaRaw() != nil {
+		err := yaml.UnmarshalStrict(contract.GetSchemaRaw(), &sch)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse schema: %w", err)
+		}
+	} else {
+		err := yaml.UnmarshalStrict([]byte(`{ "properties": {} }`), &sch)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse empty schema: %w", err)
+		}
+	}
+	// Translate potential KubocdSchema to JSON/openAPI format
+	sch, err := kuboschema.Kubo2openAPI(sch, false)
+	if err != nil {
+		return nil, fmt.Errorf("error on kubocd schema conversion: %w", err)
+	}
+	return sch, nil
 }
