@@ -58,10 +58,19 @@ rules:
       - get
       - list
       - watch
+  {{- if .Values.controller.featureGates.secretRefs }}
+  # Only required by the 'secretRefs' feature gate, to check the Secrets named by secretRef values
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+  {{- end }}
   {{- if .Values.controller.featureGates.replications }}
   # All the rules below are only required by the replication controller, so they are granted only when
   # the 'replications' feature gate is on. Note the Secret/ConfigMap one: this is the only part of
-  # kubocd accessing them.
+  # kubocd listing, watching or writing them.
   - apiGroups:
       - kubocd.kubotal.io
     resources:

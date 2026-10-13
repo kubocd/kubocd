@@ -305,6 +305,15 @@ var renderCmd = &cobra.Command{
 			if len(buildInputModelResult.Messages) > 0 {
 				return fmt.Errorf("missing connection(s):\n  %s", strings.Join(buildInputModelResult.Messages, "\n  "))
 			}
+			// Secrets referenced from a contract are not checked: connectionRef parameters are not resolved here
+			secretMessages, rErr := controller.CheckPackageSecretRefs(context.Background(), k8sClient, release.Namespace,
+				pkgContainer, parameters, kcontext)
+			if rErr != nil {
+				return rErr
+			}
+			if len(secretMessages) > 0 {
+				return fmt.Errorf("missing secret(s):\n  %s", strings.Join(secretMessages, "\n  "))
+			}
 			model["Inputs"] = buildInputModelResult.InputModel
 			model["InputLists"] = buildInputModelResult.InputListModel
 			// -------------------------------------------------------------------- Render all values
