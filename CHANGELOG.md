@@ -1,5 +1,8 @@
 # v0.3.3
 
+- `kubocd package`: new `--config`, `--configMediaType` and `--artifactType` options, to set the image config and
+  artifact type. Without them, the image is unchanged.
+
 # v0.3.2
 
 Add the connectionRef parameter
