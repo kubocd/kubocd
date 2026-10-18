@@ -2,6 +2,8 @@
 
 - `kubocd package`: new `--config`, `--configMediaType` and `--artifactType` options, to set the image config and
   artifact type. Without them, the image is unchanged.
+- Package manifest: new `extensions` field, data owned by other tools and keyed by their domain. KuboCD carries it
+  and never reads it. A package using it needs this version of the CLI and of the controller.
 
 # v0.3.2
 

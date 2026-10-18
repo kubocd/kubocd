@@ -100,6 +100,8 @@ type Package struct {
 	Conditions KcdTemplateObjectList `json:"conditions,omitempty"`
 	// List of outputs, to generate connections
 	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
+	// Data owned by other tools, keyed by their domain. Carried in the package, never read by KuboCD.
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
