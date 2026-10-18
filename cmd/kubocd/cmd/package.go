@@ -60,6 +60,10 @@ var packageParams struct {
 	ociRepoPrefix string
 	plainHTTP     bool
 	workDir       string
+	// Image config. Default to the groomed package
+	config          string
+	configMediaType string
+	artifactType    string
 }
 
 func init() {
@@ -67,6 +71,11 @@ func init() {
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "Working directory. Default to $HOME/.kubocd")
+	packageCmd.PersistentFlags().StringVar(&packageParams.config, "config", "",
+		"File to set as image config, instead of the groomed package. Requires --configMediaType")
+	packageCmd.PersistentFlags().StringVar(&packageParams.configMediaType, "configMediaType", "",
+		"Media type of the --config file")
+	packageCmd.PersistentFlags().StringVar(&packageParams.artifactType, "artifactType", "", "Artifact type of the image")
 
 }
 
@@ -121,6 +130,9 @@ var packageCmd = &cobra.Command{
 
 func pack(pck string) error {
 	fmt.Printf("\n====================================== Packaging package '%s'\n", pck)
+	if (packageParams.config == "") != (packageParams.configMediaType == "") {
+		return fmt.Errorf("--config and --configMediaType must be set together")
+	}
 	pckOriginal := &kubopackage.Package{}
 	pckGroomed := &kubopackage.Package{}
 	err := misc.LoadYaml(pck, pckOriginal, pckGroomed)
@@ -197,8 +209,16 @@ func pack(pck string) error {
 	if err != nil {
 		return err
 	}
-	// Generate the manifest.json file to be set as config in the image
-	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(pckGroomed), os.ModePerm)
+	// Generate the file to be set as config in the image
+	configFile, configMediaType := "manifest.json", global.PackageConfigMediaType
+	config := misc.Map2Json(pckGroomed)
+	if packageParams.config != "" {
+		configFile, configMediaType = "config.json", packageParams.configMediaType
+		if config, err = os.ReadFile(packageParams.config); err != nil {
+			return err
+		}
+	}
+	err = os.WriteFile(path.Join(assemblyPath, configFile), config, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -211,7 +231,8 @@ func pack(pck string) error {
 	}
 
 	// Build and push image
-	err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP)
+	err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP,
+		configFile, configMediaType, packageParams.artifactType)
 	if err != nil {
 		return err
 	}
@@ -256,7 +277,8 @@ func buildAssembly(assemblyPath string, archives []cmn.ArchiveInfo) error {
 	return nil
 }
 
-func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool) error {
+func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool,
+	configFile string, configMediaType string, artifactType string) error {
 	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
 	// 0. Create a file store
 	ociFs, err := file.New(assemblyPath)
@@ -266,36 +288,8 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	defer ociFs.Close()
 	ctx := context.Background()
 
-	// 1. Add files to the file store
-	mediaType := global.PackageContentMediaType
-	fileNames := []string{"assembly.tgz"}
-	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
-	for _, name := range fileNames {
-		fileDescriptor, err := ociFs.Add(ctx, name, mediaType, "")
-		if err != nil {
-			panic(err)
-		}
-		fileDescriptors = append(fileDescriptors, fileDescriptor)
-		//fmt.Printf("file descriptor for %s: %v\n", name, fileDescriptor)
-	}
-
-	// Add config stuff
-	configFileDescriptor, err := ociFs.Add(ctx, "manifest.json", global.PackageConfigMediaType, "")
-
-	// 2. Pack the files and tag the packed manifest
-	artifactType := ""
-	opts := oras.PackManifestOptions{
-		Layers:           fileDescriptors,
-		ConfigDescriptor: &configFileDescriptor,
-	}
-	manifestDescriptor, err := oras.PackManifest(ctx, ociFs, oras.PackManifestVersion1_1, artifactType, opts)
-	if err != nil {
-		return fmt.Errorf("failed to pack manifest: %w", err)
-	}
-	//fmt.Println("manifest descriptor:", manifestDescriptor)
-
-	if err = ociFs.Tag(ctx, manifestDescriptor, tag); err != nil {
-		return fmt.Errorf("failed to tag manifest: %w", err)
+	if err = buildImage(ctx, ociFs, tag, configFile, configMediaType, artifactType); err != nil {
+		return err
 	}
 
 	// 3. Connect to a remote repository
@@ -328,5 +322,41 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 		return fmt.Errorf("failed to copy OCI image: %w", err)
 	}
 	fmt.Printf("    Successfully pushed\n")
+	return nil
+}
+
+// buildImage adds the content layer and the config to the file store, and tags the packed manifest.
+func buildImage(ctx context.Context, ociFs *file.Store, tag string, configFile string, configMediaType string,
+	artifactType string) error {
+	// 1. Add files to the file store
+	mediaType := global.PackageContentMediaType
+	fileNames := []string{"assembly.tgz"}
+	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
+	for _, name := range fileNames {
+		fileDescriptor, err := ociFs.Add(ctx, name, mediaType, "")
+		if err != nil {
+			panic(err)
+		}
+		fileDescriptors = append(fileDescriptors, fileDescriptor)
+	}
+
+	configFileDescriptor, err := ociFs.Add(ctx, configFile, configMediaType, "")
+	if err != nil {
+		return fmt.Errorf("failed to add image config: %w", err)
+	}
+
+	// 2. Pack the files and tag the packed manifest
+	opts := oras.PackManifestOptions{
+		Layers:           fileDescriptors,
+		ConfigDescriptor: &configFileDescriptor,
+	}
+	manifestDescriptor, err := oras.PackManifest(ctx, ociFs, oras.PackManifestVersion1_1, artifactType, opts)
+	if err != nil {
+		return fmt.Errorf("failed to pack manifest: %w", err)
+	}
+
+	if err = ociFs.Tag(ctx, manifestDescriptor, tag); err != nil {
+		return fmt.Errorf("failed to tag manifest: %w", err)
+	}
 	return nil
 }
