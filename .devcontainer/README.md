@@ -35,8 +35,8 @@ single source of truth — see that file for the exact versions. At build time:
 
 - **kubectl, Helm, Kind, Flux, Kustomize, k9s and Node.js** are downloaded and
   verified against their official SHA256 checksums.
-- **Go** comes from the base image (`go:dev-1.25-bookworm`); its patch floats to
-  the latest 1.25 release, frozen at runtime by `GOTOOLCHAIN=local`.
+- **Go** comes from the base image (`go:dev-1.27-bookworm`); its patch floats to
+  the latest 1.27 release, frozen at runtime by `GOTOOLCHAIN=local`.
 - **Prettier** (npm) and **pre-commit** (pip) are version-pinned installs.
 - **setup-envtest** assets are pre-cached, pinned to a commit on the
   `release-0.23` branch for Go 1.25 compatibility (published v0.24.x tags
