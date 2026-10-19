@@ -55,13 +55,17 @@ const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
 type ReleaseReconciler struct {
 	client.Client
 	record.EventRecorder
-	Logger           logr.Logger
-	Fetcher          *fetch.ArchiveFetcher
-	ServerRoot       string
-	HelmRepoAdvAddr  string
-	PackageCache     cache.Cache
-	ConfigStore      configstore.ConfigStore
-	RoleStore        rolestore.RoleStore
+	Logger          logr.Logger
+	Fetcher         *fetch.ArchiveFetcher
+	ServerRoot      string
+	HelmRepoAdvAddr string
+	PackageCache    cache.Cache
+	ConfigStore     configstore.ConfigStore
+	RoleStore       rolestore.RoleStore
+	// Reads the Secrets checked by secretRef values, bypassing the cache. Defaults to Client.
+	APIReader client.Reader
+	// The 'secretRefs' feature gate: check the Secrets named by secretRef values
+	CheckSecretRefs  bool
 	statusErrorCount int
 }
 
@@ -443,6 +447,38 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{
 			RequeueAfter: time.Second * 5,
 		}, nil
+	}
+	// -------------------------------------------------------- Check the Secrets referenced by secretRef values
+	if r.CheckSecretRefs {
+		var secretReader client.Reader = r.Client
+		if r.APIReader != nil {
+			secretReader = r.APIReader
+		}
+		secretMessages, rErr := CheckPackageSecretRefs(op.ctx, secretReader, release.Namespace, op.pckContainer, parameters, theContext)
+		if rErr != nil {
+			return r.reportError(op, rErr, forceUpdate)
+		}
+		boundSecretMessages, rErr := CheckBoundSecretRefs(op.ctx, r.Client, secretReader, release.Namespace, inputs, refBindings, buildInputModelResult)
+		if rErr != nil {
+			return r.reportError(op, rErr, forceUpdate)
+		}
+		secretMessages = append(secretMessages, boundSecretMessages...)
+		if len(secretMessages) > 0 {
+			for _, message := range secretMessages {
+				r.Event(op.release, "Warning", "MissingSecrets", message)
+			}
+			r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitSecrets, strings.Join(secretMessages, " - "), forceUpdate)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if r.RequeueAfter > 0 {
+				// It is a Requeue due to update status error
+				return r, nil
+			}
+			return ctrl.Result{
+				RequeueAfter: time.Second * 5,
+			}, nil
+		}
 	}
 	// ------------------------------ Substitute resolved connections in place
 	// (.Parameters.x / .Context.y) and keep .Inputs for the stanza only

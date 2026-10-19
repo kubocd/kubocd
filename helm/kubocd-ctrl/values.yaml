@@ -199,3 +199,6 @@ controller:
     # Activate the Replication subsystem, allowing a Secret/ConfigMap to be copied in other namespaces.
     # NB: When on, the controller watches Secrets and ConfigMaps cluster wide.
     replications: false
+    # Activate the check of the Secrets named by secretRef values: a Release waits until they exist with the declared keys.
+    # NB: When on, the controller can read Secrets cluster wide.
+    secretRefs: false

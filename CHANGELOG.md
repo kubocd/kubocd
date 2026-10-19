@@ -4,6 +4,10 @@
   artifact type. Without them, the image is unchanged.
 - Package manifest: new `extensions` field, data owned by other tools and keyed by their domain. KuboCD carries it
   and never reads it. A package using it needs this version of the CLI and of the controller.
+- Add the secretRef parameter type.
+- EXPERIMENTAL: 'secretRefs' feature gate. When on, a Release waits (WAIT_SECRETS) until the Secrets named by its
+  secretRef values exist with the declared keys, and the controller is granted `get` on Secrets cluster wide.
+- Devcontainer: Go 1.27, matching go.mod
 
 # v0.3.2
 

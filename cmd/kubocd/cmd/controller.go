@@ -89,8 +89,9 @@ var controllerParams struct {
 
 const featureGateConnections = "connections"
 const featureGateReplications = "replications"
+const featureGateSecretRefs = "secretRefs"
 
-var knownFeatureGates = []string{featureGateConnections, featureGateReplications}
+var knownFeatureGates = []string{featureGateConnections, featureGateReplications, featureGateSecretRefs}
 
 // parseFeatureGates convert the '--featureGates' entries ('<name>=<bool>') in a map, with all known gates defined.
 func parseFeatureGates(entries []string) (map[string]bool, error) {
@@ -734,6 +735,9 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
+		if controllerParams.gates[featureGateSecretRefs] {
+			controllerRootLog.Info("EXPERIMENTAL feature gate is activated", "gate", featureGateSecretRefs)
+		}
 		releaseReconciler := &controller.ReleaseReconciler{
 			Client:          mgr.GetClient(),
 			EventRecorder:   mgr.GetEventRecorderFor("release"),
@@ -744,6 +748,8 @@ var controllerCmd = &cobra.Command{
 			PackageCache:    cache.NewCache(time.Second*60, controllerRootLog.WithName("PackageCache")),
 			ConfigStore:     theConfigStore,
 			RoleStore:       roleStore,
+			APIReader:       mgr.GetAPIReader(),
+			CheckSecretRefs: controllerParams.gates[featureGateSecretRefs],
 		}
 
 		// There is 2 watches on Connections resource

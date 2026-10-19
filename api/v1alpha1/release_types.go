@@ -164,6 +164,7 @@ const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
 const ReleasePhaseWaitOutputConnections = ReleasePhase("WAIT_OCNX")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
 const ReleasePhaseWaitInputConnections = ReleasePhase("WAIT_ICNX")
+const ReleasePhaseWaitSecrets = ReleasePhase("WAIT_SECRETS")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 const ReleasePhaseWaitConditions = ReleasePhase("WAIT_COND")
 
