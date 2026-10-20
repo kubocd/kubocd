@@ -211,7 +211,7 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 
 	pck.templates.conditions, err = tmpl.NewFromAny("", pck.Conditions, pck.TemplateHeader)
 	if err != nil {
-		return fmt.Errorf("could not parse 'inputs' template: %w", err)
+		return fmt.Errorf("could not parse 'conditions' template: %w", err)
 	}
 
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
