@@ -8,6 +8,11 @@
 - EXPERIMENTAL: 'secretRefs' feature gate. When on, a Release waits (WAIT_SECRETS) until the Secrets named by its
   secretRef values exist with the declared keys, and the controller is granted `get` on Secrets cluster wide.
 - Devcontainer: Go 1.27, matching go.mod
+- Package inputs: new `fromParameter` field, the path of the connection name in the parameters (`db`, or
+  `datasources[].trino` for one connection per item). With `[]`, `.InputLists.<alias>` follows the arrays of the
+  parameters, an empty slot for an empty optional name.
+- Package inputs: a connection name rendered empty no longer looks up by contract. Optional, it binds nothing;
+  required, it is an error.
 
 # v0.3.2
 

@@ -272,12 +272,31 @@ type InputRendered struct {
 	Alias         string `json:"alias"`
 	Optional      bool   `json:"optional"`
 	AllowMultiple bool   `json:"allowMultiple"`
+	// Path, in the parameters, of the connection name(s): 'db', or 'datasources[].trino' for one per item
+	FromParameter string `json:"fromParameter,omitempty"`
 	// Private field
 	contractLookupNamespace string
+	// An optional input whose name is explicitly empty: it binds nothing
+	unbound bool
+	// For an input expanded from a fromParameter path with []: the list shared by all the items, and the
+	// position of this one in it
+	list []interface{}
+	item []int
 }
 
 func (ir *InputRendered) GetContractLookupNamespace() string {
 	return ir.contractLookupNamespace
+}
+
+// IsUnbound reports an optional input whose name is explicitly empty, which binds nothing.
+func (ir *InputRendered) IsUnbound() bool {
+	return ir.unbound
+}
+
+// GetList returns, for an input expanded from a fromParameter path with [], the list of .InputLists.<alias>,
+// and the position of this input in it (nil for the input that only declares the list).
+func (ir *InputRendered) GetList() ([]interface{}, []int) {
+	return ir.list, ir.item
 }
 
 type ConditionRendered struct {
@@ -413,10 +432,24 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 	if err != nil {
 		return nil, fmt.Errorf("could not parse 'inputs' template: %w", err)
 	}
+	// To tell a name rendered empty from a name not given
+	raw := make([]map[string]interface{}, 0)
+	if err = yaml.Unmarshal([]byte(txt), &raw); err != nil {
+		return nil, fmt.Errorf("could not parse 'inputs' template: %w", err)
+	}
 
 	//fmt.Printf("***************************************** Rendering %d inputs\n%v\n", len(result), result)
 
+	expanded := make([]*InputRendered, 0, len(result))
 	for idx, ir := range result {
+		if inputs, handled, err := renderNamedInput(ir, raw[idx], model, defaultNamespace); handled {
+			if err != nil {
+				return nil, fmt.Errorf("input[%d]: %w", idx, err)
+			}
+			expanded = append(expanded, inputs...)
+			continue
+		}
+		expanded = append(expanded, ir)
 		if ir.Alias == "" {
 			ir.Alias = ir.Contract
 		}
@@ -463,7 +496,7 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 			}
 		}
 	}
-	return result, nil
+	return expanded, nil
 }
 
 //func (pck *Package) RenderOutputs(model map[string]interface{}) ([]OutputRendered, error) {

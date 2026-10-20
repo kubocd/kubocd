@@ -45,6 +45,13 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 		Messages:                  make([]string, 0, len(inputs)),
 	}
 	for idx, input := range inputs {
+		list, item := input.GetList()
+		if list != nil && item == nil {
+			resultCollector.InputListModel[input.Alias] = list
+		}
+		if input.IsUnbound() {
+			continue
+		}
 		if input.ConnectionRef.Name != "" {
 			// ----------------------------------------------------------Connection is explicit.
 			err := bimHandleConnectionRef(ctx, idx, input, helper, resultCollector)
@@ -66,8 +73,22 @@ func BuildInputModel(ctx context.Context, helper BuildInputModelHelper, inputs [
 			// Should never happen, See input rendering
 			return nil, NewReconcileError(fmt.Errorf("input[%d]: Missing information", idx), true, "InputError")
 		}
+		if item != nil {
+			// One item of a list: its connection goes to its slot of .InputLists.<alias>, not to .Inputs
+			if values, ok := resultCollector.InputModel[input.Alias]; ok {
+				delete(resultCollector.InputModel, input.Alias)
+				setListItem(list, item, values)
+			}
+		}
 	}
 	return resultCollector, nil
+}
+
+func setListItem(list []interface{}, item []int, values interface{}) {
+	for _, i := range item[:len(item)-1] {
+		list = list[i].([]interface{})
+	}
+	list[item[len(item)-1]] = values
 }
 
 func bimHandleConnectionRef(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
