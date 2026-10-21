@@ -459,3 +459,31 @@ roles: "A,B"
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestKeysAreSorted(t *testing.T) {
+	cases := map[string]struct {
+		text string
+		want string
+	}{
+		"one dict":            {`{{ keys (dict "e" 1 "c" 2 "a" 3 "d" 4 "b" 5) | toJson }}`, `["a","b","c","d","e"]`},
+		"several dicts":       {`{{ keys (dict "b" 1 "a" 2) (dict "a" 3) | toJson }}`, `["a","a","b"]`},
+		"empty dict":          {`{{ keys (dict) | toJson }}`, `[]`},
+		"no dict":             {`{{ keys | toJson }}`, `[]`},
+		"dict from the model": {`{{ keys .labels | toJson }}`, `["app","team","tier"]`},
+	}
+	model := map[string]interface{}{"labels": map[string]interface{}{"tier": "x", "app": "y", "team": "z"}}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			tt, err := New("", c.text, "", ReleaseFunctions())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 50 {
+				got, err := tt.RenderToText(model)
+				if err != nil || got != c.want {
+					t.Fatalf("got %q (%v), want %q", got, err, c.want)
+				}
+			}
+		})
+	}
+}

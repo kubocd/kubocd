@@ -43,7 +43,7 @@ var sprigFunctions = []string{
 	"append", "compact", "concat", "first", "has", "join", "last", "list",
 	"prepend", "sortAlpha", "uniq", "until",
 	// Dictionaries
-	"dict", "dig", "get", "hasKey", "keys", "omit", "set",
+	"dict", "dig", "get", "hasKey", "omit", "set",
 	// Logic, defaults and types
 	"coalesce", "default", "empty", "fail", "kindIs", "ternary",
 	// Conversions and math
@@ -57,6 +57,7 @@ var kubocdFunctions = template.FuncMap{
 	"fromJson":      fromJSON,
 	"fromYaml":      fromYAML,
 	"imageRedirect": imageRedirect,
+	"keys":          keys,
 	"required":      required,
 	"toJson":        toJSON,
 	"toYaml":        toYAML,
@@ -142,6 +143,19 @@ func required(msg string, val interface{}) (interface{}, error) {
 		return val, errors.New(msg)
 	}
 	return val, nil
+}
+
+// keys returns the keys of the given dicts, sorted. A key present in several
+// dicts appears once per dict.
+func keys(dicts ...map[string]interface{}) []string {
+	k := []string{}
+	for _, dict := range dicts {
+		for key := range dict {
+			k = append(k, key)
+		}
+	}
+	slices.Sort(k)
+	return k
 }
 
 var errDNSLookupsDisabled = errors.New("resolveDNS is disabled by platform policy")
