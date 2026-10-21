@@ -256,14 +256,24 @@ func toYAML(v interface{}) string {
 // This is not a general-purpose YAML parser, and will not parse all valid
 // YAML documents. Additionally, because its intended use is within templates
 // it tolerates errors. It will insert the returned error message string into
-// m["Error"] in the returned map.
-func fromYAML(str string) map[string]interface{} {
+// m["Error"] in the returned map. A document with keys that are the same once
+// converted to strings is an error, as the map would keep one of their values
+// at random. The keys are checked before they are converted, so that the
+// result never depends on their order.
+func fromYAML(str string) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
+	switch err := misc.CheckYAMLKeys([]byte(str)); {
+	case errors.Is(err, misc.ErrYAMLKeysCollide):
+		return nil, shownf("fromYaml: the document %v", err)
+	case errors.Is(err, misc.ErrYAMLKeyUnsupported):
+		m["Error"] = fmt.Sprintf("fromYaml: the document %v", err)
+		return m, nil
+	}
 	if err := yaml.Unmarshal([]byte(str), &m); err != nil {
 		m["Error"] = err.Error()
 	}
-	return m
+	return m, nil
 }
 
 // toJSON takes an interface, marshals it to json, and returns a string. It will

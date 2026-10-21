@@ -17,6 +17,8 @@ limitations under the License.
 package misc
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -39,7 +41,13 @@ func LoadYaml(fileName string, targets ...interface{}) error {
 	return nil
 }
 
+// YamlDecode decodes the YAML document content into target, rejecting unknown
+// fields, and map keys that are the same once converted to strings or that
+// cannot be converted.
 func YamlDecode(content string, target interface{}) error {
+	if err := CheckYAMLKeys([]byte(content)); errors.Is(err, ErrYAMLKeysCollide) || errors.Is(err, ErrYAMLKeyUnsupported) {
+		return fmt.Errorf("the YAML document %w", err)
+	}
 	err := yaml.UnmarshalStrict([]byte(content), target)
 	if err != nil {
 		if err != io.EOF { // EOF is not an error. Just an empty file (with or without comment)

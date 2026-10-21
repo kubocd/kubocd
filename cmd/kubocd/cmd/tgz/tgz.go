@@ -22,10 +22,9 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"kubocd/internal/misc"
 	"os"
 	"path"
-
-	"sigs.k8s.io/yaml"
 )
 
 func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) error {
@@ -33,7 +32,7 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 	if err != nil {
 		return err
 	}
-	return yaml.UnmarshalStrict(ba, data)
+	return misc.YamlDecode(string(ba), data)
 }
 
 func ExtractAllFromTgz(tgzPath string, targetPath string) error {

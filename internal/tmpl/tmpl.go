@@ -247,8 +247,8 @@ func (tt *tmpl) RenderToMap(model map[string]interface{}) (map[string]interface{
 		return nil, err
 	}
 	m := make(map[string]interface{})
-	if err := yaml.Unmarshal([]byte(txt), &m); err != nil {
-		return nil, yamlError(txt, "is not a YAML map")
+	if err := decodeYAML(txt, &m, yaml.Unmarshal, "is not a YAML map"); err != nil {
+		return nil, err
 	}
 	return m, nil
 }
@@ -259,8 +259,8 @@ func (tt *tmpl) RenderToStringList(model map[string]interface{}) ([]string, erro
 		return nil, err
 	}
 	a := make([]string, 0)
-	if err := yaml.Unmarshal([]byte(txt), &a); err != nil {
-		return nil, yamlError(txt, "is not a YAML list of strings")
+	if err := decodeYAML(txt, &a, yaml.Unmarshal, "is not a YAML list of strings"); err != nil {
+		return nil, err
 	}
 	return a, nil
 }
@@ -272,10 +272,7 @@ func (tt *tmpl) RenderInto(model map[string]interface{}, target interface{}) err
 	if err != nil {
 		return err
 	}
-	if err := yaml.UnmarshalStrict([]byte(txt), target); err != nil {
-		return yamlError(txt, "does not have the expected structure")
-	}
-	return nil
+	return decodeYAML(txt, target, yaml.UnmarshalStrict, "does not have the expected structure")
 }
 
 func (tt *tmpl) RenderToBool(model map[string]interface{}, def bool) (bool, error) {
@@ -304,6 +301,18 @@ func (tt *tmpl) RenderToDuration(model map[string]interface{}) (metav1.Duration,
 		return metav1.Duration{}, errors.New("the rendered text is not a duration (such as 90s or 2m30s)")
 	}
 	return metav1.Duration{Duration: d}, nil
+}
+
+// decodeYAML decodes the rendered text txt into target with unmarshal, once
+// its map keys are checked. problem describes what target expects.
+func decodeYAML(txt string, target interface{}, unmarshal func([]byte, interface{}, ...yaml.JSONOpt) error, problem string) error {
+	if err := misc.CheckYAMLKeys([]byte(txt)); errors.Is(err, misc.ErrYAMLKeysCollide) || errors.Is(err, misc.ErrYAMLKeyUnsupported) {
+		return fmt.Errorf("the rendered text %w", err)
+	}
+	if err := unmarshal([]byte(txt), target); err != nil {
+		return yamlError(txt, problem)
+	}
+	return nil
 }
 
 // yamlSyntaxError matches the start of a syntax error of the YAML parser, as
