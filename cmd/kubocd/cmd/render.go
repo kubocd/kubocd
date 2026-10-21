@@ -56,6 +56,7 @@ var renderParams struct {
 	debug           bool
 	trace           bool
 	skipConditions  bool
+	allowDNSLookups bool
 }
 
 var renderLog logr.Logger
@@ -68,6 +69,14 @@ func init() {
 	renderCmd.PersistentFlags().BoolVar(&renderParams.debug, "debug", false, "Enable debug logging")
 	renderCmd.PersistentFlags().BoolVar(&renderParams.trace, "trace", false, "Enable trace logging")
 	renderCmd.PersistentFlags().BoolVarP(&renderParams.skipConditions, "skipConditions", "s", false, "Skip test(s) of condition(s)")
+	renderCmd.PersistentFlags().BoolVar(&renderParams.allowDNSLookups, "allowDNSLookups", false,
+		"Let the package templates resolve host names with resolveDNS, as the controller option of the same name")
+}
+
+// renderPackageFunctions returns the functions of the package templates,
+// under the resolveDNS policy of --allowDNSLookups.
+func renderPackageFunctions() tmpl.Functions {
+	return tmpl.PackageFunctions(renderParams.allowDNSLookups)
 }
 
 var renderCmd = &cobra.Command{
@@ -164,7 +173,7 @@ var renderCmd = &cobra.Command{
 
 				// Status is computed right after, to have a groomed version of the package
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000",
-					configStore, tmpl.PackageFunctions(false))
+					configStore, renderPackageFunctions())
 				// Compute status to give the map module->helmChart (Need to fetch helm charts)
 				assemblyPath := path.Join(renderParams.workDir, "assembly")
 				err = misc.SafeEnsureEmpty(assemblyPath)
@@ -222,7 +231,7 @@ var renderCmd = &cobra.Command{
 				}
 				renderLog.V(1).Info("Unmarshalled status.yaml")
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000",
-					configStore, tmpl.PackageFunctions(false))
+					configStore, renderPackageFunctions())
 				renderLog.V(1).Info("Setting package in pkgContainer OK")
 
 				// Deploy all charts

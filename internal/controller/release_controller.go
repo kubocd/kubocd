@@ -64,6 +64,7 @@ type ReleaseReconciler struct {
 	PackageCache     cache.Cache
 	ConfigStore      configstore.ConfigStore
 	RoleStore        rolestore.RoleStore
+	AllowDNSLookups  bool
 	statusErrorCount int
 }
 
@@ -329,7 +330,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		op.pckContainer = &kubopackage.PckContainer{}
-		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore, tmpl.PackageFunctions(false))
+		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore, tmpl.PackageFunctions(r.AllowDNSLookups))
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}

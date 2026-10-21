@@ -290,3 +290,67 @@ func TestAuthorMessagesReachTheStatus(t *testing.T) {
 		t.Fatalf("got status %q, want one containing %q", got.status, want)
 	}
 }
+
+func allowDNSLookups(allow bool) func(*ReleaseReconciler) {
+	return func(r *ReleaseReconciler) { r.AllowDNSLookups = allow }
+}
+
+func TestReconcileGivesItsDNSPolicyToPackageTemplates(t *testing.T) {
+	manifest := fmt.Sprintf(reconciledPackage, `ip: {{ resolveDNS "127.0.0.1" }}{{ fail "rendered past resolveDNS" }}`)
+	cases := map[string]struct {
+		options []func(*ReleaseReconciler)
+		want    string
+	}{
+		"default":    {nil, "error calling resolveDNS: resolveDNS is disabled by platform policy"},
+		"disallowed": {[]func(*ReleaseReconciler){allowDNSLookups(false)}, "error calling resolveDNS: resolveDNS is disabled by platform policy"},
+		"allowed":    {[]func(*ReleaseReconciler){allowDNSLookups(true)}, "error calling fail: rendered past resolveDNS"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := reconcileRelease(t, manifest, "", "", c.options...)
+			if !strings.Contains(got.status, c.want) {
+				t.Fatalf("got status %q, want one containing %q", got.status, c.want)
+			}
+		})
+	}
+}
+
+const connectionRefDefaultPackage = `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+schema:
+  parameters:
+    properties:
+      db:
+        type: connectionRef
+        contract: database
+        default: '{{ resolveDNS "localhost" }}'
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      db: {{ .Parameters.db.host }}
+`
+
+func TestReleaseParametersNeverGetResolveDNS(t *testing.T) {
+	cases := map[string]struct {
+		manifest   string
+		parameters string
+	}{
+		"Release parameters":                   {fmt.Sprintf(reconciledPackage, "replicas: 1"), "{\"replicas\":\"{{ resolveDNS `localhost` }}\"}"},
+		"templated default of a connectionRef": {connectionRefDefaultPackage, ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := reconcileRelease(t, c.manifest, c.parameters, "", allowDNSLookups(true))
+			if want := `function "resolveDNS" not defined`; !strings.Contains(got.status, want) {
+				t.Fatalf("got status %q, want one containing %q", got.status, want)
+			}
+		})
+	}
+}

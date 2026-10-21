@@ -74,6 +74,9 @@ spec:
             {{- else }}
             - --metricsBindAddress=0
             {{- end }}
+            {{- if .Values.controller.allowDNSLookups }}
+            - --allowDNSLookups=true
+            {{- end }}
             {{- $gates := list }}
             {{- range $name, $enabled := .Values.controller.featureGates }}
             {{- $gates = append $gates (printf "%s=%v" $name $enabled) }}

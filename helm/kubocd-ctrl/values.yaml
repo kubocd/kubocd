@@ -185,6 +185,11 @@ controller:
 
   enabled: true   # Set to false for controller running outside kubernetes, for dev
 
+  # Let the templates of every package resolve host names with the resolveDNS function, from the controller pod. The
+  # result then also depends on the DNS answers. The parameters of a Release never get resolveDNS. When false, a package
+  # calling it fails to render with 'resolveDNS is disabled by platform policy'.
+  allowDNSLookups: false
+
 
   # WARNING: All features listed below are EXPERIMENTAL and under active development. Their resources, fields and
   # behavior may change, or be removed, in any future release without prior notice and without a migration path. Do not

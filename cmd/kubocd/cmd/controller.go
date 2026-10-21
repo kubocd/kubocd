@@ -79,6 +79,8 @@ var controllerParams struct {
 	helmRepoAdvAddr          string
 	helmRepoBindAddr         string
 
+	allowDNSLookups bool
+
 	featureGates []string
 	// Resolved from featureGates by PersistentPreRun. Always hold an entry for each known gate.
 	gates map[string]bool
@@ -133,6 +135,9 @@ func init() {
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
+
+	controllerCmd.PersistentFlags().BoolVar(&controllerParams.allowDNSLookups, "allowDNSLookups", false,
+		"Let the templates of all packages resolve host names with resolveDNS. Release parameters never can.")
 
 	controllerCmd.PersistentFlags().StringSliceVar(&controllerParams.featureGates, "featureGates", nil,
 		fmt.Sprintf("Comma separated list of EXPERIMENTAL features to activate, as '<name>=true|false'. Valid names: %s", strings.Join(knownFeatureGates, ", ")))
@@ -734,6 +739,9 @@ var controllerCmd = &cobra.Command{
 			return requests
 		}
 
+		if controllerParams.allowDNSLookups {
+			controllerRootLog.Info("Package templates may resolve host names with resolveDNS")
+		}
 		releaseReconciler := &controller.ReleaseReconciler{
 			Client:          mgr.GetClient(),
 			EventRecorder:   mgr.GetEventRecorderFor("release"),
@@ -744,6 +752,7 @@ var controllerCmd = &cobra.Command{
 			PackageCache:    cache.NewCache(time.Second*60, controllerRootLog.WithName("PackageCache")),
 			ConfigStore:     theConfigStore,
 			RoleStore:       roleStore,
+			AllowDNSLookups: controllerParams.allowDNSLookups,
 		}
 
 		// There is 2 watches on Connections resource
