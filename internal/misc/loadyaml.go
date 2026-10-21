@@ -17,24 +17,21 @@ limitations under the License.
 package misc
 
 import (
-	"fmt"
 	"io"
 	"os"
 
 	"sigs.k8s.io/yaml"
 )
 
+// LoadYaml decodes the YAML file fileName into each of targets, as written:
+// a ${...} sequence stays literal.
 func LoadYaml(fileName string, targets ...interface{}) error {
 	content, err := os.ReadFile(fileName)
 	if err != nil {
 		return err
 	}
-	cnt, err := ExpandEnv(string(content))
-	if err != nil {
-		return fmt.Errorf("error in '%s': %w", fileName, err)
-	}
 	for _, target := range targets {
-		err = YamlDecode(cnt, target)
+		err = YamlDecode(string(content), target)
 		if err != nil {
 			return err
 		}

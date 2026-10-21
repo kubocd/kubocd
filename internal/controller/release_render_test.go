@@ -23,7 +23,10 @@ import (
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/kubopackage"
+	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -331,5 +334,45 @@ func TestRenderingLeavesThePackageDefaultsIntact(t *testing.T) {
 	}
 	if !reflect.DeepEqual(pckContainer.DefaultParameters, defaultParameters) {
 		t.Errorf("the cached default parameters changed: %v", pckContainer.DefaultParameters)
+	}
+}
+
+func TestDollarSequencesInAPackageStayLiteral(t *testing.T) {
+	t.Setenv("SEC1_PROBE", "from-the-environment")
+	manifest := filepath.Join(t.TempDir(), "original.yaml")
+	err := os.WriteFile(manifest, []byte(`
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      home: ${HOME}
+      probe: ${SEC1_PROBE}
+      bucket: ${BUCKET#s3://}
+`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pck := &kubopackage.Package{}
+	if err := misc.LoadYaml(manifest, pck); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	pckContainer := &kubopackage.PckContainer{}
+	if err := pckContainer.SetPackage(pck, nil, "0.1.0@sha256:0123456789abcdef", nil, tmpl.PackageFunctions(false)); err != nil {
+		t.Fatalf("invalid test package: %v", err)
+	}
+	rendered, _, err := renderRelease(newTestHelper(t), newTestStore(t), newTestRelease("demo", ""), pckContainer)
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	want := map[string]interface{}{"home": "${HOME}", "probe": "${SEC1_PROBE}", "bucket": "${BUCKET#s3://}"}
+	if got := rendered.ModuleRenderedByName["main"].Values; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got values %v, want %v", got, want)
 	}
 }

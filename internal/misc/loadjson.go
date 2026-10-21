@@ -18,21 +18,18 @@ package misc
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 )
 
+// LoadJson decodes the JSON file fileName into target, as written: a ${...}
+// sequence stays literal.
 func LoadJson(fileName string, target interface{}) error {
 	content, err := os.ReadFile(fileName)
 	if err != nil {
 		return err
 	}
-	cnt, err := ExpandEnv(string(content))
-	if err != nil {
-		return fmt.Errorf("error in '%s': %w", fileName, err)
-	}
-	return JsonDecode(cnt, target)
+	return JsonDecode(string(content), target)
 }
 
 func JsonDecode(content string, target interface{}) error {
