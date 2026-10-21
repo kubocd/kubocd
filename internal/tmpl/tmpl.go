@@ -49,6 +49,9 @@ type tmpl struct {
 // New parses header followed by tempText as a template, which can call the
 // given functions.
 func New(templateName string, tempText string, header string, functions Functions) (Tmpl, error) {
+	if functions.funcs == nil {
+		return nil, errNoFunctions
+	}
 	var err error
 	tt := &tmpl{}
 	tt.template = template.New(templateName).Option("missingkey=zero").Funcs(functions.funcs)

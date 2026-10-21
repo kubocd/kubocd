@@ -49,6 +49,9 @@ var expectedFunctions = []string{
 // parameters.
 var packageOnlyFunctions = []string{"resolveDNS"}
 
+// overriddenBuiltins are text/template builtins replaced by a KuboCD version.
+var overriddenBuiltins = []string{"printf"}
+
 func functionNames(f Functions) []string {
 	return slices.Sorted(maps.Keys(f.funcs))
 }
@@ -62,13 +65,18 @@ func TestFunctionListIsFrozen(t *testing.T) {
 		functions Functions
 		want      []string
 	}{
-		"release":              {ReleaseFunctions(), sortedCopy(expectedFunctions)},
-		"package":              {PackageFunctions(false), sortedCopy(expectedFunctions, packageOnlyFunctions)},
-		"package with DNS set": {PackageFunctions(true), sortedCopy(expectedFunctions, packageOnlyFunctions)},
+		"release":              {ReleaseFunctions(), sortedCopy(expectedFunctions, overriddenBuiltins)},
+		"package":              {PackageFunctions(false), sortedCopy(expectedFunctions, overriddenBuiltins, packageOnlyFunctions)},
+		"package with DNS set": {PackageFunctions(true), sortedCopy(expectedFunctions, overriddenBuiltins, packageOnlyFunctions)},
 	}
 	for name, set := range sets {
 		if got := functionNames(set.functions); !slices.Equal(got, set.want) {
 			t.Errorf("%s functions differ from the frozen list\ngot:  %v\nwant: %v", name, got, set.want)
+		}
+	}
+	for _, name := range overriddenBuiltins {
+		if _, err := template.New("").Parse(fmt.Sprintf("{{ %s }}", name)); err != nil {
+			t.Errorf("%s is not a text/template builtin: %v", name, err)
 		}
 	}
 }
@@ -485,5 +493,16 @@ func TestKeysAreSorted(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewRejectsTheZeroFunctions(t *testing.T) {
+	for _, text := range []string{`{{ printf "%p" .list }}`, ""} {
+		if _, err := New("", text, "", Functions{}); err == nil || !strings.Contains(err.Error(), "a template needs a function set") {
+			t.Errorf("%q: got error %v, want the zero Functions rejected", text, err)
+		}
+	}
+	if _, err := NewFromAny("", nil, "", Functions{}); err == nil {
+		t.Error("NewFromAny accepted the zero Functions")
 	}
 }

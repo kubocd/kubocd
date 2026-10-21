@@ -63,14 +63,22 @@ var kubocdFunctions = template.FuncMap{
 	"toYaml":        toYAML,
 }
 
-// Functions is a set of functions a template can call. The zero value holds
-// no function.
+// builtinOverrides replace the text/template builtins of the same name.
+var builtinOverrides = template.FuncMap{
+	"printf": printf,
+}
+
+// Functions is a set of functions a template can call. New rejects the zero
+// value, which would leave the text/template builtins, printf among them,
+// without the KuboCD versions.
 type Functions struct {
 	funcs template.FuncMap
 }
 
+var errNoFunctions = errors.New("a template needs a function set (tmpl.ReleaseFunctions or tmpl.PackageFunctions)")
+
 var (
-	releaseFunctions        = Functions{funcs: mustBuildFunctions(sprig.TxtFuncMap(), sprigFunctions, kubocdFunctions)}
+	releaseFunctions        = Functions{funcs: mustBuildFunctions(sprig.TxtFuncMap(), sprigFunctions, kubocdFunctions, builtinOverrides)}
 	packageFunctions        = Functions{funcs: withFunction(releaseFunctions.funcs, "resolveDNS", resolveDNSDisabled)}
 	packageFunctionsWithDNS = Functions{funcs: withFunction(releaseFunctions.funcs, "resolveDNS", resolveDNS)}
 )
@@ -92,11 +100,11 @@ func PackageFunctions(allowDNSLookups bool) Functions {
 	return packageFunctions
 }
 
-// buildFunctions takes the functions named in names from src, and adds extra.
-// The text/template builtins (and, eq, index, len, printf...) are available
-// on top of the result.
-func buildFunctions(src template.FuncMap, names []string, extra template.FuncMap) (template.FuncMap, error) {
-	funcs := make(template.FuncMap, len(names)+len(extra))
+// buildFunctions takes the functions named in names from src, and adds the
+// extras. The text/template builtins (and, eq, index, len...) remain available
+// unless an extra replaces them.
+func buildFunctions(src template.FuncMap, names []string, extras ...template.FuncMap) (template.FuncMap, error) {
+	funcs := make(template.FuncMap, len(names))
 	for _, name := range names {
 		fn, ok := src[name]
 		if !ok {
@@ -107,17 +115,19 @@ func buildFunctions(src template.FuncMap, names []string, extra template.FuncMap
 		}
 		funcs[name] = fn
 	}
-	for name, fn := range extra {
-		if _, ok := funcs[name]; ok {
-			return nil, fmt.Errorf("template function %q is defined twice", name)
+	for _, extra := range extras {
+		for name, fn := range extra {
+			if _, ok := funcs[name]; ok {
+				return nil, fmt.Errorf("template function %q is defined twice", name)
+			}
+			funcs[name] = fn
 		}
-		funcs[name] = fn
 	}
 	return funcs, nil
 }
 
-func mustBuildFunctions(src template.FuncMap, names []string, extra template.FuncMap) template.FuncMap {
-	funcs, err := buildFunctions(src, names, extra)
+func mustBuildFunctions(src template.FuncMap, names []string, extras ...template.FuncMap) template.FuncMap {
+	funcs, err := buildFunctions(src, names, extras...)
 	if err != nil {
 		panic(err)
 	}
@@ -143,6 +153,16 @@ func required(msg string, val interface{}) (interface{}, error) {
 		return val, errors.New(msg)
 	}
 	return val, nil
+}
+
+// printf is fmt.Sprintf, like the text/template builtin, except that it
+// rejects the %p verb: the memory address it prints changes from one render
+// to the next.
+func printf(format string, args ...interface{}) (string, error) {
+	if hasPointerVerb(format) {
+		return "", errors.New("printf: the %p verb is not allowed")
+	}
+	return fmt.Sprintf(format, args...), nil
 }
 
 // keys returns the keys of the given dicts, sorted. A key present in several
