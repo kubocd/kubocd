@@ -81,11 +81,20 @@ func (l *logBuffer) write(prefix, args string) {
 
 const reconcileRevision = "0.1.0@sha256:0123456789abcdef0123456789abcdef"
 
-// reconcileRelease reconciles once the Release demo, whose package manifest
-// is already fetched, against a fake API server. A non empty contextValues
-// is the Context the Release uses. The module main has a chart, and the REST
-// mapper knows the Context kind.
-func reconcileRelease(t *testing.T, manifest string, parameters string, contextValues string, options ...func(*ReleaseReconciler)) reconciledRelease {
+// releaseTestbed is a fake API server that holds the Release demo, and the
+// reconciler of that Release.
+type releaseTestbed struct {
+	client     client.WithWatch
+	reconciler *ReleaseReconciler
+	recorder   *record.FakeRecorder
+	log        *logBuffer
+}
+
+// newReleaseTestbed prepares the reconciliations of the Release demo, whose
+// package manifest is already fetched, against a fake API server. A non empty
+// contextValues is the Context the Release uses. The module main has a chart,
+// and the REST mapper knows the Context kind.
+func newReleaseTestbed(t *testing.T, manifest string, parameters string, contextValues string, options ...func(*ReleaseReconciler)) *releaseTestbed {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{kv1alpha1.AddToScheme, sourcev1.AddToScheme, fluxv2.AddToScheme} {
@@ -118,7 +127,7 @@ func reconcileRelease(t *testing.T, manifest string, parameters string, contextV
 	restMapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{kv1alpha1.GroupVersion})
 	restMapper.Add(kv1alpha1.GroupVersion.WithKind("Context"), apimeta.RESTScopeNamespace)
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).WithObjects(append(objects, release)...).
-		WithStatusSubresource(&kv1alpha1.Release{}).Build()
+		WithStatusSubresource(&kv1alpha1.Release{}, &kv1alpha1.Connection{}, &kv1alpha1.ClusterConnection{}).Build()
 
 	serverRoot := t.TempDir()
 	folder := filepath.Join(serverRoot, "hr", "apps", "demo")
@@ -148,17 +157,30 @@ func reconcileRelease(t *testing.T, manifest string, parameters string, contextV
 	for _, option := range options {
 		option(reconciler)
 	}
+	return &releaseTestbed{client: k8sClient, reconciler: reconciler, recorder: recorder, log: log}
+}
+
+// reconcile reconciles the Release once. The log holds every reconciliation
+// done so far, the events this one only.
+func (b *releaseTestbed) reconcile(t *testing.T) reconciledRelease {
+	t.Helper()
 	key := types.NamespacedName{Namespace: "apps", Name: "demo"}
-	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	_, err := b.reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 	got := &kv1alpha1.Release{}
-	if err := k8sClient.Get(context.Background(), key, got); err != nil {
+	if err := b.client.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
-	result := reconciledRelease{err: err, status: got.Status.Message, log: log.buf.String()}
-	for len(recorder.Events) > 0 {
-		result.events = append(result.events, <-recorder.Events)
+	result := reconciledRelease{err: err, status: got.Status.Message, log: b.log.buf.String()}
+	for len(b.recorder.Events) > 0 {
+		result.events = append(result.events, <-b.recorder.Events)
 	}
 	return result
+}
+
+// reconcileRelease reconciles once the Release demo of newReleaseTestbed.
+func reconcileRelease(t *testing.T, manifest string, parameters string, contextValues string, options ...func(*ReleaseReconciler)) reconciledRelease {
+	t.Helper()
+	return newReleaseTestbed(t, manifest, parameters, contextValues, options...).reconcile(t)
 }
 
 // reconciledPackage has a parameter schema and the values given.

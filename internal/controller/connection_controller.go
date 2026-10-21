@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"reflect"
 
@@ -66,14 +68,14 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract, Namespace: connection.GetNamespace()}, contract)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not get the Contract: %s", apiError(err))
 		}
 		// Not Found. Try ClusterContract
 		contract = &kv1alpha1.ClusterContract{}
 		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract}, contract)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("could not get the ClusterContract: %s", apiError(err))
 			}
 			contract = nil // Mark not found
 		}
@@ -90,12 +92,12 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		} else {
 			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
 			connection.Status.ContractKind = ""
-			message := fmt.Sprintf("Contract or ClusterContract '%s' missing", connection.Spec.Contract)
+			message := "the Contract or ClusterContract named in spec.contract is missing"
 			if connection.Status.Message != message {
 				r.Event(connection, "Warning", "Status", message)
 			}
 			connection.Status.Message = message
-			finalError = fmt.Errorf("contract/clusterContract '%s' missing", connection.Spec.Contract)
+			finalError = errors.New(message)
 		}
 	} else {
 		if err := checkConnection(contract, connection); err != nil {
@@ -141,35 +143,37 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	}
 	err = r.Status().Patch(ctx, connection, client.MergeFrom(previous))
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("could not update the Connection status: %s", apiError(err))
 	}
 	return ctrl.Result{}, finalError
 }
 
+// checkConnection validates the values of connection against contract. Its
+// errors give a place and a category, never a key or a value of the values,
+// which a Release renders for its outputs.
 func checkConnection(contract kv1alpha1.ContractFacade, connection kv1alpha1.ConnectionFacade) error {
 	if contract.GetStatusPhase() != kv1alpha1.ContractPhaseReady {
 		return fmt.Errorf("contract is not ready")
 	}
-	defaultValue, goSchema, err := resolveContract(contract)
+	defaultValue, schema, goSchema, err := resolveContract(contract)
 	if err != nil {
 		// NB: This should newer occurs, as contract should be in error case.
 		return fmt.Errorf("contract in error: %w", err)
 	}
 	values := make(map[string]interface{})
 	if connection.GetValuesRaw() != nil {
-		err = yaml.UnmarshalStrict(connection.GetValuesRaw(), &values)
-		if err != nil {
-			return fmt.Errorf("unable to parse connection values: %w", err)
+		if yaml.UnmarshalStrict(connection.GetValuesRaw(), &values) != nil {
+			return errors.New("unable to parse connection values: they are not a map with distinct keys")
 		}
 	}
 	values = misc.MergeMaps(defaultValue, values)
 	// Must check against contract schema
 	validate, err := goSchema.Validate(gojsonschema.NewGoLoader(values))
 	if err != nil {
-		return fmt.Errorf("error on values: %w", err)
+		return errors.New("unable to check connection values against the contract")
 	}
 	if len(validate.Errors()) > 0 {
-		return fmt.Errorf("validation error on values: %s", validate.Errors()[0])
+		return fmt.Errorf("validation error on values: %s", kubopackage.SchemaError(validate, schema, values))
 	}
 	return nil
 }

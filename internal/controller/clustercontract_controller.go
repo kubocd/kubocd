@@ -53,7 +53,7 @@ func (r *ClusterContractReconciler) reconcile2(ctx context.Context, req ctrl.Req
 
 	previous := clusterContract.DeepCopy()
 
-	_, _, err = resolveContract(clusterContract)
+	_, _, _, err = resolveContract(clusterContract)
 	if err != nil {
 		logger.V(0).Error(err, "Error on contract", "contract", clusterContract.Name)
 		r.Event(clusterContract, "Warning", "Invalid", err.Error())

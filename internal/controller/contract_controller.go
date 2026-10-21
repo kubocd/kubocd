@@ -56,7 +56,7 @@ func (r *ContractReconciler) reconcile2(ctx context.Context, req ctrl.Request, l
 
 	previous := contract.DeepCopy()
 
-	_, _, err = resolveContract(contract)
+	_, _, _, err = resolveContract(contract)
 	if err != nil {
 		logger.V(0).Error(err, "Error on contract", "contract", contract.Name)
 		r.Event(contract, "Warning", "Invalid", err.Error())
@@ -81,35 +81,37 @@ func (r *ContractReconciler) reconcile2(ctx context.Context, req ctrl.Request, l
 	return ctrl.Result{}, nil
 }
 
-func resolveContract(contract kv1alpha1.ContractFacade) (defaultValues map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
+// resolveContract returns the default values of the schema of contract, the
+// schema in its openAPI form, and the schema compiled from it.
+func resolveContract(contract kv1alpha1.ContractFacade) (defaultValues map[string]interface{}, schema map[string]interface{}, goSchema *gojsonschema.Schema, err error) {
 	// Convert k8s form to KuboSchema
 	sch := make(kuboschema.KuboSchema)
 	if contract.GetSchemaRaw() != nil {
 		err = yaml.UnmarshalStrict(contract.GetSchemaRaw(), &sch)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to parse schema: %w", err)
+			return nil, nil, nil, fmt.Errorf("unable to parse schema: %w", err)
 		}
 	} else {
 		err = yaml.UnmarshalStrict([]byte(`{ "properties": {} }`), &sch)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to parse empty schema: %w", err)
+			return nil, nil, nil, fmt.Errorf("unable to parse empty schema: %w", err)
 		}
 	}
 	// Translate potential KubocdSchema to JSON/openAPI format
 	sch, err = kuboschema.Kubo2openAPI(sch, false)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error on kubocd schema conversion: %w", err)
+		return nil, nil, nil, fmt.Errorf("error on kubocd schema conversion: %w", err)
 	}
 	// Test default value
 	defaultValues, err = kuboschema.Defaulter(sch)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error on default values setting: %w", err)
+		return nil, nil, nil, fmt.Errorf("error on default values setting: %w", err)
 
 	}
 	// And test schema compilation
 	goSchema, err = gojsonschema.NewSchema(gojsonschema.NewGoLoader(sch))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error on schema compilation: %w", err)
+		return nil, nil, nil, fmt.Errorf("error on schema compilation: %w", err)
 	}
-	return defaultValues, goSchema, err
+	return defaultValues, sch, goSchema, err
 }

@@ -37,11 +37,11 @@ var describedErrorTypes = map[string]bool{
 	"number_gte": true, "number_gt": true, "number_lte": true, "number_lt": true,
 }
 
-// schemaError describes a failed validation of instance against schema by the
+// SchemaError describes a failed validation of instance against schema by the
 // location and the category of an error, without the values or the property
 // names of instance: a template can produce both from data. The descriptions
 // are sorted, so that the same failure always reports the same one.
-func schemaError(result *gojsonschema.Result, schema map[string]interface{}, instance interface{}) string {
+func SchemaError(result *gojsonschema.Result, schema map[string]interface{}, instance interface{}) string {
 	descriptions := make([]string, 0, len(result.Errors()))
 	for _, e := range result.Errors() {
 		descriptions = append(descriptions, schemaPath(e.Context(), schema, instance)+": "+schemaReason(e))

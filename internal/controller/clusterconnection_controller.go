@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/misc"
@@ -62,7 +63,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Contract}, clusterContract)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not get the ClusterContract: %s", apiError(err))
 		}
 		// No corresponding ClusterContract found
 		if misc.IsZero(clusterConnection.Spec.Values) {
@@ -75,12 +76,12 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			finalError = nil
 		} else {
 			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-			message := fmt.Sprintf("ClusterContract '%s' missing", clusterConnection.Spec.Contract)
+			message := "the ClusterContract named in spec.contract is missing"
 			if clusterConnection.Status.Message != message {
 				r.Event(clusterConnection, "Warning", "Status", message)
 			}
 			clusterConnection.Status.Message = message
-			finalError = err
+			finalError = errors.New(message)
 		}
 	} else {
 		if err := checkConnection(clusterContract, clusterConnection); err != nil {
@@ -111,7 +112,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	}
 	err = r.Status().Patch(ctx, clusterConnection, client.MergeFrom(previous))
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("could not update the ClusterConnection status: %s", apiError(err))
 	}
 	return ctrl.Result{}, finalError
 }

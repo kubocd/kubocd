@@ -110,7 +110,7 @@ func (p *PckContainer) ValidateParameters(params map[string]interface{}) error {
 		return err
 	}
 	if !validate.Valid() {
-		return fmt.Errorf("parameters schema validation error: %s", schemaError(validate, p.Package.Schema.Parameters, params))
+		return fmt.Errorf("parameters schema validation error: %s", SchemaError(validate, p.Package.Schema.Parameters, params))
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func (p *PckContainer) ValidateContext(context map[string]interface{}) error {
 		return err
 	}
 	if !validate.Valid() {
-		return fmt.Errorf("context schema validation error: %s", schemaError(validate, p.Package.Schema.Context, context))
+		return fmt.Errorf("context schema validation error: %s", SchemaError(validate, p.Package.Schema.Context, context))
 	}
 	return nil
 }
