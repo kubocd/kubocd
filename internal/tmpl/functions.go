@@ -20,9 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"kubocd/internal/configstore"
+	"kubocd/api/v1alpha1"
 	"kubocd/internal/misc"
 	"net"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -225,29 +226,76 @@ func fromJSON(str string) map[string]interface{} {
 	return m
 }
 
+// ImageRedirectsKey is the entry of the template model holding the image
+// redirect table.
+const ImageRedirectsKey = "ImageRedirects"
+
+// ImageRedirectTable turns image redirects into the plain data imageRedirect
+// reads from the template model.
+func ImageRedirectTable(redirects []*v1alpha1.ImageRedirectSpec) []interface{} {
+	table := make([]interface{}, 0, len(redirects))
+	for _, r := range redirects {
+		table = append(table, map[string]interface{}{
+			"oldPrefix":        r.OldPrefix,
+			"newPrefix":        r.NewPrefix,
+			"imagePullPolicy":  r.ImagePullPolicy,
+			"imagePullSecrets": slices.Clone(r.ImagePullSecrets),
+		})
+	}
+	return table
+}
+
+// imageRedirect applies to url the first entry of the image redirect table of
+// scope whose oldPrefix matches, and splits the resulting image reference. An
+// empty newPrefix keeps the URL.
 func imageRedirect(url string, scope map[string]interface{}) (map[string]interface{}, error) {
-	ir := scope["ImageRedirector"]
-	imageRedirector, ok := ir.(configstore.ConfigStore)
+	table, ok := scope[ImageRedirectsKey].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("imageRedirector is not a ConfigStore")
+		return nil, errors.New("imageRedirect: the scope has no image redirect table, pass the root context ('.' or '$')")
 	}
-	var imagePullSecrets []string = nil
-	var imagePullPolicy = ""
-	redirect, newUrl := imageRedirector.GetImageRedirect(url)
-	if redirect != nil {
-		imagePullSecrets = redirect.ImagePullSecrets
-		imagePullPolicy = redirect.ImagePullPolicy
+	newURL := url
+	var imagePullSecrets []string
+	imagePullPolicy := ""
+	for idx, entry := range table {
+		redirect, ok := entry.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table is not a map", idx)
+		}
+		oldPrefix, ok := redirect["oldPrefix"].(string)
+		if !ok {
+			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table has no oldPrefix", idx)
+		}
+		if !strings.HasPrefix(url, oldPrefix) {
+			continue
+		}
+		newPrefix, err := optionalString(redirect, "newPrefix")
+		if err != nil {
+			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+		}
+		if newPrefix != "" {
+			newURL = newPrefix + url[len(oldPrefix):]
+		}
+		if imagePullPolicy, err = optionalString(redirect, "imagePullPolicy"); err != nil {
+			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+		}
+		if imagePullSecrets, err = optionalStringList(redirect, "imagePullSecrets"); err != nil {
+			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+		}
+		break
 	}
-	repo, tag, err := misc.DecodeImageUrl(newUrl)
+	repo, tag, err := misc.DecodeImageUrl(newURL)
 	if err != nil {
-		return nil, fmt.Errorf("imageRedirector.GetImageRedirector().DecodeImageUrl() error %w", err)
+		if newURL != url {
+			return nil, errors.New("imageRedirect: the redirected image reference is invalid, check the newPrefix of the matching redirect")
+		}
+		return nil, errors.New("imageRedirect: the image reference is invalid")
 	}
 	sa := strings.Split(repo, "/")
 	registry := sa[0]
 	baseRepository := strings.Join(sa[1:], "/")
 
 	return map[string]interface{}{
-		"url":              newUrl,
+		"url":              newURL,
 		"imagePullPolicy":  imagePullPolicy,
 		"imagePullSecrets": imagePullSecrets,
 		"repository":       repo,
@@ -255,4 +303,37 @@ func imageRedirect(url string, scope map[string]interface{}) (map[string]interfa
 		"registry":         registry,
 		"baseRepository":   baseRepository,
 	}, nil
+}
+
+func optionalString(m map[string]interface{}, key string) (string, error) {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("%s is not a string", key)
+	}
+	return s, nil
+}
+
+func optionalStringList(m map[string]interface{}, key string) ([]string, error) {
+	switch v := m[key].(type) {
+	case nil:
+		return nil, nil
+	case []string:
+		return slices.Clone(v), nil
+	case []interface{}:
+		list := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s is not a list of strings", key)
+			}
+			list = append(list, s)
+		}
+		return list, nil
+	default:
+		return nil, fmt.Errorf("%s is not a list of strings", key)
+	}
 }

@@ -89,7 +89,12 @@ func (tt *tmpl) SetDelimiters(d1, d2 string) {
 	tt.template.Delims(d1, d2)
 }
 
+// RenderToText executes the template on model, which must hold plain data
+// only.
 func (tt *tmpl) RenderToText(model map[string]interface{}) (string, error) {
+	if err := checkPlainData(model); err != nil {
+		return "", err
+	}
 	buf := &bytes.Buffer{}
 	err := tt.template.Execute(buf, model)
 	if err != nil {

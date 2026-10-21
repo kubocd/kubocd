@@ -20,6 +20,7 @@ package tmpl
 import (
 	"bytes"
 	"fmt"
+	"kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"maps"
 	"net"
@@ -29,6 +30,7 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Changing this list changes what every package and Release template can do.
@@ -177,7 +179,7 @@ func TestAllowedFunctionsWork(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse error: %v", err)
 			}
-			got, err := tt.RenderToText(map[string]interface{}{"ImageRedirector": configstore.New()})
+			got, err := tt.RenderToText(map[string]interface{}{ImageRedirectsKey: ImageRedirectTable(nil)})
 			if err != nil {
 				t.Fatalf("render error: %v", err)
 			}
@@ -264,10 +266,10 @@ func TestTextTemplateBuiltinsAreAvailable(t *testing.T) {
 	text := `{{ printf "%s-%d" "a" 1 }} {{ len .l }} {{ index .l 0 }} {{ slice "abc" 1 }} ` +
 		`{{ eq 1 1 }} {{ ne 1 2 }} {{ lt 1 2 }} {{ le 1 1 }} {{ gt 2 1 }} {{ ge 1 1 }} ` +
 		`{{ and true false }} {{ or false true }} {{ not false }} {{ print "p" }} {{ println "q" }}` +
-		`{{ html "<" }} {{ js "'" }} {{ urlquery "a b" }} {{ call .f }}`
-	model := map[string]interface{}{"l": []string{"x"}, "f": func() string { return "c" }}
+		`{{ html "<" }} {{ js "'" }} {{ urlquery "a b" }}`
+	model := map[string]interface{}{"l": []string{"x"}}
 	want := `a-1 1 x bc true true true true true true false true true p q
-&lt; \' a+b c`
+&lt; \' a+b`
 
 	bare, err := template.New("").Parse(text)
 	if err != nil {
@@ -295,16 +297,98 @@ func TestTextTemplateBuiltinsAreAvailable(t *testing.T) {
 }
 
 func TestKubocdToJsonOverridesSprig(t *testing.T) {
-	tt, err := New("", `{{ toJson .c }}`, "", ReleaseFunctions())
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
+	toJson, ok := ReleaseFunctions().funcs["toJson"].(func(interface{}) string)
+	if !ok {
+		t.Fatalf("toJson is not the KuboCD function: %T", ReleaseFunctions().funcs["toJson"])
 	}
-	got, err := tt.RenderToText(map[string]interface{}{"c": make(chan int)})
-	if err != nil {
-		t.Fatalf("render error: %v", err)
-	}
-	if !strings.HasPrefix(got, "!!!!!! ERROR:") {
+	if got := toJson(make(chan int)); !strings.HasPrefix(got, "!!!!!! ERROR:") {
 		t.Fatalf("toJson should report marshal errors, got %q", got)
+	}
+}
+
+func TestImageRedirect(t *testing.T) {
+	store := configstore.New()
+	err := store.AddConfigs(&v1alpha1.ConfigList{Items: []v1alpha1.Config{
+		{ObjectMeta: metav1.ObjectMeta{Name: "b-config"}, Spec: v1alpha1.ConfigSpec{ImageRedirects: []*v1alpha1.ImageRedirectSpec{
+			{OldPrefix: "docker.io/", NewPrefix: "other.local/", ImagePullPolicy: "IfNotPresent"},
+			{OldPrefix: "ghcr.io/", ImagePullPolicy: "Always", ImagePullSecrets: []string{"ghcr-pull"}},
+		}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "a-config"}, Spec: v1alpha1.ConfigSpec{ImageRedirects: []*v1alpha1.ImageRedirectSpec{
+			{OldPrefix: "docker.io/bitnami/", NewPrefix: "mirror.local:5000/bitnami/", ImagePullPolicy: "Always",
+				ImagePullSecrets: []string{"mirror-pull", "extra"}},
+		}}},
+	}}, "kubocd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Configs apply in name order: a-config wins over b-config for docker.io/bitnami/
+	cases := []struct {
+		url  string
+		want string
+	}{
+		{"docker.io/bitnami/redis:7.2.4", `{"baseRepository":"bitnami/redis","imagePullPolicy":"Always","imagePullSecrets":["mirror-pull","extra"],"registry":"mirror.local:5000","repository":"mirror.local:5000/bitnami/redis","tag":"7.2.4","url":"mirror.local:5000/bitnami/redis:7.2.4"}`},
+		{"docker.io/bitnami/redis", `{"baseRepository":"bitnami/redis","imagePullPolicy":"Always","imagePullSecrets":["mirror-pull","extra"],"registry":"mirror.local:5000","repository":"mirror.local:5000/bitnami/redis","tag":"latest","url":"mirror.local:5000/bitnami/redis"}`},
+		{"docker.io/library/nginx:1.27", `{"baseRepository":"library/nginx","imagePullPolicy":"IfNotPresent","imagePullSecrets":null,"registry":"other.local","repository":"other.local/library/nginx","tag":"1.27","url":"other.local/library/nginx:1.27"}`},
+		{"ghcr.io/org/tool:v1", `{"baseRepository":"org/tool","imagePullPolicy":"Always","imagePullSecrets":["ghcr-pull"],"registry":"ghcr.io","repository":"ghcr.io/org/tool","tag":"v1","url":"ghcr.io/org/tool:v1"}`},
+		{"quay.io/jetstack/cert-manager-controller:v1.17.0", `{"baseRepository":"jetstack/cert-manager-controller","imagePullPolicy":"","imagePullSecrets":null,"registry":"quay.io","repository":"quay.io/jetstack/cert-manager-controller","tag":"v1.17.0","url":"quay.io/jetstack/cert-manager-controller:v1.17.0"}`},
+		{"registry.local:5000/team/app:2.0", `{"baseRepository":"team/app","imagePullPolicy":"","imagePullSecrets":null,"registry":"registry.local:5000","repository":"registry.local:5000/team/app","tag":"2.0","url":"registry.local:5000/team/app:2.0"}`},
+	}
+	render := func(url string, model map[string]interface{}) (string, error) {
+		tt, err := New("", fmt.Sprintf("{{ toJson (imageRedirect %q .) }}", url), "", PackageFunctions(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tt.RenderToText(model)
+	}
+	model := map[string]interface{}{ImageRedirectsKey: ImageRedirectTable(store.GetImageRedirects())}
+	for _, c := range cases {
+		got, err := render(c.url, model)
+		if err != nil {
+			t.Errorf("%s: %v", c.url, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s:\ngot:  %s\nwant: %s", c.url, got, c.want)
+		}
+	}
+
+	got, err := render("quay.io/org/img:1.0", map[string]interface{}{ImageRedirectsKey: ImageRedirectTable(nil)})
+	if want := `{"baseRepository":"org/img","imagePullPolicy":"","imagePullSecrets":null,"registry":"quay.io","repository":"quay.io/org/img","tag":"1.0","url":"quay.io/org/img:1.0"}`; err != nil || got != want {
+		t.Errorf("without redirects: got %q (%v), want %q", got, err, want)
+	}
+	generic := []interface{}{map[string]interface{}{"oldPrefix": "quay.io/", "imagePullSecrets": []interface{}{"a", "b"}}}
+	got, err = render("quay.io/org/img:1.0", map[string]interface{}{ImageRedirectsKey: generic})
+	if want := `["a","b"]`; err != nil || !strings.Contains(got, want) {
+		t.Errorf("generic list of pull secrets: got %q (%v), want it to contain %q", got, err, want)
+	}
+
+	failures := map[string]struct {
+		url   string
+		model map[string]interface{}
+		want  string
+	}{
+		"no table":      {"quay.io/org/img:1.0", map[string]interface{}{}, "pass the root context"},
+		"invalid image": {"a:b", model, "imageRedirect: the image reference is invalid"},
+		"invalid image after redirection": {"docker.io/org/img:1.0",
+			map[string]interface{}{ImageRedirectsKey: []interface{}{map[string]interface{}{"oldPrefix": "docker.io/", "newPrefix": "a:b/c:d:"}}},
+			"imageRedirect: the redirected image reference is invalid"},
+		"entry not a map": {"quay.io/org/img:1.0",
+			map[string]interface{}{ImageRedirectsKey: []interface{}{"quay.io/", map[string]interface{}{"oldPrefix": "quay.io/"}}},
+			"entry 0 of the image redirect table is not a map"},
+		"entry without oldPrefix": {"quay.io/org/img:1.0",
+			map[string]interface{}{ImageRedirectsKey: []interface{}{map[string]interface{}{"newPrefix": "mirror.local/"}}},
+			"entry 0 of the image redirect table has no oldPrefix"},
+		"pull secrets not strings": {"quay.io/org/img:1.0",
+			map[string]interface{}{ImageRedirectsKey: []interface{}{map[string]interface{}{"oldPrefix": "quay.io/", "imagePullSecrets": []interface{}{1}}}},
+			"imagePullSecrets is not a list of strings"},
+	}
+	for name, c := range failures {
+		t.Run(name, func(t *testing.T) {
+			_, err := render(c.url, c.model)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got error %v, want one containing %q", err, c.want)
+			}
+		})
 	}
 }
 
@@ -347,7 +431,7 @@ func TestRealisticPackageTemplate(t *testing.T) {
 			"extraLabels":   map[string]interface{}{"team": "data"},
 			"adminPassword": "secret",
 		},
-		"ImageRedirector": configstore.New(),
+		ImageRedirectsKey: ImageRedirectTable(nil),
 	}
 	got, err := tt.RenderToText(model)
 	if err != nil {

@@ -35,7 +35,7 @@ type ConfigStore interface {
 	Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error
 	IsClusterRole(role string) bool
 	GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string)
-	GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string)
+	GetImageRedirects() []*v1alpha1.ImageRedirectSpec
 	GetDefaultContexts() []v1alpha1.NamespacedName
 	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string) error
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
@@ -93,20 +93,16 @@ func (c *configStore) GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1
 	return nil, oldUrl
 }
 
-func (c *configStore) GetImageRedirect(oldUrl string) (imageRedirectSpec *v1alpha1.ImageRedirectSpec, newUrl string) {
+// GetImageRedirects returns a copy of the image redirects of all Configs, in
+// Config name order.
+func (c *configStore) GetImageRedirects() []*v1alpha1.ImageRedirectSpec {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	for _, redirect := range c.imageRedirects {
-		if strings.HasPrefix(oldUrl, redirect.OldPrefix) {
-			if redirect.NewPrefix == "" {
-				return redirect, oldUrl
-			} else {
-				// We don't want to change the URL. Just add some addOns
-				return redirect, redirect.NewPrefix + oldUrl[len(redirect.OldPrefix):]
-			}
-		}
+	redirects := make([]*v1alpha1.ImageRedirectSpec, len(c.imageRedirects))
+	for i, redirect := range c.imageRedirects {
+		redirects[i] = redirect.DeepCopy()
 	}
-	return nil, oldUrl
+	return redirects
 }
 
 func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {

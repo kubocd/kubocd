@@ -183,12 +183,14 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, configStore co
 	}
 }
 
+// BuildModel builds the data given to the templates of a Release and of its
+// package, without the inputs.
 func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release, store configstore.ConfigStore) map[string]interface{} {
 	model := map[string]interface{}{
-		"Context":         context,
-		"Parameters":      parameters,
-		"Release":         misc.ObjectToMap(release),
-		"ImageRedirector": store,
+		"Context":              context,
+		"Parameters":           parameters,
+		"Release":              misc.ObjectToMap(release),
+		tmpl.ImageRedirectsKey: tmpl.ImageRedirectTable(store.GetImageRedirects()),
 	}
 	return model
 }
