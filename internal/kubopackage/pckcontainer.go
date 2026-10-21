@@ -21,6 +21,7 @@ import (
 	"kubocd/internal/cache"
 	"kubocd/internal/configstore"
 	"kubocd/internal/kuboschema"
+	"kubocd/internal/tmpl"
 	"strings"
 	"time"
 
@@ -55,12 +56,12 @@ func (p *PckContainer) String() string {
 	return fmt.Sprintf("Package %s:%s (%s)", p.Package.Name, p.Package.Tag, p.Revision)
 }
 
-func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string, configStore configstore.ConfigStore) error {
+func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string, configStore configstore.ConfigStore, functions tmpl.Functions) error {
 	p.Package = pck
 	split := strings.Split(revision, ":") // Revision pattern: 0.1.1@sha256:3d8dd2f0a9a0015fa13a7e52ae449707b4f0f77b4da0fc6427d9ed949d159265
 	p.Revision = split[1][:12]            // First 12 chart should be enough for uniqueness
 	p.Status = status
-	err := p.Package.Groom(configStore)
+	err := p.Package.Groom(configStore, functions)
 	if err != nil {
 		return err
 	}

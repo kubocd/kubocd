@@ -46,10 +46,12 @@ type tmpl struct {
 	template *template.Template
 }
 
-func New(templateName string, tempText string, header string) (Tmpl, error) {
+// New parses header followed by tempText as a template, which can call the
+// given functions.
+func New(templateName string, tempText string, header string, functions Functions) (Tmpl, error) {
 	var err error
 	tt := &tmpl{}
-	tt.template = template.New(templateName).Option("missingkey=zero").Funcs(funcMap())
+	tt.template = template.New(templateName).Option("missingkey=zero").Funcs(functions.funcs)
 	tempText = fmt.Sprintf("%s%s", header, tempText)
 	tt.template, err = tt.template.Parse(tempText)
 	if err != nil {
@@ -58,25 +60,27 @@ func New(templateName string, tempText string, header string) (Tmpl, error) {
 	return tt, nil
 }
 
-func NewFromAny(templateName string, src interface{}, header string) (Tmpl, error) {
+// NewFromAny is New for a template given as a string, or as a map or a list
+// holding template strings.
+func NewFromAny(templateName string, src interface{}, header string, functions Functions) (Tmpl, error) {
 	if src == nil {
-		return New(templateName, "", "")
+		return New(templateName, "", "", functions)
 	}
 	str, ok := src.(string)
 	if ok {
-		return New(templateName, str, header)
+		return New(templateName, str, header, functions)
 	}
 	m, ok := src.(map[string]interface{})
 	if ok {
-		return New(templateName, string(misc.Any2Yaml(m)), header)
+		return New(templateName, string(misc.Any2Yaml(m)), header, functions)
 	}
 	ia, ok := src.([]interface{})
 	if ok {
-		return New(templateName, string(misc.Any2Yaml(ia)), header)
+		return New(templateName, string(misc.Any2Yaml(ia)), header, functions)
 	}
 	sa, ok := src.([]string)
 	if ok {
-		return New(templateName, string(misc.Any2Yaml(sa)), header)
+		return New(templateName, string(misc.Any2Yaml(sa)), header, functions)
 	}
 	return nil, fmt.Errorf("invalid template object type %T", src)
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package kubopackage
 
 import (
+	"kubocd/internal/tmpl"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func groomManifest(t *testing.T, manifest string) error {
 	if err := yaml.Unmarshal([]byte(manifest), pck); err != nil {
 		t.Fatalf("invalid test manifest: %v", err)
 	}
-	return pck.Groom(nil)
+	return pck.Groom(nil, tmpl.PackageFunctions(false))
 }
 
 func TestConditionsParseErrorNamesTheField(t *testing.T) {
@@ -48,5 +49,50 @@ modules:
 `)
 	if err == nil || !strings.Contains(err.Error(), "'conditions'") {
 		t.Fatalf("expected an error naming 'conditions', got %v", err)
+	}
+}
+
+func TestExcludedFunctionInPackageIsRejected(t *testing.T) {
+	err := groomManifest(t, `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      ca: {{ readFile "/etc/ssl/ca.crt" }}
+`)
+	if err == nil {
+		t.Fatal("grooming should fail")
+	}
+	for _, want := range []string{"module 'main'", "'values'", `function "readFile" not defined`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err.Error(), want)
+		}
+	}
+}
+
+func TestPackageCallingResolveDNSIsAccepted(t *testing.T) {
+	err := groomManifest(t, `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      ip: {{ resolveDNS .Parameters.host }}
+`)
+	if err != nil {
+		t.Fatalf("a package calling resolveDNS should groom: %v", err)
 	}
 }

@@ -95,7 +95,7 @@ type Module struct {
 	templates *moduleTemplates
 }
 
-func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStore) error {
+func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStore, functions tmpl.Functions) error {
 	if m.Name == "" {
 		m.Name = fmt.Sprintf("module%02d", idx)
 	}
@@ -164,42 +164,46 @@ func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStor
 	if m.Type == global.HelmChartType && !misc.IsZero(m.Parameters) {
 		return fmt.Errorf("'parameters' should not be defined for 'type.HelmChart'")
 	}
-	// ---------------- Now, handle templates
+	return m.parseTemplates(pck.TemplateHeader, functions)
+}
+
+// parseTemplates parses the templates of the module, each prefixed by header.
+func (m *Module) parseTemplates(header string, functions tmpl.Functions) error {
 	m.templates = &moduleTemplates{}
 	var err error
-	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, pck.TemplateHeader)
+	m.templates.parameters, err = tmpl.NewFromAny("", m.Parameters, header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'parameters' template: %w", err)
 	}
-	m.templates.values, err = tmpl.NewFromAny("", m.Values, pck.TemplateHeader)
+	m.templates.values, err = tmpl.NewFromAny("", m.Values, header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'values' template: %w", err)
 	}
-	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, pck.TemplateHeader)
+	m.templates.specPatch, err = tmpl.NewFromAny("", m.SpecPatch, header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'specPatch' template: %w", err)
 	}
-	m.templates.timeout, err = tmpl.New("", string(m.Timeout), pck.TemplateHeader)
+	m.templates.timeout, err = tmpl.New("", string(m.Timeout), header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'timeout' template: %w", err)
 	}
-	m.templates.interval, err = tmpl.New("", string(m.Interval), pck.TemplateHeader)
+	m.templates.interval, err = tmpl.New("", string(m.Interval), header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'interval' template: %w", err)
 	}
-	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), pck.TemplateHeader)
+	m.templates.targetNamespace, err = tmpl.New("", string(m.TargetNamespace), header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'targetNamespace' template: %w", err)
 	}
-	m.templates.enabled, err = tmpl.New("", string(m.Enabled), pck.TemplateHeader)
+	m.templates.enabled, err = tmpl.New("", string(m.Enabled), header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'enabled' template: %w", err)
 	}
-	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, pck.TemplateHeader)
+	m.templates.dependsOn, err = tmpl.NewFromAny("", m.DependsOn, header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependsOn' template: %w", err)
 	}
-	m.templates.onFailureStrategy, err = tmpl.New("", string(m.OnFailureStrategy), pck.TemplateHeader)
+	m.templates.onFailureStrategy, err = tmpl.New("", string(m.OnFailureStrategy), header, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'onFailureStrategy' template: %w", err)
 	}

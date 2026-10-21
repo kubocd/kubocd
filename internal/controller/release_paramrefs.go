@@ -237,7 +237,9 @@ func renderRefDefaultAt(remaining, concrete []string, node interface{}, model ma
 		if !ok || !strings.Contains(value, "{{") {
 			return nil
 		}
-		t, err := tmpl.New("", value, "")
+		// The value can come from the Release parameters as well as from the
+		// schema default, so it only gets the Release functions
+		t, err := tmpl.New("", value, "", tmpl.ReleaseFunctions())
 		if err != nil {
 			return err
 		}

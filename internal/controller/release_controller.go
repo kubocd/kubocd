@@ -26,6 +26,7 @@ import (
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
+	"kubocd/internal/tmpl"
 	"os"
 	"path"
 	"reflect"
@@ -322,7 +323,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		op.pckContainer = &kubopackage.PckContainer{}
-		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore)
+		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore, tmpl.PackageFunctions(false))
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}

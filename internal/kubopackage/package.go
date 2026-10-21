@@ -117,7 +117,9 @@ var noParamSchema = map[string]interface{}{
 	"additionalProperties": false,
 }
 
-func (pck *Package) Groom(configSore configstore.ConfigStore) error {
+// Groom validates the package, sets its defaults and parses its templates,
+// which can call the given functions.
+func (pck *Package) Groom(configSore configstore.ConfigStore, functions tmpl.Functions) error {
 	// ------------------------ Normalize
 	if pck.Roles == nil {
 		pck.Roles = []string{}
@@ -168,7 +170,7 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 	moduleByName := make(map[string]*Module)
 	for idx := range pck.Modules {
 		module := pck.Modules[idx]
-		err := pck.Modules[idx].groom(pck, idx, configSore)
+		err := pck.Modules[idx].groom(pck, idx, configSore, functions)
 		if err != nil {
 			return fmt.Errorf("module '%s': %w", pck.Modules[idx].Name, err)
 		}
@@ -179,37 +181,37 @@ func (pck *Package) Groom(configSore configstore.ConfigStore) error {
 		moduleByName[module.Name] = pck.Modules[idx]
 	}
 	pck.templates = &packageTemplates{}
-	pck.templates.description, err = tmpl.New("", string(pck.Description), pck.TemplateHeader)
+	pck.templates.description, err = tmpl.New("", string(pck.Description), pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'description' template: %w", err)
 	}
-	pck.templates.roles, err = tmpl.NewFromAny("", pck.Roles, pck.TemplateHeader)
+	pck.templates.roles, err = tmpl.NewFromAny("", pck.Roles, pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'roles' template: %w", err)
 	}
-	pck.templates.dependencies, err = tmpl.NewFromAny("", pck.Dependencies, pck.TemplateHeader)
+	pck.templates.dependencies, err = tmpl.NewFromAny("", pck.Dependencies, pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
 	pck.templates.usage = make(map[string]tmpl.Tmpl)
 	for key, usage := range pck.Usage {
-		pck.templates.usage[key], err = tmpl.New("", string(usage), pck.TemplateHeader)
+		pck.templates.usage[key], err = tmpl.New("", string(usage), pck.TemplateHeader, functions)
 		if err != nil {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
 	}
 
-	pck.templates.inputs, err = tmpl.NewFromAny("", pck.Inputs, pck.TemplateHeader)
+	pck.templates.inputs, err = tmpl.NewFromAny("", pck.Inputs, pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'inputs' template: %w", err)
 	}
 
-	pck.templates.outputs, err = tmpl.NewFromAny("", pck.Outputs, pck.TemplateHeader)
+	pck.templates.outputs, err = tmpl.NewFromAny("", pck.Outputs, pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
 
-	pck.templates.conditions, err = tmpl.NewFromAny("", pck.Conditions, pck.TemplateHeader)
+	pck.templates.conditions, err = tmpl.NewFromAny("", pck.Conditions, pck.TemplateHeader, functions)
 	if err != nil {
 		return fmt.Errorf("could not parse 'conditions' template: %w", err)
 	}

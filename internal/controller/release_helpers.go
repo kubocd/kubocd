@@ -55,7 +55,7 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 		}
 	}
 
-	parametersTmpl, err := tmpl.NewFromAny("", parametersStr, "")
+	parametersTmpl, err := tmpl.NewFromAny("", parametersStr, "", tmpl.ReleaseFunctions())
 	if err != nil {
 		return nil, fmt.Errorf("could not create template from parameters: %w", err)
 	}

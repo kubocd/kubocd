@@ -27,6 +27,7 @@ import (
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
+	"kubocd/internal/tmpl"
 	"log/slog"
 	"os"
 	"path"
@@ -127,7 +128,7 @@ func pack(pck string) error {
 	if err != nil {
 		return err
 	}
-	err = pckGroomed.Groom(nil)
+	err = pckGroomed.Groom(nil, tmpl.PackageFunctions(false))
 	if err != nil {
 		return err
 	}
