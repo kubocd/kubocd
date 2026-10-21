@@ -21,37 +21,58 @@ import (
 	"slices"
 )
 
-// checkPlainData returns an error unless model holds plain data only: maps
-// with string keys, lists and scalars. A template can call the exported
-// methods of any other value it reaches.
-func checkPlainData(model map[string]interface{}) error {
+// plainCopy returns a deep copy of model, which must hold plain data only:
+// maps with string keys, lists and scalars. A template can call the exported
+// methods of any other value it reaches. It can also modify the maps and
+// lists it receives (set, sortAlpha), hence a copy for each execution.
+func plainCopy(model map[string]interface{}) (map[string]interface{}, error) {
 	var violations []string
+	data := make(map[string]interface{}, len(model))
 	for key, value := range model {
-		checkValue(key, value, &violations)
+		data[key] = copyValue(key, value, &violations)
 	}
-	if len(violations) == 0 {
-		return nil
+	if len(violations) > 0 {
+		slices.Sort(violations)
+		return nil, fmt.Errorf("the template data is not plain data: %s", violations[0])
 	}
-	slices.Sort(violations)
-	return fmt.Errorf("the template data is not plain data: %s", violations[0])
+	return data, nil
 }
 
-func checkValue(path string, value interface{}, violations *[]string) {
+func copyValue(path string, value interface{}, violations *[]string) interface{} {
 	switch v := value.(type) {
-	case nil, string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, []string:
+	case nil, string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return v
 	case map[string]interface{}:
+		if v == nil {
+			return v
+		}
+		out := make(map[string]interface{}, len(v))
 		for key, item := range v {
-			checkValue(path+"."+key, item, violations)
+			out[key] = copyValue(path+"."+key, item, violations)
 		}
+		return out
 	case []interface{}:
-		for i, item := range v {
-			checkValue(fmt.Sprintf("%s[%d]", path, i), item, violations)
+		if v == nil {
+			return v
 		}
+		out := make([]interface{}, len(v))
+		for i, item := range v {
+			out[i] = copyValue(fmt.Sprintf("%s[%d]", path, i), item, violations)
+		}
+		return out
+	case []string:
+		return slices.Clone(v)
 	case []map[string]interface{}:
-		for i, item := range v {
-			checkValue(fmt.Sprintf("%s[%d]", path, i), item, violations)
+		if v == nil {
+			return v
 		}
+		out := make([]map[string]interface{}, len(v))
+		for i, item := range v {
+			out[i], _ = copyValue(fmt.Sprintf("%s[%d]", path, i), item, violations).(map[string]interface{})
+		}
+		return out
 	default:
 		*violations = append(*violations, fmt.Sprintf("%s is a %T", path, value))
+		return nil
 	}
 }

@@ -24,6 +24,8 @@ import (
 	"kubocd/internal/kuboschema"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+	"maps"
+	"slices"
 
 	"sigs.k8s.io/yaml"
 )
@@ -194,8 +196,8 @@ func (pck *Package) Groom(configSore configstore.ConfigStore, functions tmpl.Fun
 		return fmt.Errorf("could not parse 'dependencies' template: %w", err)
 	}
 	pck.templates.usage = make(map[string]tmpl.Tmpl)
-	for key, usage := range pck.Usage {
-		pck.templates.usage[key], err = tmpl.New("", string(usage), pck.TemplateHeader, functions)
+	for _, key := range slices.Sorted(maps.Keys(pck.Usage)) {
+		pck.templates.usage[key], err = tmpl.New("", string(pck.Usage[key]), pck.TemplateHeader, functions)
 		if err != nil {
 			return fmt.Errorf("could not parse 'usage[%s]' template: %w", key, err)
 		}
@@ -294,8 +296,8 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 	}
 	var err error
 	r.Usage = make(map[string]string)
-	for key, template := range pck.templates.usage {
-		r.Usage[key], err = template.RenderToText(model)
+	for _, key := range slices.Sorted(maps.Keys(pck.templates.usage)) {
+		r.Usage[key], err = pck.templates.usage[key].RenderToText(model)
 		if err != nil {
 			return nil, fmt.Errorf("could not render 'usage[%s]' template: %w", key, err)
 		}

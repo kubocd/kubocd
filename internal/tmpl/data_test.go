@@ -19,6 +19,7 @@ package tmpl
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -67,5 +68,55 @@ func TestTemplatesReceivePlainDataOnly(t *testing.T) {
 				t.Fatalf("the error quotes the value: %v", err)
 			}
 		})
+	}
+}
+
+func isolationModel() map[string]interface{} {
+	return map[string]interface{}{
+		"Parameters": map[string]interface{}{"labels": map[string]interface{}{"team": "data"}},
+		"Secrets":    []string{"b", "a"},
+		"Entries":    []map[string]interface{}{{"k": "v"}},
+	}
+}
+
+func TestEachExecutionWorksOnItsOwnCopy(t *testing.T) {
+	writer, err := New("", `{{ $_ := set .Parameters.labels "team" "changed" }}{{ $_ := set . "added" 1 }}`+
+		`{{ $_ := set (index .Entries 0) "k" "changed" }}{{ sortAlpha .Secrets | toJson }} `+
+		`{{ .Parameters.labels.team }} {{ .added }} {{ (index .Entries 0).k }}`, "", ReleaseFunctions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := New("", `{{ toJson .Secrets }} {{ .Parameters.labels.team }} {{ .added }} {{ (index .Entries 0).k }}`, "", ReleaseFunctions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := isolationModel()
+	got, err := writer.RenderToText(model)
+	if want := `["a","b"] changed 1 changed`; err != nil || got != want {
+		t.Fatalf("set and sortAlpha within an execution: got %q (%v), want %q", got, err, want)
+	}
+	if !reflect.DeepEqual(model, isolationModel()) {
+		t.Fatalf("the execution modified its data: %v", model)
+	}
+	got, err = reader.RenderToText(model)
+	if want := `["b","a"] data  v`; err != nil || got != want {
+		t.Fatalf("next execution: got %q (%v), want %q", got, err, want)
+	}
+}
+
+func TestCopyKeepsNilAndEmptyContainers(t *testing.T) {
+	tt, err := New("", `{{ toJson .nilMap }} {{ toJson .nilList }} {{ toJson .nilStrings }} {{ toJson .nilMaps }} `+
+		`{{ toJson .emptyMap }} {{ toJson .emptyList }} {{ toJson .emptyStrings }} {{ toJson .emptyMaps }}`, "", ReleaseFunctions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := tt.RenderToText(map[string]interface{}{
+		"nilMap": map[string]interface{}(nil), "nilList": []interface{}(nil),
+		"nilStrings": []string(nil), "nilMaps": []map[string]interface{}(nil),
+		"emptyMap": map[string]interface{}{}, "emptyList": []interface{}{},
+		"emptyStrings": []string{}, "emptyMaps": []map[string]interface{}{},
+	})
+	if want := `null null null null {} [] [] []`; err != nil || got != want {
+		t.Fatalf("got %q (%v), want %q", got, err, want)
 	}
 }

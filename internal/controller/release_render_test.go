@@ -262,3 +262,74 @@ func TestObjectInTheTemplateDataIsRejected(t *testing.T) {
 		t.Fatalf("got error %v, want one containing %q", err, want)
 	}
 }
+
+const sharedDefaultsPackage = `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+schema:
+  parameters:
+    properties:
+      class:
+        type: string
+      labels:
+        properties:
+          team:
+            type: string
+            default: data
+  context:
+    properties:
+      ingress:
+        properties:
+          className:
+            type: string
+            default: nginx
+usage:
+  a: '{{ $_ := set .Parameters "seen" "a" }}{{ $_ := set .Context.ingress "className" "usage-a" }}a'
+  b: '{{ .Parameters.seen | default "none" }} {{ .Context.ingress.className }}'
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      {{- $_ := set .Parameters.labels "team" "values" }}
+      ingressClass: {{ .Context.ingress.className }}
+      paramClass: {{ .Parameters.class }}
+      team: {{ .Parameters.labels.team }}
+`
+
+// The first Release reads the default Context, then modifies it, from its
+// parameters. Without a Context object, ComputeContext hands out the cached
+// default of the package itself.
+func TestRenderingLeavesThePackageDefaultsIntact(t *testing.T) {
+	helper, store := newTestHelper(t), newTestStore(t)
+	pckContainer := newTestPackage(t, sharedDefaultsPackage)
+	defaultContext, defaultParameters := DeepCopyTree(pckContainer.DefaultContext), DeepCopyTree(pckContainer.DefaultParameters)
+	releases := []*kv1alpha1.Release{
+		newTestRelease("first", "{\"class\":\"{{ .Context.ingress.className }}{{ $_ := set .Context.ingress `className` `pwned` }}\"}"),
+		newTestRelease("second", `{"class":"{{ .Context.ingress.className }}"}`),
+	}
+	for _, release := range releases {
+		rendered, _, err := renderRelease(helper, store, release, pckContainer)
+		if err != nil {
+			t.Fatalf("%s: render failed: %v", release.Name, err)
+		}
+		got := rendered.ModuleRenderedByName["main"].Values
+		want := map[string]interface{}{"ingressClass": "nginx", "paramClass": "nginx", "team": "values"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got values %v, want %v", release.Name, got, want)
+		}
+		if got, want := rendered.Usage, map[string]string{"a": "a", "b": "none nginx"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got usage %v, want %v", release.Name, got, want)
+		}
+	}
+	if !reflect.DeepEqual(pckContainer.DefaultContext, defaultContext) {
+		t.Errorf("the cached default context changed: %v", pckContainer.DefaultContext)
+	}
+	if !reflect.DeepEqual(pckContainer.DefaultParameters, defaultParameters) {
+		t.Errorf("the cached default parameters changed: %v", pckContainer.DefaultParameters)
+	}
+}
