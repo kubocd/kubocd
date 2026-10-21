@@ -425,7 +425,7 @@ var renderCmd = &cobra.Command{
 				}
 			}
 			// --------------------------------------------------------------------- Generate output connections
-			for _, outputRendered := range rendered.Outputs {
+			for idx, outputRendered := range rendered.Outputs {
 				if outputRendered.Kind == kapi.KindClusterConnection {
 					connection := &kapi.ClusterConnection{
 						TypeMeta: metav1.TypeMeta{
@@ -438,7 +438,7 @@ var renderCmd = &cobra.Command{
 					}
 					valuesTxt, err := json.Marshal(outputRendered.Values)
 					if err != nil {
-						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+						return fmt.Errorf("output[%d]: could not encode the values: %w", idx, err)
 					}
 					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
 					connection.Spec.Contract = outputRendered.Contract
@@ -464,7 +464,7 @@ var renderCmd = &cobra.Command{
 					}
 					valuesTxt, err := json.Marshal(outputRendered.Values)
 					if err != nil {
-						return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+						return fmt.Errorf("output[%d]: could not encode the values: %w", idx, err)
 					}
 					connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
 					connection.Spec.Contract = outputRendered.Contract

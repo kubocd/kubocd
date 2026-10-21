@@ -61,19 +61,19 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	}
 	pModel := BuildModel(kcontext, nil, release, configStore)
 
-	parameters, txt, err := parametersTmpl.RenderToMap(pModel)
+	releaseParameters, err := parametersTmpl.RenderToMap(pModel)
 	if err != nil {
-		return nil, fmt.Errorf("could not render parameters template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render parameters template: %w", err)
 	}
 
-	parameters = misc.MergeMaps(pckContainer.DefaultParameters, parameters)
+	parameters := misc.MergeMaps(pckContainer.DefaultParameters, releaseParameters)
 	if len(pckContainer.ParamConnectionDecls) > 0 {
 		// The merge shares subtrees with the cached package defaults: the
 		// in-place substitution of resolved connections needs an owned copy
 		parameters = DeepCopyTree(parameters)
 		// Templated defaults of connectionRef parameters are rendered against
 		// the Context (a literal default is rejected at groom time)
-		err = RenderRefDefaults(pckContainer.ParamConnectionDecls, parameters, pModel)
+		err = RenderRefDefaults(pckContainer.ParamConnectionDecls, parameters, releaseParameters, pModel)
 		if err != nil {
 			return nil, err
 		}

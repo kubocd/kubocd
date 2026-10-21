@@ -194,14 +194,15 @@ func formatAlias(concrete []string, inContext bool) string {
 	return sb.String()
 }
 
-// RenderRefDefaults renders the templated defaults of connectionRef
-// parameters against the given model (which carries the Context). Called
-// after the defaults merge: a remaining template string at a ref path can
-// only come from the schema default, the deployer-provided parameters were
-// already rendered. An empty rendering means "not set".
-func RenderRefDefaults(decls []kuboschema.ConnectionDecl, parameters map[string]interface{}, model map[string]interface{}) error {
+// RenderRefDefaults renders, against the given model (which carries the
+// Context), the templated defaults of the connectionRef parameters that
+// releaseParameters, the rendered parameters of the Release, leave unset.
+// Called on parameters, the result of the defaults merge. A value set by the
+// Release is a connection name, never parsed as a template. An empty
+// rendering means "not set".
+func RenderRefDefaults(decls []kuboschema.ConnectionDecl, parameters, releaseParameters, model map[string]interface{}) error {
 	for _, decl := range decls {
-		if decl.Default == "" {
+		if decl.Default == "" || isSetAt(releaseParameters, decl.Path) {
 			continue
 		}
 		if err := renderRefDefaultAt(decl.Path, nil, parameters, model); err != nil {
@@ -237,8 +238,8 @@ func renderRefDefaultAt(remaining, concrete []string, node interface{}, model ma
 		if !ok || !strings.Contains(value, "{{") {
 			return nil
 		}
-		// The value can come from the Release parameters as well as from the
-		// schema default, so it only gets the Release functions
+		// The value is the schema default. It gets the Release functions,
+		// like the parameters it completes.
 		t, err := tmpl.New("", value, "", tmpl.ReleaseFunctions())
 		if err != nil {
 			return err
@@ -251,6 +252,29 @@ func renderRefDefaultAt(remaining, concrete []string, node interface{}, model ma
 		return nil
 	}
 	return renderRefDefaultAt(remaining[1:], append(concrete, seg), nodeMap[seg], model)
+}
+
+// isSetAt tells whether tree sets the value at path, or a value other than a
+// map on the way to it. A list on the way counts as set: its items are not
+// defaulted.
+func isSetAt(tree map[string]interface{}, path []string) bool {
+	node := tree
+	for i, seg := range path {
+		if seg == "[]" {
+			return true
+		}
+		value, ok := node[seg]
+		if !ok {
+			return false
+		}
+		if i == len(path)-1 {
+			return true
+		}
+		if node, ok = value.(map[string]interface{}); !ok {
+			return true
+		}
+	}
+	return false
 }
 
 // DeepCopyTree deep-copies a parameters or context tree (maps, lists and

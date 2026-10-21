@@ -91,10 +91,10 @@ func bimHandleConnectionRef(ctx context.Context, idx int, input *kubopackage.Inp
 				})
 				return nil, nil
 			}
-			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get %s '%s': %w", idx+1, kind, nsName.String(), err), false, "")
+			return nil, NewReconcileError(fmt.Errorf("input#%d: could not get the %s: %s", idx+1, kind, apiError(err)), false, "")
 		}
 		if connectionFacade.GetContract() != input.Contract {
-			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: Contract mismatch: '%s' != '%s'", idx+1, input.Contract, connectionFacade.GetContract()), false, "")
+			return connectionFacade, NewReconcileError(fmt.Errorf("input#%d: the connection has another contract than the input", idx+1), false, "")
 		}
 		return connectionFacade, nil
 	}
@@ -121,12 +121,18 @@ func bimHandleConnectionRef(ctx context.Context, idx int, input *kubopackage.Inp
 	return bimFilterConnection(collectionFacades, idx, input, resultCollector)
 }
 
+// listError describes a failed lookup of the connections of an input by the
+// index of the input and apiError, as the request holds rendered text.
+func listError(idx int, kind kv1alpha1.Kind, rErr ReconcileError) ReconcileError {
+	return NewReconcileError(fmt.Errorf("input#%d: could not list the %ss: %s", idx+1, kind, apiError(rErr.GetBaseError())), rErr.IsFatal(), rErr.GetEventReason())
+}
+
 func bimHandleReleaseRef(ctx context.Context, idx int, input *kubopackage.InputRendered, helper BuildInputModelHelper, resultCollector *BuildInputModelResult) ReconcileError {
 	collectionFacades := make([]kv1alpha1.ConnectionFacade, 0, 5)
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
 		cnx, err := helper.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.ReleaseRef.Namespace, Name: input.ReleaseRef.Name})
 		if err != nil {
-			return err
+			return listError(idx, kv1alpha1.KindConnection, err)
 		}
 		for i := range cnx {
 			collectionFacades = append(collectionFacades, &cnx[i])
@@ -135,7 +141,7 @@ func bimHandleReleaseRef(ctx context.Context, idx int, input *kubopackage.InputR
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
 		cnx, err := helper.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: input.ReleaseRef.Namespace, Name: input.ReleaseRef.Name})
 		if err != nil {
-			return err
+			return listError(idx, kv1alpha1.KindClusterConnection, err)
 		}
 		for i := range cnx {
 			collectionFacades = append(collectionFacades, &cnx[i])
@@ -149,7 +155,7 @@ func bimHandleContractConnection(ctx context.Context, idx int, input *kubopackag
 	if input.Kind == "" || input.Kind == kv1alpha1.KindConnection {
 		cnx, err := helper.FindConnectionsFromContract(ctx, input.GetContractLookupNamespace(), input.Contract)
 		if err != nil {
-			return err
+			return listError(idx, kv1alpha1.KindConnection, err)
 		}
 		for i := range cnx {
 			collectionFacades = append(collectionFacades, &cnx[i])
@@ -158,7 +164,7 @@ func bimHandleContractConnection(ctx context.Context, idx int, input *kubopackag
 	if input.Kind == "" || input.Kind == kv1alpha1.KindClusterConnection {
 		cnx, err := helper.FindClusterConnectionsFromContract(ctx, input.Contract)
 		if err != nil {
-			return err
+			return listError(idx, kv1alpha1.KindClusterConnection, err)
 		}
 		for i := range cnx {
 			collectionFacades = append(collectionFacades, &cnx[i])
@@ -263,7 +269,7 @@ func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{
 	if conn.GetValuesRaw() != nil {
 		err := yaml.UnmarshalStrict(conn.GetValuesRaw(), &values)
 		if err != nil {
-			return nil, NewReconcileError(fmt.Errorf("input #%d: could not unmarshal connection '%s' values: %w", idx, types.NamespacedName{Namespace: conn.GetNamespace(), Name: conn.GetName()}.String(), err), false, "")
+			return nil, NewReconcileError(fmt.Errorf("input #%d: the values of the connection are not a map", idx), false, "")
 		}
 	}
 	return values, nil

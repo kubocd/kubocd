@@ -246,38 +246,37 @@ var createNamespacePatch = map[string]interface{}{
 func (m *Module) Render(model map[string]interface{}) (*ModuleRendered, error) {
 	mr := &ModuleRendered{}
 	var err error
-	var txt string
-	mr.Parameters, txt, err = m.templates.parameters.RenderToMap(model)
+	mr.Parameters, err = m.templates.parameters.RenderToMap(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'parameters' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'parameters' template: %w", err)
 	}
-	mr.Values, txt, err = m.templates.values.RenderToMap(model)
+	mr.Values, err = m.templates.values.RenderToMap(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'values' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'values' template: %w", err)
 	}
-	mr.SpecPatch, txt, err = m.templates.specPatch.RenderToMap(model)
+	mr.SpecPatch, err = m.templates.specPatch.RenderToMap(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'specPatch' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'specPatch' template: %w", err)
 	}
-	mr.Timeout, txt, err = m.templates.timeout.RenderToDuration(model)
+	mr.Timeout, err = m.templates.timeout.RenderToDuration(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'timeout' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'timeout' template: %w", err)
 	}
-	mr.Interval, txt, err = m.templates.interval.RenderToDuration(model)
+	mr.Interval, err = m.templates.interval.RenderToDuration(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'interval' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'interval' template: %w", err)
 	}
 	mr.TargetNamespace, err = m.templates.targetNamespace.RenderToSingleLine(model)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'targetNamespace' template: %w", err)
 	}
-	mr.Enabled, txt, err = m.templates.enabled.RenderToBool(model, true)
+	mr.Enabled, err = m.templates.enabled.RenderToBool(model, true)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'enabled' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'enabled' template: %w", err)
 	}
-	mr.DependsOn, txt, err = m.templates.dependsOn.RenderToStringList(model)
+	mr.DependsOn, err = m.templates.dependsOn.RenderToStringList(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'dependsOn' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'dependsOn' template: %w", err)
 	}
 	if model["Release"].(map[string]interface{})["spec"].(map[string]interface{})["createNamespace"].(bool) {
 		mr.SpecPatch = misc.MergeMaps(mr.SpecPatch, createNamespacePatch)

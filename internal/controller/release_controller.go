@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/cache"
@@ -133,6 +134,11 @@ func NewReconcileError(err error, fatal bool, eventReason string) ReconcileError
 	}
 }
 
+// atPlace returns rErr with place, such as output[0], before its message.
+func atPlace(place string, rErr ReconcileError) ReconcileError {
+	return NewReconcileError(fmt.Errorf("%s: %w", place, rErr.GetBaseError()), rErr.IsFatal(), rErr.GetEventReason())
+}
+
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases/finalizers,verbs=update
@@ -199,7 +205,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 				err := r.Delete(ctx, &clusterConnection)
 				if err != nil {
 					// Just log, without any other action
-					op.logger.Error(err, "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
+					op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
 				}
 			}
 		}
@@ -515,7 +521,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	for idx, condition := range rendered.Conditions {
 		ok, message, reconcileError := CheckCondition(op.ctx, r, condition)
 		if reconcileError != nil {
-			return r.reportError(op, reconcileError, forceUpdate)
+			return r.reportError(op, atPlace(fmt.Sprintf("condition[%d]", idx), reconcileError), forceUpdate)
 		}
 		if !ok {
 			message := fmt.Sprintf("Waiting for cond.#%d: %s", idx+1, message)
@@ -600,7 +606,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	op.outputConnectionByName = make(map[string]kv1alpha1.ReleaseOutputConnection)
 	op.outputConnectionK8sName = make(map[string]struct{})
 	op.outputClusterConnectionK8sName = make(map[string]struct{})
-	for _, outputRendered := range rendered.Outputs {
+	for idx, outputRendered := range rendered.Outputs {
 		var reconcileError ReconcileError
 		if outputRendered.Kind == kv1alpha1.KindClusterConnection {
 			clusterConnectionName := BuildClusterConnectionName(op.release.Name, op.release.Namespace, outputRendered.Name)
@@ -610,7 +616,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			_, reconcileError = r.handleOutputConnection(op, connectionName, outputRendered)
 		}
 		if reconcileError != nil {
-			return r.reportError(op, reconcileError, forceUpdate)
+			return r.reportError(op, atPlace(fmt.Sprintf("output[%d]", idx), reconcileError), forceUpdate)
 		}
 	}
 
@@ -658,7 +664,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			logger.V(0).Info("Deleting orphan connection", "name", connection.Name)
 			err := r.Delete(ctx, &connection)
 			if err != nil {
-				logger.Error(err, "unable to delete connection", "connection", connection.Name)
+				logger.Error(errors.New(apiError(err)), "unable to delete connection", "connection", connection.Name)
 			}
 		}
 	}
@@ -672,7 +678,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			logger.V(0).Info("Deleting orphan clusterConnection", "name", clusterConnection.Name)
 			err := r.Delete(ctx, &clusterConnection)
 			if err != nil {
-				logger.Error(err, "unable to delete clusterConnection", "clusterConnection", clusterConnection.Name)
+				logger.Error(errors.New(apiError(err)), "unable to delete clusterConnection", "clusterConnection", clusterConnection.Name)
 			}
 		}
 	}
@@ -724,7 +730,7 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	if err != nil {
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
 		if r.statusErrorCount > 0 {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not update the Release status: %s", apiError(err))
 		}
 		r.statusErrorCount++
 		op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"kubocd/internal/kubopackage"
 	"strings"
@@ -51,7 +52,7 @@ func CheckCondition(ctx context.Context, k8sClient client.Client, condition *kub
 			// The CRD may be deployed later. So, this is not an error, just an unfulfilled condition.
 			return false, fmt.Sprintf("%s: this kind is not defined on this cluster", conditionRef(condition)), nil
 		}
-		return false, "", NewReconcileError(fmt.Errorf("unable to lookup for kind '%s': %w", conditionRef(condition), mErr), false, "ConditionError")
+		return false, "", NewReconcileError(fmt.Errorf("unable to look up the kind of the object, %s", conditionWithheld), false, "ConditionError")
 	}
 	object := &unstructured.Unstructured{}
 	object.SetGroupVersionKind(mapping.GroupVersionKind)
@@ -68,7 +69,7 @@ func CheckCondition(ctx context.Context, k8sClient client.Client, condition *kub
 		if k8serrors.IsNotFound(gErr) {
 			return false, fmt.Sprintf("%s: object does not exists", conditionRef(condition)), nil
 		}
-		return false, "", NewReconcileError(fmt.Errorf("unable to fetch %s: %w", conditionRef(condition), gErr), false, "ConditionError")
+		return false, "", NewReconcileError(fmt.Errorf("unable to fetch the object: %s", apiError(gErr)), false, "ConditionError")
 	}
 	if strings.TrimSpace(condition.Cel) == "" {
 		// Existence of the object was the only requirement
@@ -77,8 +78,13 @@ func CheckCondition(ctx context.Context, k8sClient client.Client, condition *kub
 	return evalConditionCel(condition, object.Object)
 }
 
+// conditionWithheld stands for a message of the REST mapper or of cel-go,
+// which can quote the condition, rendered from data, or a value of the object.
+const conditionWithheld = "message withheld, as it can quote the condition or the object"
+
 // evalConditionCel evaluates the CEL expression against the object, each of its root attributes
 // (apiVersion, kind, metadata, spec, status, data, ...) being exposed as a variable.
+// Its messages name the object, never the expression nor the message of cel-go.
 func evalConditionCel(condition *kubopackage.ConditionRendered, object map[string]interface{}) (ok bool, message string, err ReconcileError) {
 	envOptions := make([]cel.EnvOption, 0, len(object))
 	for attribute := range object {
@@ -86,40 +92,35 @@ func evalConditionCel(condition *kubopackage.ConditionRendered, object map[strin
 	}
 	env, cErr := cel.NewEnv(envOptions...)
 	if cErr != nil {
-		return false, "", NewReconcileError(fmt.Errorf("%s: unable to build the cel environment: %w", conditionRef(condition), cErr), false, "ConditionError") // Should not occur
+		return false, "", NewReconcileError(fmt.Errorf("unable to build the cel environment, %s", conditionWithheld), false, "ConditionError") // Should not occur
 	}
 	ast, issues := env.Parse(condition.Cel)
 	if issues != nil && issues.Err() != nil {
 		// A broken expression will not fix itself. This is a package definition error.
-		return false, "", NewReconcileError(fmt.Errorf("%s: invalid cel expression '%s': %w", conditionRef(condition), condition.Cel, issues.Err()), true, "ConditionError")
+		return false, "", NewReconcileError(fmt.Errorf("the cel expression is not valid, %s", conditionWithheld), true, "ConditionError")
 	}
 	ast, issues = env.Check(ast)
 	if issues != nil && issues.Err() != nil {
 		// Most of the time, the expression refers to an attribute not (yet) set on the object.
-		// Only keep the first line of the cel report, as the following ones are just a graphical location of the problem.
-		return false, fmt.Sprintf("%s: unable to evaluate cel expression '%s' on this object: %s", conditionRef(condition), condition.Cel, firstLine(issues.Err().Error())), nil
+		return false, fmt.Sprintf("%s: unable to check the cel expression against this object, %s", conditionRef(condition), conditionWithheld), nil
 	}
 	program, cErr := env.Program(ast)
 	if cErr != nil {
-		return false, "", NewReconcileError(fmt.Errorf("%s: unable to build a program from cel expression '%s': %w", conditionRef(condition), condition.Cel, cErr), true, "ConditionError")
+		return false, "", NewReconcileError(fmt.Errorf("unable to build a program from the cel expression, %s", conditionWithheld), true, "ConditionError")
 	}
 	value, _, cErr := program.Eval(object)
 	if cErr != nil {
 		// Typically a missing sub-attribute (i.e 'status.phase' while status is set, but empty)
-		return false, fmt.Sprintf("%s: unable to evaluate cel expression '%s' on this object: %s", conditionRef(condition), condition.Cel, cErr), nil
+		return false, fmt.Sprintf("%s: unable to evaluate the cel expression on this object, %s", conditionRef(condition), conditionWithheld), nil
 	}
 	result, isBool := value.Value().(bool)
 	if !isBool {
-		return false, "", NewReconcileError(fmt.Errorf("%s: cel expression '%s' does not evaluate to a boolean", conditionRef(condition), condition.Cel), true, "ConditionError")
+		return false, "", NewReconcileError(errors.New("the cel expression does not evaluate to a boolean"), true, "ConditionError")
 	}
 	if !result {
-		return false, fmt.Sprintf("%s: cel expression '%s' is false", conditionRef(condition), condition.Cel), nil
+		return false, fmt.Sprintf("%s: the cel expression is false", conditionRef(condition)), nil
 	}
 	return true, "", nil
-}
-
-func firstLine(txt string) string {
-	return strings.TrimSpace(strings.SplitN(txt, "\n", 2)[0])
 }
 
 // conditionRef build a human-readable reference of the object targeted by the condition

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -40,7 +41,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 	if err != nil {
 		//logger.V(1).Info("Unable to fetch helmRelease", "error", err.Error())
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on helmRelease '%s': %w", helmReleaseName, err), false, "HelmReleaseAccess")
+			return nil, NewReconcileError(fmt.Errorf("could not get HelmRelease '%s': %s", helmReleaseName, apiError(err)), false, "HelmReleaseAccess")
 		}
 		if enabled {
 			// Must create it
@@ -79,7 +80,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			// Must delete
 			err := r.Delete(op.ctx, helmRelease)
 			if err != nil {
-				return nil, NewReconcileError(err, false, "HelmReleaseDelete")
+				return nil, NewReconcileError(fmt.Errorf("error while deleting HelmRelease '%s': %s", helmReleaseName, apiError(err)), false, "HelmReleaseDelete")
 			}
 			op.logger.V(1).Info("Delete helmRelease", "helmReleaseName", helmReleaseName)
 			delete(op.helmReleaseStates, module.Name)
@@ -125,10 +126,10 @@ func PopulateHelmRelease(
 
 	// Build dependencies list
 	dependsOn := make([]map[string]string, 0, len(moduleRendered.DependsOn))
-	for _, dep := range moduleRendered.DependsOn {
+	for idx, dep := range moduleRendered.DependsOn {
 		rn, ok := helmReleaseNameByModuleName[dep]
 		if !ok {
-			return fmt.Errorf("dependency '%s' not found for module '%s'", dep, module.Name)
+			return fmt.Errorf("dependsOn[%d] not found for module '%s'", idx, module.Name)
 		}
 		dependsOn = append(dependsOn, map[string]string{
 			"name":      rn,
@@ -167,7 +168,7 @@ func PopulateHelmRelease(
 	if moduleRendered.OnFailureStrategy != "" {
 		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
 		if strategy == nil {
-			return fmt.Errorf("onFailureStrategy: %s not found for module '%s'", moduleRendered.OnFailureStrategy, module.Name)
+			return fmt.Errorf("onFailureStrategy of module '%s' is not a known strategy", module.Name)
 		}
 		deleteFailureConf(spec)
 		spec = misc.MergeMaps(spec, strategy)
@@ -218,19 +219,36 @@ func PopulateHelmRelease(
 		}
 	}
 
-	// Convert spec to YAML and unmarshal into HelmRelease spec
-	specTxt, err := yaml.Marshal(spec)
-	if err != nil {
-		return fmt.Errorf("failed to marshal spec to YAML for module '%s': %w", module.Name, err)
-	}
-
-	//err = yaml.Unmarshal(specTxt, &helmRelease.Spec)
-	//fmt.Printf("HelmRelease spec:\n%s\n", string(specTxt))
-	err = yaml.UnmarshalStrict(specTxt, &helmRelease.Spec)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': %w", module.Name, err)
+	if err := decodeHelmReleaseSpec(spec, &helmRelease.Spec); err != nil {
+		// Checked on failure only, as a later patch can replace what specPatch sets
+		if specPatchErr := decodeHelmReleaseSpec(moduleRendered.SpecPatch, &fluxv2.HelmReleaseSpec{}); specPatchErr != nil {
+			return fmt.Errorf("specPatch of module '%s' has %w", module.Name, specPatchErr)
+		}
+		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': the configuration or the Release sets %w", module.Name, err)
 	}
 	return nil
+}
+
+var (
+	errUndefinedField = errors.New("a field that HelmRelease does not define")
+	errWrongValue     = errors.New("a value of the wrong type or format")
+)
+
+// decodeHelmReleaseSpec decodes spec into target, rejecting the fields that
+// HelmRelease does not define. Its error is a category: the decoder message
+// quotes the field or the value at fault.
+func decodeHelmReleaseSpec(spec map[string]interface{}, target *fluxv2.HelmReleaseSpec) error {
+	specTxt, err := yaml.Marshal(spec)
+	if err != nil {
+		return errWrongValue
+	}
+	if yaml.UnmarshalStrict(specTxt, target) == nil {
+		return nil
+	}
+	if yaml.Unmarshal(specTxt, &fluxv2.HelmReleaseSpec{}) == nil {
+		return errUndefinedField
+	}
+	return errWrongValue
 }
 
 func deleteFailureConf(spec map[string]interface{}) {
@@ -271,7 +289,7 @@ func (r *ReleaseReconciler) createHelmRelease(op *releaseOperation, rendered *ku
 		return fmt.Errorf("unable to set HelmRelease '%s' owner reference: %w", helmReleaseName, err)
 	}
 	if err = r.Create(op.ctx, helmRelease); err != nil {
-		return fmt.Errorf("error while creating HelmRelease '%s': %w", helmReleaseName, err)
+		return fmt.Errorf("error while creating HelmRelease '%s': %s", helmReleaseName, apiError(err))
 	}
 	return nil
 }
@@ -292,7 +310,7 @@ func patchHelmRelease(r *ReleaseReconciler, op *releaseOperation, helmRelease *f
 	// Apply the patch
 	err = r.Patch(op.ctx, helmRelease, patch)
 	if err != nil {
-		return false, fmt.Errorf("error while patching HelmRelease '%s': %w", helmRelease.Name, err)
+		return false, fmt.Errorf("error while patching HelmRelease '%s': %s", helmRelease.Name, apiError(err))
 	}
 
 	// Check if the generation changed to determine if an update occurred

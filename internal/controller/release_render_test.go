@@ -376,3 +376,76 @@ modules:
 		t.Fatalf("got values %v, want %v", got, want)
 	}
 }
+
+const canaryPassword = "s3cr3t-SEC1-canary"
+
+// leakPackage declares a connectionRef parameter, and inserts module fields
+// and package fields written to fail with the password of the connection.
+const leakPackage = `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+schema:
+  parameters:
+    properties:
+      db:
+        type: connectionRef
+        contract: database
+        required: true
+%s
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+%s
+`
+
+func TestRenderErrorsDoNotQuoteConnectionValues(t *testing.T) {
+	cases := map[string]struct {
+		packageFields string
+		moduleFields  string
+		want          string
+	}{
+		"values": {"", `    values: |
+      password: {{ .Parameters.db.password }}
+      broken: [unclosed`, "could not render 'values' template: the rendered text is not valid YAML (line 2)"},
+		"enabled":   {"", `    enabled: "{{ .Parameters.db.password }}"`, "could not render 'enabled' template: the rendered text is not a boolean"},
+		"timeout":   {"", `    timeout: "{{ .Parameters.db.password }}"`, "could not render 'timeout' template: the rendered text is not a duration"},
+		"dependsOn": {"", `    dependsOn: "[ {{ .Parameters.db.password }} ]"`, "dependsOn[0] does not name a module of the package"},
+		"outputs, unknown field": {`outputs: |
+  - contract: database
+    {{ .Parameters.db.password }}: x`, "", "could not render 'outputs' template: the rendered text does not have the expected structure"},
+		"outputs, duplicate name": {`outputs: |
+  - contract: database
+    name: {{ .Parameters.db.password }}
+  - contract: database
+    name: {{ .Parameters.db.password }}`, "", "output[1]: duplicate output name"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			helper := newTestHelper(t, readyConnection("pg", "database", `{"host":"pg","password":"`+canaryPassword+`"}`))
+			pckContainer := newTestPackage(t, fmt.Sprintf(leakPackage, c.packageFields, c.moduleFields))
+			_, _, err := renderRelease(helper, newTestStore(t), newTestRelease("demo", `{"db":"pg"}`), pckContainer)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("got error %v, want one containing %q", err, c.want)
+			}
+			if strings.Contains(err.Error(), canaryPassword[:7]) {
+				t.Fatalf("the error quotes the connection password: %v", err)
+			}
+		})
+	}
+}
+
+func TestParametersErrorDoesNotQuoteTheContext(t *testing.T) {
+	release := newTestRelease("demo", `"value: {{ .Context.password }}\nbroken: [unclosed"`)
+	_, err := HandleParameters(release, map[string]interface{}{"password": canaryPassword}, newTestStore(t), &kubopackage.PckContainer{})
+	if err == nil || !strings.Contains(err.Error(), "could not render parameters template: the rendered text is not valid YAML") {
+		t.Fatalf("got error %v, want a YAML error on the parameters", err)
+	}
+	if strings.Contains(err.Error(), canaryPassword[:7]) {
+		t.Fatalf("the error quotes the context: %v", err)
+	}
+}

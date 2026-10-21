@@ -1,3 +1,4 @@
+//nolint:goconst // test inputs read better inline
 package controller
 
 import (
@@ -211,10 +212,49 @@ func TestRenderRefDefaults(t *testing.T) {
 			"platform": map[string]interface{}{"defaults": map[string]interface{}{"oidc": "kcd-keycloak-oidc"}},
 		},
 	}
-	if err := RenderRefDefaults([]kuboschema.ConnectionDecl{decl}, params, model); err != nil {
+	if err := RenderRefDefaults([]kuboschema.ConnectionDecl{decl}, params, map[string]interface{}{}, model); err != nil {
 		t.Fatalf("render defaults failed: %v", err)
 	}
 	if params["oidc"] != "kcd-keycloak-oidc" {
 		t.Errorf("default not rendered: %v", params["oidc"])
+	}
+}
+
+func TestRenderRefDefaultsLeavesTheReleaseValuesAsTheyAre(t *testing.T) {
+	decls := []kuboschema.ConnectionDecl{
+		{Path: []string{"oidc"}, Contract: "oidc", Default: "{{ .Context.oidc }}"},
+		{Path: []string{"group", "db"}, Contract: "database", Default: "{{ .Context.db }}"},
+	}
+	release := map[string]interface{}{"oidc": "{{ s3cr3t }}", "group": map[string]interface{}{}}
+	params := map[string]interface{}{"oidc": "{{ s3cr3t }}", "group": map[string]interface{}{"db": "{{ .Context.db }}"}}
+	model := map[string]interface{}{"Context": map[string]interface{}{"oidc": "kc", "db": "pg"}}
+	if err := RenderRefDefaults(decls, params, release, model); err != nil {
+		t.Fatalf("render defaults failed: %v", err)
+	}
+	if params["oidc"] != "{{ s3cr3t }}" {
+		t.Errorf("the value set by the Release was rendered: %v", params["oidc"])
+	}
+	if db := params["group"].(map[string]interface{})["db"]; db != "pg" {
+		t.Errorf("default not rendered: %v", db)
+	}
+}
+
+func TestIsSetAt(t *testing.T) {
+	tree := map[string]interface{}{"a": map[string]interface{}{"b": nil}, "s": "x", "l": []interface{}{}}
+	cases := map[string]struct {
+		path []string
+		want bool
+	}{
+		"value set to null": {[]string{"a", "b"}, true},
+		"value absent":      {[]string{"a", "c"}, false},
+		"parent absent":     {[]string{"z", "c"}, false},
+		"parent not a map":  {[]string{"s", "c"}, true},
+		"list on the way":   {[]string{"l", "[]", "c"}, true},
+		"list at the start": {[]string{"[]", "c"}, true},
+	}
+	for name, c := range cases {
+		if got := isSetAt(tree, c.path); got != c.want {
+			t.Errorf("%s: isSetAt(%v) = %v, want %v", name, c.path, got, c.want)
+		}
 	}
 }

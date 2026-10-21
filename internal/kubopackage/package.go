@@ -26,8 +26,6 @@ import (
 	"kubocd/internal/tmpl"
 	"maps"
 	"slices"
-
-	"sigs.k8s.io/yaml"
 )
 
 // KcdTemplateMap A template where expected result is a map[string]interface{}.
@@ -302,14 +300,13 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 			return nil, fmt.Errorf("could not render 'usage[%s]' template: %w", key, err)
 		}
 	}
-	var txt string
-	r.Roles, txt, err = pck.templates.roles.RenderToStringList(model)
+	r.Roles, err = pck.templates.roles.RenderToStringList(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'roles' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'roles' template: %w", err)
 	}
-	r.Dependencies, txt, err = pck.templates.dependencies.RenderToStringList(model)
+	r.Dependencies, err = pck.templates.dependencies.RenderToStringList(model)
 	if err != nil {
-		return nil, fmt.Errorf("could not render 'dependencies' template: %w (%s)", err, txt)
+		return nil, fmt.Errorf("could not render 'dependencies' template: %w", err)
 	}
 	r.Description, err = pck.templates.description.RenderToText(model)
 	if err != nil {
@@ -328,22 +325,18 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 		if !ok {
 			panic(fmt.Sprintf("missing module of name %s", module.Name)) // Should not occur
 		}
-		for _, dep := range rendered.DependsOn {
+		for idx, dep := range rendered.DependsOn {
 			_, ok = r.ModuleRenderedByName[dep]
 			if !ok {
-				return nil, fmt.Errorf("module '%s': dependsOn '%s': module does not exists", module.Name, dep)
+				return nil, fmt.Errorf("module '%s': dependsOn[%d] does not name a module of the package", module.Name, idx)
 			}
 		}
 	}
 	// ---------------------------- Render outputs
-	txt, err = pck.templates.outputs.RenderToText(model)
+	a := make([]*OutputRendered, 0)
+	err = pck.templates.outputs.RenderInto(model, &a)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'outputs' template: %w", err)
-	}
-	a := make([]*OutputRendered, 0)
-	err = yaml.UnmarshalStrict([]byte(txt), &a)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse 'outputs' template: %w", err)
 	}
 	r.Outputs = a
 	// ------- Adjust each output
@@ -371,22 +364,18 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 
 	// --------------- Must ensure output name are uniques
 	dupDetect := make(map[string]struct{})
-	for _, output := range r.Outputs {
+	for idx, output := range r.Outputs {
 		if _, ok := dupDetect[output.Name]; ok {
-			return nil, fmt.Errorf("duplicate output name '%s'", output.Name)
+			return nil, fmt.Errorf("output[%d]: duplicate output name", idx)
 		}
 		dupDetect[output.Name] = struct{}{}
 	}
 
 	// ------------------------- Render conditions
-	txt, err = pck.templates.conditions.RenderToText(model)
+	conditions := make([]*ConditionRendered, 0)
+	err = pck.templates.conditions.RenderInto(model, &conditions)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'conditions' template: %w", err)
-	}
-	conditions := make([]*ConditionRendered, 0)
-	err = yaml.UnmarshalStrict([]byte(txt), &conditions)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse 'conditions' template: %w", err)
 	}
 	r.Conditions = conditions
 
@@ -406,14 +395,10 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 }
 
 func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace string) ([]*InputRendered, error) {
-	txt, err := pck.templates.inputs.RenderToText(model)
+	result := make([]*InputRendered, 0)
+	err := pck.templates.inputs.RenderInto(model, &result)
 	if err != nil {
 		return nil, fmt.Errorf("could not render 'inputs' template: %w", err)
-	}
-	result := make([]*InputRendered, 0)
-	err = yaml.UnmarshalStrict([]byte(txt), &result)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse 'inputs' template: %w", err)
 	}
 
 	//fmt.Printf("***************************************** Rendering %d inputs\n%v\n", len(result), result)
@@ -426,7 +411,7 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 			return nil, fmt.Errorf("input[%d]: contract is required", idx)
 		}
 		if ir.Kind != "" && ir.Kind != kv1alpha1.KindConnection && ir.Kind != kv1alpha1.KindClusterConnection {
-			return nil, fmt.Errorf("input[%d]: invalid kind '%s' value ", idx, ir.Kind)
+			return nil, fmt.Errorf("input[%d]: 'kind' must be one of 'Connection' or 'ClusterConnection'", idx)
 		}
 		if ir.ConnectionRef.Name != "" {
 			if ir.ConnectionRef.Namespace == "" {

@@ -34,7 +34,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 	//fmt.Printf("handleOutputClusterConnection(outputRendered:%s\n)\n", misc.Any2Yaml(outputRendered))
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on ClusterConnection '%s': %w", clusterConnectionName, err), false, "ClusterConnectionAccess")
+			return nil, NewReconcileError(fmt.Errorf("could not get its ClusterConnection: %s", apiError(err)), false, "ClusterConnectionAccess")
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
@@ -85,13 +85,13 @@ func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterC
 	// Populate the HelmRelease with updated configuration
 	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
 	if err != nil {
-		return false, fmt.Errorf("failed to populate clusterConnection '%s': %w", clusterConnection.Name, err)
+		return false, fmt.Errorf("failed to populate its ClusterConnection: %w", err)
 	}
 
 	// Apply the patch
 	err = r.Patch(op.ctx, clusterConnection, patch)
 	if err != nil {
-		return false, fmt.Errorf("error while patching clusterConnection '%s': %w", clusterConnection.Name, err)
+		return false, fmt.Errorf("error while patching its ClusterConnection: %s", apiError(err))
 	}
 	// Check if the generation changed to determine if an update occurred
 	return originalGeneration != clusterConnection.Generation, nil
@@ -102,7 +102,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 	clusterConnection.SetName(clusterConnectionName)
 	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
 	if err != nil {
-		return fmt.Errorf("failed to populate clusterConnection '%s': %w", clusterConnectionName, err)
+		return fmt.Errorf("failed to populate its ClusterConnection: %w", err)
 	}
 	//err = ctrl.SetControllerReference(op.release, clusterConnection, r.Scheme())
 	//if err != nil {
@@ -113,7 +113,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 		Namespace: op.release.Namespace,
 	}
 	if err = r.Create(op.ctx, clusterConnection); err != nil {
-		return fmt.Errorf("error while creating clusterConnection '%s': %w", clusterConnectionName, err)
+		return fmt.Errorf("error while creating its ClusterConnection: %s", apiError(err))
 	}
 	// This will be set by the ClusterConnection controller
 	//clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", op.release.Namespace, op.release.Name)
@@ -127,7 +127,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
-		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+		return fmt.Errorf("could not encode the values: %w", err)
 	}
 	clusterConnection.Spec.Values = &v1.JSON{Raw: valuesTxt}
 	clusterConnection.Spec.Contract = outputRendered.Contract

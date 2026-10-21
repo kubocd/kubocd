@@ -35,7 +35,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 	//fmt.Printf("handleOutputConnection(outputRendered:%s\n)\n", misc.Any2Yaml(outputRendered))
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on Connection '%s': %w", connectionName, err), false, "ConnectionAccess")
+			return nil, NewReconcileError(fmt.Errorf("could not get its Connection: %s", apiError(err)), false, "ConnectionAccess")
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
@@ -86,13 +86,13 @@ func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1
 	// Populate the HelmRelease with updated configuration
 	err := PopulateConnection(connection, outputRendered)
 	if err != nil {
-		return false, fmt.Errorf("failed to populate connection '%s': %w", connection.Name, err)
+		return false, fmt.Errorf("failed to populate its Connection: %w", err)
 	}
 
 	// Apply the patch
 	err = r.Patch(op.ctx, connection, patch)
 	if err != nil {
-		return false, fmt.Errorf("error while patching connection '%s': %w", connection.Name, err)
+		return false, fmt.Errorf("error while patching its Connection: %s", apiError(err))
 	}
 	// Check if the generation changed to determine if an update occurred
 	return originalGeneration != connection.Generation, nil
@@ -104,14 +104,14 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 	connection.SetNamespace(op.release.Namespace)
 	err := PopulateConnection(connection, outputRendered)
 	if err != nil {
-		return fmt.Errorf("failed to populate connection '%s': %w", connectionName, err)
+		return fmt.Errorf("failed to populate its Connection: %w", err)
 	}
 	err = ctrl.SetControllerReference(op.release, connection, r.Scheme())
 	if err != nil {
-		return fmt.Errorf("unable to set connection '%s' owner reference: %w", connectionName, err)
+		return fmt.Errorf("unable to set the owner reference of its Connection: %w", err)
 	}
 	if err = r.Create(op.ctx, connection); err != nil {
-		return fmt.Errorf("error while creating connection '%s': %w", connectionName, err)
+		return fmt.Errorf("error while creating its Connection: %s", apiError(err))
 	}
 	// This will be set by the connection controller
 	//connection.Status.Parent = op.release.Name
@@ -125,7 +125,7 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
 	valuesTxt, err := json.Marshal(outputRendered.Values)
 	if err != nil {
-		return fmt.Errorf("output '%s': could not encode values: %w", outputRendered.Name, err)
+		return fmt.Errorf("could not encode the values: %w", err)
 	}
 	connection.Spec.Values = &v1.JSON{Raw: valuesTxt}
 	connection.Spec.Contract = outputRendered.Contract

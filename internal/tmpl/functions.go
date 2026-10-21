@@ -23,6 +23,7 @@ import (
 	"kubocd/api/v1alpha1"
 	"kubocd/internal/misc"
 	"net"
+	"net/url"
 	"slices"
 	"strings"
 	"text/template"
@@ -45,15 +46,16 @@ var sprigFunctions = []string{
 	// Dictionaries
 	"dict", "dig", "get", "hasKey", "omit", "set",
 	// Logic, defaults and types
-	"coalesce", "default", "empty", "fail", "kindIs", "ternary",
+	"coalesce", "default", "empty", "kindIs", "ternary",
 	// Conversions and math
 	"div", "divf", "float64", "int", "min", "mulf",
-	// Encoding and URLs
-	"sha256sum", "urlParse",
+	// Encoding
+	"sha256sum",
 }
 
 // kubocdFunctions lists the functions KuboCD defines for templates.
 var kubocdFunctions = template.FuncMap{
+	"fail":          fail,
 	"fromJson":      fromJSON,
 	"fromYaml":      fromYAML,
 	"imageRedirect": imageRedirect,
@@ -61,6 +63,7 @@ var kubocdFunctions = template.FuncMap{
 	"required":      required,
 	"toJson":        toJSON,
 	"toYaml":        toYAML,
+	"urlParse":      urlParse,
 }
 
 // builtinOverrides replace the text/template builtins of the same name.
@@ -143,14 +146,34 @@ func withFunction(funcs template.FuncMap, name string, fn interface{}) template.
 	return out
 }
 
+// shownError is an error message that render errors keep as written: a
+// message of a KuboCD function, which holds no template data, or a message
+// the template author writes with fail or required.
+type shownError struct {
+	msg string
+}
+
+func (e *shownError) Error() string {
+	return e.msg
+}
+
+func shownf(format string, args ...interface{}) error {
+	return &shownError{msg: fmt.Sprintf(format, args...)}
+}
+
+// fail is the sprig function: it stops the render with msg.
+func fail(msg string) (string, error) {
+	return "", &shownError{msg: msg}
+}
+
 // required returns val, or an error carrying msg when val is nil or an empty
 // string.
 func required(msg string, val interface{}) (interface{}, error) {
 	if val == nil {
-		return val, errors.New(msg)
+		return val, &shownError{msg: msg}
 	}
 	if s, ok := val.(string); ok && s == "" {
-		return val, errors.New(msg)
+		return val, &shownError{msg: msg}
 	}
 	return val, nil
 }
@@ -160,9 +183,20 @@ func required(msg string, val interface{}) (interface{}, error) {
 // to the next.
 func printf(format string, args ...interface{}) (string, error) {
 	if hasPointerVerb(format) {
-		return "", errors.New("printf: the %p verb is not allowed")
+		return "", shownf("printf: the %%p verb is not allowed")
 	}
 	return fmt.Sprintf(format, args...), nil
+}
+
+var sprigURLParse = sprig.TxtFuncMap()["urlParse"].(func(string) map[string]interface{})
+
+// urlParse is the sprig function, except that an invalid URL is an error
+// without the URL, which can hold credentials.
+func urlParse(v string) (map[string]interface{}, error) {
+	if _, err := url.Parse(v); err != nil {
+		return nil, shownf("urlParse: invalid URL")
+	}
+	return sprigURLParse(v), nil
 }
 
 // keys returns the keys of the given dicts, sorted. A key present in several
@@ -178,7 +212,7 @@ func keys(dicts ...map[string]interface{}) []string {
 	return k
 }
 
-var errDNSLookupsDisabled = errors.New("resolveDNS is disabled by platform policy")
+var errDNSLookupsDisabled = shownf("resolveDNS is disabled by platform policy")
 
 func resolveDNSDisabled(string) (string, error) {
 	return "", errDNSLookupsDisabled
@@ -191,12 +225,12 @@ func resolveDNS(host string) (string, error) {
 		var dnsErr *net.DNSError
 		if errors.As(err, &dnsErr) {
 			// The message of a DNSError quotes the host name, which can be data
-			return "", fmt.Errorf("resolveDNS: %s", dnsErr.Err)
+			return "", shownf("resolveDNS: %s", dnsErr.Err)
 		}
-		return "", errors.New("resolveDNS: lookup failed")
+		return "", shownf("resolveDNS: lookup failed")
 	}
 	if len(ips) == 0 {
-		return "", errors.New("resolveDNS: no address")
+		return "", shownf("resolveDNS: no address")
 	}
 	return ips[0].String(), nil
 }
@@ -285,7 +319,7 @@ func ImageRedirectTable(redirects []*v1alpha1.ImageRedirectSpec) []interface{} {
 func imageRedirect(url string, scope map[string]interface{}) (map[string]interface{}, error) {
 	table, ok := scope[ImageRedirectsKey].([]interface{})
 	if !ok {
-		return nil, errors.New("imageRedirect: the scope has no image redirect table, pass the root context ('.' or '$')")
+		return nil, shownf("imageRedirect: the scope has no image redirect table, pass the root context ('.' or '$')")
 	}
 	newURL := url
 	var imagePullSecrets []string
@@ -293,36 +327,36 @@ func imageRedirect(url string, scope map[string]interface{}) (map[string]interfa
 	for idx, entry := range table {
 		redirect, ok := entry.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table is not a map", idx)
+			return nil, shownf("imageRedirect: entry %d of the image redirect table is not a map", idx)
 		}
 		oldPrefix, ok := redirect["oldPrefix"].(string)
 		if !ok {
-			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table has no oldPrefix", idx)
+			return nil, shownf("imageRedirect: entry %d of the image redirect table has no oldPrefix", idx)
 		}
 		if !strings.HasPrefix(url, oldPrefix) {
 			continue
 		}
 		newPrefix, err := optionalString(redirect, "newPrefix")
 		if err != nil {
-			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+			return nil, shownf("imageRedirect: entry %d of the image redirect table: %v", idx, err)
 		}
 		if newPrefix != "" {
 			newURL = newPrefix + url[len(oldPrefix):]
 		}
 		if imagePullPolicy, err = optionalString(redirect, "imagePullPolicy"); err != nil {
-			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+			return nil, shownf("imageRedirect: entry %d of the image redirect table: %v", idx, err)
 		}
 		if imagePullSecrets, err = optionalStringList(redirect, "imagePullSecrets"); err != nil {
-			return nil, fmt.Errorf("imageRedirect: entry %d of the image redirect table: %w", idx, err)
+			return nil, shownf("imageRedirect: entry %d of the image redirect table: %v", idx, err)
 		}
 		break
 	}
 	repo, tag, err := misc.DecodeImageUrl(newURL)
 	if err != nil {
 		if newURL != url {
-			return nil, errors.New("imageRedirect: the redirected image reference is invalid, check the newPrefix of the matching redirect")
+			return nil, shownf("imageRedirect: the redirected image reference is invalid, check the newPrefix of the matching redirect")
 		}
-		return nil, errors.New("imageRedirect: the image reference is invalid")
+		return nil, shownf("imageRedirect: the image reference is invalid")
 	}
 	sa := strings.Split(repo, "/")
 	registry := sa[0]

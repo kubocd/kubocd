@@ -96,3 +96,27 @@ modules:
 		t.Fatalf("a package calling resolveDNS should groom: %v", err)
 	}
 }
+
+func TestParseErrorInABlockHeaderNamesBothPlaces(t *testing.T) {
+	err := groomManifest(t, `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+templateHeader: |-
+  {{- $host := .Context.host }}
+  {{- $now := now }}
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+    values: |
+      host: {{ $host }}
+`)
+	want := `could not parse 'values' template: in templateHeader or on the first line of the template: template: :2: function "now" not defined`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got error %v, want one containing %q", err, want)
+	}
+}
