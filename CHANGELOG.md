@@ -13,6 +13,11 @@
   parameters, an empty slot for an empty optional name.
 - Package inputs: a connection name rendered empty no longer looks up by contract. Optional, it binds nothing;
   required, it is an error.
+- A deleted Release now stays (phase DELETING) until its HelmReleases are gone. They are deleted dependents first,
+  and the message names the one still pending with the Flux message. The `kubocd.kubotal.io/skip-deletion-wait: "true"`
+  annotation restores the previous behavior for one Release.
+- The HelmReleases of modules removed from the package, or disabled, are deleted the same way. The Release is not
+  READY until they are gone.
 
 # v0.3.2
 

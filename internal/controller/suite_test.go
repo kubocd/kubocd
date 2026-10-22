@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -60,12 +62,14 @@ var _ = BeforeSuite(func() {
 	var err error
 	err = kubocdv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	Expect(fluxv2.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(sourcev1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases"), filepath.Join("..", "..", "test", "crd", "flux")},
 		ErrorIfCRDPathMissing: true,
 	}
 

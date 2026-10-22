@@ -167,6 +167,7 @@ const ReleasePhaseWaitInputConnections = ReleasePhase("WAIT_ICNX")
 const ReleasePhaseWaitSecrets = ReleasePhase("WAIT_SECRETS")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 const ReleasePhaseWaitConditions = ReleasePhase("WAIT_COND")
+const ReleasePhaseDeleting = ReleasePhase("DELETING")
 
 // HelmReleaseState describe the observed state of a child HelmRelease
 type HelmReleaseState struct {

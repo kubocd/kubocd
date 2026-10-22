@@ -178,42 +178,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	helmRepositoryPath := path.Join("hr", op.release.Namespace, op.release.Name)
 	helmRepositoryFolder := path.Join(r.ServerRoot, helmRepositoryPath)
 
-	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
-		// Deletion is requested
-		r.RoleStore.UnRegisterRelease(req.NamespacedName)
-		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
-			// No finalizer at all. Nothing to do anymore
-			return ctrl.Result{}, nil
-		}
-		logger.V(0).Info("Deleting release")
-		// Perform deletion cleanup.
-		err := misc.SafeRemove(helmRepositoryFolder)
-		if err != nil {
-			// Just log, without any other action
-			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
-		}
-		// Remove outputClusterConnection
-		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
-		if err != nil {
-			// Just log, without any other action
-			op.logger.Error(err, "Failed to list child output ClusterConnection")
-		} else {
-			for _, clusterConnection := range clusterConnections {
-				err := r.Delete(ctx, &clusterConnection)
-				if err != nil {
-					// Just log, without any other action
-					op.logger.Error(err, "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
-				}
-			}
-		}
-		// Deletion OK
-		controllerutil.RemoveFinalizer(release, global.FinalizerName)
-		logger.V(1).Info(">-> Update resource (Remove finalizer)")
-		if err := r.Update(ctx, release); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
 	// As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
 	// This means we must set some empty default value, otherwise status write will fail
 	if release.Status.HelmReleaseStates == nil {
@@ -230,6 +194,48 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if release.Status.EffectiveInputConnections == nil {
 		release.Status.EffectiveInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
+	}
+
+	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
+		// Deletion is requested
+		r.RoleStore.UnRegisterRelease(req.NamespacedName)
+		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
+			// No finalizer at all. Nothing to do anymore
+			return ctrl.Result{}, nil
+		}
+		logger.V(0).Info("Deleting release")
+		// Remove outputClusterConnection
+		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
+		if err != nil {
+			// Just log, without any other action
+			op.logger.Error(err, "Failed to list child output ClusterConnection")
+		} else {
+			for _, clusterConnection := range clusterConnections {
+				err := r.Delete(ctx, &clusterConnection)
+				if err != nil {
+					// Just log, without any other action
+					op.logger.Error(err, "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
+				}
+			}
+		}
+		// The release is kept until its HelmReleases are gone, unless explicitly requested otherwise
+		if release.Annotations[SkipDeletionWaitAnnotation] != "true" {
+			result, done, err := r.deleteOwnedHelmReleases(op)
+			if !done {
+				return result, err
+			}
+		}
+		if err := misc.SafeRemove(helmRepositoryFolder); err != nil {
+			// Just log, without any other action
+			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
+		}
+		// Deletion OK
+		controllerutil.RemoveFinalizer(release, global.FinalizerName)
+		logger.V(1).Info(">-> Update resource (Remove finalizer)")
+		if err := r.Update(ctx, release); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Not under deletion. Add a finalizer if not already set
@@ -570,8 +576,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// -------------------------------------------------------- Now, we are ready to spawn the helmRelease(s)
+	pruneMessage := ""
 	if !op.release.Spec.Suspended {
 		op.helmReleaseStates = make(map[string]kv1alpha1.HelmReleaseState)
+		wanted := make(map[string]bool)
 		for _, module := range op.pckContainer.Package.Modules {
 			helmReleaseName := BuildHelmReleaseName(op.release.Name, module.Name)
 			_, reconcileError := r.handleHelmRelease(op, rendered, helmReleaseName, module)
@@ -579,6 +587,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			if reconcileError != nil {
 				return r.reportError(op, reconcileError, forceUpdate)
 			}
+			if rendered.ModuleRenderedByName[module.Name].Enabled {
+				wanted[helmReleaseName] = true
+			}
+		}
+		// HelmReleases of removed or disabled modules
+		var reconcileError ReconcileError
+		pruneMessage, reconcileError = r.pruneHelmReleases(op, wanted)
+		if reconcileError != nil {
+			return r.reportError(op, reconcileError, forceUpdate)
 		}
 	}
 	// -------------------------------------------------------- Adjust helmReleases status
@@ -622,6 +639,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	if !allReady {
 		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmReleases, message, forceUpdate)
+	}
+	if pruneMessage != "" {
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmReleases, pruneMessage, forceUpdate)
 	}
 
 	// --------------------------------------------------------------------------- We can now manage output connection

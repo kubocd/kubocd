@@ -76,12 +76,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			op.helmReleaseStates[module.Name] = computeHelmReleaseState(helmRelease)
 			return helmRelease, nil
 		} else {
-			// Must delete
-			err := r.Delete(op.ctx, helmRelease)
-			if err != nil {
-				return nil, NewReconcileError(err, false, "HelmReleaseDelete")
-			}
-			op.logger.V(1).Info("Delete helmRelease", "helmReleaseName", helmReleaseName)
+			// Deleted by pruneHelmReleases()
 			delete(op.helmReleaseStates, module.Name)
 			return nil, nil
 		}
