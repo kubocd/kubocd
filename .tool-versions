@@ -1,4 +1,4 @@
-golang 1.27.1
+golang 1.27.3
 kubectl 1.37.1
 helm 3.16.2
 kind 0.31.0
