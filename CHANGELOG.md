@@ -52,14 +52,24 @@
   missing contract get fixed messages, the latter naming `spec.contract`. When the API server refuses to read the
   contract or to update the status, their controllers give the reason and the fields of the answer only. A Release
   copies these messages into its status and events, as before.
+- The images and the CLI binaries are built with Go 1.27.3 and `golang.org/x/net` v0.60.0, which fix the vulnerabilities
+  that `govulncheck` reports in code called by KuboCD, such as HTTP/2, TLS and certificate verification. Building from
+  source now requires Go 1.27.3 or later.
+- `kubocd render`, `kubocd dump package`, `kubocd dump oci` and `kubocd dump helmRepository` refuse an archive entry
+  whose name is not a relative path inside the target folder, or holds a backslash, and prevent archive paths from
+  escaping that folder, including through existing symbolic links. Link entries are still skipped.
+- The `controller.extraEnv` and `webhook.extraEnv` chart values add their entries to the `env` list of the container.
+  Their indentation made the rendered Deployment invalid. The webhook pod now declares the volumes of
+  `webhook.extraVolumes`, not only their mounts.
 
 ## Security
 
 Before v0.4.0, KuboCD templates could disclose files and credentials readable by the controller or the host running
-`kubocd render`. Manifest loading also expanded `${VAR}` from the controller or CLI environment. Upgrade the controller
-and CLI to v0.4.0. If untrusted parties could create or modify Releases, supply packages consumed by the controller, or
-provide manifests processed by the CLI, treat credentials accessible through those paths as potentially exposed and
-rotate or revoke them.
+`kubocd render`. Manifest loading also expanded `${VAR}` from the controller or CLI environment. The v0.4.0 CLI also
+refuses an archive entry that would be written outside the target folder, and v0.4.0 is built with the fixed
+`golang.org/x/net` v0.60.0 and Go 1.27.3. Upgrade the controller and CLI to v0.4.0. If untrusted parties could create or
+modify Releases, supply packages consumed by the controller, or provide manifests processed by the CLI, treat
+credentials accessible through those paths as potentially exposed and rotate or revoke them.
 
 ## Upgrading from v0.3.x
 
@@ -82,6 +92,8 @@ rotate or revoke them.
   Until then, the log of the controller at the V(1) level (the `debug` log level) can show the old message of the
   Release, and it shows it once more in the trace of the status update that replaces it. Events already emitted keep
   their text.
+- Remove any top-level `extraVolumes` value used only to work around the webhook guard, keep volume definitions under
+  `webhook.extraVolumes`, and remove any patches that corrected `extraEnv` indentation.
 
 # v0.3.2
 
