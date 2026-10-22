@@ -75,7 +75,7 @@ spec:
           {{- end }}
           env:
           {{- with .Values.webhook.extraEnv }}
-            {{- toYaml . | nindent 4 }}
+            {{- toYaml . | nindent 10 }}
           {{- end }}
           - name: MY_POD_NAME
             valueFrom:
@@ -145,7 +145,7 @@ spec:
         - name: webhook-certs
           secret:
             secretName: {{ include "kubocd.webhook.secretName" . }}
-      {{- if .Values.extraVolumes }}
+      {{- if .Values.webhook.extraVolumes }}
       {{- range .Values.webhook.extraVolumes }}
         - name: {{ .name }}
           persistentVolumeClaim:

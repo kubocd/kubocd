@@ -89,7 +89,7 @@ spec:
           {{- end }}
           env:
           {{- with .Values.controller.extraEnv }}
-            {{- toYaml . | nindent 4 }}
+            {{- toYaml . | nindent 10 }}
           {{- end }}
           - name: MY_POD_NAME
             valueFrom:
