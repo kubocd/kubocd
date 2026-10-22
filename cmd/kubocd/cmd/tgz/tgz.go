@@ -25,6 +25,8 @@ import (
 	"kubocd/internal/misc"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 )
 
 func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) error {
@@ -35,6 +37,9 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 	return misc.YamlDecode(string(ba), data)
 }
 
+// ExtractAllFromTgz writes the regular files of the archive under targetPath, created if missing. It fails on an
+// entry whose name is not a relative path inside targetPath, and prevents archive paths from escaping targetPath,
+// including through existing symbolic links.
 func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 	// Open the .tgz file
 	tgzFile, err := os.Open(tgzPath)
@@ -50,6 +55,15 @@ func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 	}
 	defer gzReader.Close()
 
+	if err = os.MkdirAll(targetPath, 0755); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(targetPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+
 	// Create a tar reader
 	tarReader := tar.NewReader(gzReader)
 
@@ -62,30 +76,42 @@ func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 		if err != nil {
 			return err
 		}
-		// Check if the file is the target YAML file
+		if !isLocalEntryName(header.Name) {
+			return fmt.Errorf("archive entry %q is not a relative path inside the target folder", header.Name)
+		}
+		// Link entries are skipped, as only regular files are written.
 		if header.Typeflag == tar.TypeReg {
-			currentFile := header.Name
-			tf := path.Join(targetPath, currentFile)
-			err := os.MkdirAll(path.Dir(tf), 0755)
-			if err != nil {
-				return err
-			}
-			out, err := os.Create(tf)
-			if err != nil {
-				return err
-			}
-			if _, err = io.Copy(out, tarReader); err != nil {
-				return err
-			}
-			if err = out.Sync(); err != nil {
-				return err
-			}
-			if err = out.Close(); err != nil {
+			if err := extractFile(root, filepath.FromSlash(header.Name), tarReader); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// extractFile writes content to the file called name under root, after creating its parent folders.
+func extractFile(root *os.Root, name string, content io.Reader) error {
+	if err := root.MkdirAll(filepath.Dir(name), 0755); err != nil {
+		return err
+	}
+	out, err := root.Create(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	if _, err = io.Copy(out, content); err != nil {
+		return err
+	}
+	if err = out.Sync(); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+// isLocalEntryName reports whether an archive entry name is a relative path inside the extraction folder. A
+// backslash is refused on every OS, as Windows reads it as a separator.
+func isLocalEntryName(name string) bool {
+	return filepath.IsLocal(name) && !strings.Contains(name, `\`)
 }
 
 func ExtractFromTgz(tgzPath string, fileName string, writer io.Writer) error {
