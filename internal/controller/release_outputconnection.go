@@ -38,14 +38,13 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 			return nil, NewReconcileError(fmt.Errorf("could not get its Connection: %s", apiError(err)), false, "ConnectionAccess")
 		}
 		// Must create it
-		op.logger.V(0).Info("Will create connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
 		err := r.createConnection(op, outputRendered, connectionName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
+		op.logger.V(0).Info("Created connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
-		op.logger.V(1).Info("Launched connection", "connectionName", connectionName)
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
 			Kind:      kv1alpha1.Kind(connection.Kind),
 			Name:      connection.Name,

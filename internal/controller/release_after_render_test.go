@@ -24,7 +24,6 @@ import (
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -480,9 +479,6 @@ func TestErrorsAfterTheRenderStayOutOfStatusEventsAndLog(t *testing.T) {
 			}
 			got := reconcileRelease(t, fmt.Sprintf(afterRenderPackage, c.packageFields, c.moduleFields), "", afterRenderContext, options...)
 			for sink, text := range got.sinks() {
-				if sink == "log" {
-					text = withoutCreationTraces(text)
-				}
 				for _, quoted := range []string{canaryPassword[:7], "203h18m44s"} {
 					if strings.Contains(text, quoted) {
 						t.Errorf("the %s quotes the data:\n%s", sink, text)
@@ -494,13 +490,20 @@ func TestErrorsAfterTheRenderStayOutOfStatusEventsAndLog(t *testing.T) {
 	}
 }
 
-// withoutCreationTraces drops the log lines that announce the creation of a
-// connection, which name the object to create.
-func withoutCreationTraces(log string) string {
-	lines := strings.Split(log, "\n")
-	return strings.Join(slices.DeleteFunc(lines, func(line string) bool {
-		return strings.Contains(line, `"msg"="Will create connection"`) || strings.Contains(line, `"msg"="Will create clusterConnection"`)
-	}), "\n")
+func TestACreatedConnectionIsLogged(t *testing.T) {
+	cases := map[kv1alpha1.Kind]struct{ msg, name string }{
+		kv1alpha1.KindConnection:        {"Created connection", `"name"="kcd-demo-db" "namespace"="apps" "output"="db"`},
+		kv1alpha1.KindClusterConnection: {"Created clusterConnection", `"name"="kcd-apps-demo-db" "namespace"="apps" "output"="db"`},
+	}
+	for kind, want := range cases {
+		t.Run(string(kind), func(t *testing.T) {
+			manifest := fmt.Sprintf(afterRenderPackage, fmt.Sprintf(outputPackage, databaseContract, kind, ""), "")
+			got := reconcileRelease(t, manifest, "", afterRenderContext, withObjects(t, readyHelmRelease()))
+			if line := logLine(got.log, want.msg); got.err != nil || !strings.Contains(line, want.name) {
+				t.Fatalf("got error %v and log\n%s\nwant a line %q with %s", got.err, got.log, want.msg, want.name)
+			}
+		})
+	}
 }
 
 // withOverride adds override to the module overrides of the Release.

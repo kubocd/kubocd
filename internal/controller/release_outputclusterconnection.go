@@ -37,14 +37,13 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 			return nil, NewReconcileError(fmt.Errorf("could not get its ClusterConnection: %s", apiError(err)), false, "ClusterConnectionAccess")
 		}
 		// Must create it
-		op.logger.V(0).Info("Will create clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 		err := r.createClusterConnection(op, outputRendered, clusterConnectionName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
+		op.logger.V(0).Info("Created clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		r.Event(op.release, "Normal", "ClusterConnectionCreated", fmt.Sprintf("Created ClusterConnection %q", clusterConnectionName))
-		op.logger.V(1).Info("Launched clusterConnection", "connectionName", clusterConnectionName)
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
 			Kind:      kv1alpha1.Kind(clusterConnection.Kind),
 			Name:      clusterConnection.Name,
