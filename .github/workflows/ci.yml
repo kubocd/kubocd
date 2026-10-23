@@ -81,6 +81,23 @@ jobs:
       - name: Build
         run: make build-kubocd
 
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Fails when the code calls a function with a known vulnerability, in a
+      # dependency or in the standard library of the Go version of go.mod. The
+      # vulnerability database grows, so a commit that passed can fail later.
+      - name: Known vulnerabilities
+        run: make vulncheck
+
   lint:
     name: lint (changed code)
     # PRs only: lint just the diff (only-new-issues) so pre-existing findings do not

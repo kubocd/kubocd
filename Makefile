@@ -164,6 +164,10 @@ lint-fix: ## Run golangci-lint linter and perform fixes
 lint-config: ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+.PHONY: vulncheck
+vulncheck: ## Report the known vulnerabilities that the code calls (govulncheck)
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
 ifndef ignore-not-found
   ignore-not-found = false
 endif
@@ -324,6 +328,11 @@ GOLANGCI_LINT ?= go tool golangci-lint
 # of its submodule (v0.24.x) require Go 1.26, while this project pins Go 1.25 in
 # .tool-versions. It is therefore installed dynamically on host demand (and
 # pre-cached globally inside the Devcontainer).
+#
+# govulncheck is the other exception: it runs through `go run` at the version
+# below, outside of go.mod, so that its dependencies stay out of the module
+# graph of KuboCD.
+GOVULNCHECK_VERSION ?= v1.9.0
 #
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
