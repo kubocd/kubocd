@@ -214,7 +214,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		controllerutil.RemoveFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Remove finalizer)")
 		if err := r.Update(ctx, release); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not remove the finalizer of the Release: %s", apiError(err))
 		}
 		return ctrl.Result{}, nil
 	}
@@ -241,11 +241,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		logger.V(1).Info("Add finalizer")
 		controllerutil.AddFinalizer(release, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Add finalizer)")
-		err := r.Update(ctx, release)
-		return ctrl.Result{}, err // we reschedule, to avoid an 'object has been modified' on next status update
-		//if err != nil {
-		//	return ctrl.Result{}, err
-		//}
+		if err := r.Update(ctx, release); err != nil {
+			return ctrl.Result{}, fmt.Errorf("could not add the finalizer to the Release: %s", apiError(err))
+		}
+		return ctrl.Result{}, nil // we reschedule, to avoid an 'object has been modified' on next status update
 	}
 
 	GroomRelease(release, logger, r.ConfigStore)

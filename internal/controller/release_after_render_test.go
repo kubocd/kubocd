@@ -268,6 +268,55 @@ func deletingTheRelease(t *testing.T) func(*ReleaseReconciler) {
 	}
 }
 
+// refusingCanaryReleaseUpdates refuses, as an admission webhook would, an
+// update of a Release whose status holds the canary. The denial quotes the
+// status.
+func refusingCanaryReleaseUpdates(r *ReleaseReconciler) {
+	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if release, ok := obj.(*kv1alpha1.Release); ok {
+				for _, usage := range release.Status.Usage {
+					if strings.Contains(usage, canaryPassword[:7]) {
+						return apierrors.NewForbidden(schema.GroupResource{Group: kv1alpha1.GroupVersion.Group, Resource: "releases"}, release.Name,
+							fmt.Errorf("admission webhook \"policy.example.com\" denied the request: the usage %v is protected", release.Status.Usage))
+					}
+				}
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+}
+
+// withCanaryUsage stands for an earlier render of the Release demo, which left
+// the canary in its status.
+func withCanaryUsage(t *testing.T) func(*ReleaseReconciler) {
+	return func(r *ReleaseReconciler) {
+		release := &kv1alpha1.Release{}
+		if err := r.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+			t.Fatal(err)
+		}
+		release.Status.Usage = map[string]string{"text": canaryPassword + "("}
+		if err := r.Status().Update(context.Background(), release); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// withoutFinalizer stands for a Release demo that the controller never
+// reconciled.
+func withoutFinalizer(t *testing.T) func(*ReleaseReconciler) {
+	return func(r *ReleaseReconciler) {
+		release := &kv1alpha1.Release{}
+		if err := r.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+			t.Fatal(err)
+		}
+		release.Finalizers = nil
+		if err := r.Update(context.Background(), release); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // canaryValues are values of an object that quote the canary.
 const canaryValues = `{"password":"` + canaryPassword + `("}`
 
@@ -569,6 +618,33 @@ func TestARefusedStatusUpdateIsReturnedWithoutTheAnswer(t *testing.T) {
 	}
 	if want := "could not update the Release status: the API server answered Invalid for status.usage, " + objectWithheld; got.err == nil || got.err.Error() != want {
 		t.Fatalf("got returned error %v, want %q", got.err, want)
+	}
+}
+
+func TestARefusedFinalizerUpdateIsReturnedWithoutTheAnswer(t *testing.T) {
+	cases := map[string]struct {
+		options func(t *testing.T) []func(*ReleaseReconciler)
+		want    string
+	}{
+		"finalizer to add": {func(t *testing.T) []func(*ReleaseReconciler) {
+			return []func(*ReleaseReconciler){withCanaryUsage(t), withoutFinalizer(t), refusingCanaryReleaseUpdates}
+		}, "could not add the finalizer to the Release: the API server answered Forbidden, " + objectWithheld},
+		"finalizer to remove": {func(t *testing.T) []func(*ReleaseReconciler) {
+			return []func(*ReleaseReconciler){withCanaryUsage(t), deletingTheRelease(t), refusingCanaryReleaseUpdates}
+		}, "could not remove the finalizer of the Release: the API server answered Forbidden, " + objectWithheld},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := reconcileRelease(t, fmt.Sprintf(afterRenderPackage, "", ""), "", afterRenderContext, c.options(t)...)
+			for sink, text := range got.sinks() {
+				if strings.Contains(text, canaryPassword[:7]) {
+					t.Errorf("the %s quotes the data:\n%s", sink, text)
+				}
+			}
+			if got.err == nil || got.err.Error() != c.want {
+				t.Fatalf("got returned error %v, want %q", got.err, c.want)
+			}
+		})
 	}
 }
 
