@@ -111,10 +111,10 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			err = r.Get(ctx, parent.ToObjectKey(), parentContext)
 			if err != nil {
 				if errors.IsNotFound(err) {
-					return r.reportError(op, NewReconcileError(err, true, "GetParent"))
-				} else {
-					return r.reportError(op, NewReconcileError(fmt.Errorf("parent '%s' not found", parent.String()), false, "MissingParent"))
+					// Not retried: the watch of the parents reconciles the child when the parent comes
+					return r.reportError(op, NewReconcileError(fmt.Errorf("parent '%s' not found", parent.String()), true, "MissingParent"))
 				}
+				return r.reportError(op, NewReconcileError(fmt.Errorf("could not get parent '%s': %w", parent.String(), err), false, "GetParent"))
 			}
 			if parentContext.Status.Phase != kv1alpha1.ContextPhaseReady {
 				return r.reportError(op, NewReconcileError(fmt.Errorf("parent '%s' is in error", parent.String()), false, "ParentError"))

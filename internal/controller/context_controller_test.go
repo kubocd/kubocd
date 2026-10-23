@@ -19,18 +19,23 @@ package controller
 
 import (
 	"context"
+	"errors"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"slices"
 	"testing"
 
 	"github.com/go-logr/logr/funcr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 // reconciledContext is what one reconciliation of a Context left behind.
@@ -86,5 +91,41 @@ func TestAContextWithoutValuesIsReady(t *testing.T) {
 		string(got.context.Status.Context.Raw) != `{"db":{"host":"pg"}}` {
 		t.Fatalf("got error %v, phase %q and context %v of the child, want READY with its own values", got.err,
 			got.context.Status.Phase, got.context.Status.Context)
+	}
+}
+
+// refusingParentReads refuses, as RBAC would, to read the Context parent.
+func refusingParentReads(base client.WithWatch) client.WithWatch {
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if key.Name == "parent" {
+				return apierrors.NewForbidden(schema.GroupResource{Group: kv1alpha1.GroupVersion.Group, Resource: "contexts"}, key.Name,
+					errors.New("access denied"))
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+}
+
+func TestAMissingParentIsToldFromAFailedRead(t *testing.T) {
+	const forbidden = `contexts.kubocd.kubotal.io "parent" is forbidden: access denied`
+	child := &kv1alpha1.Context{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "child"},
+		Spec: kv1alpha1.ContextSpec{Parents: []kv1alpha1.NamespacedName{{Name: "parent"}}}}
+	missing := reconcileContext(t, contextClient(t, child.DeepCopy()), "child")
+	if missing.err != nil || !slices.Equal(missing.events, []string{"Warning MissingParent parent 'apps:parent' not found"}) {
+		t.Fatalf("missing parent: got error %v and events %q, want no error and the MissingParent event", missing.err, missing.events)
+	}
+	parent := &kv1alpha1.Context{ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "parent"}}
+	refused := reconcileContext(t, refusingParentReads(contextClient(t, child.DeepCopy(), parent)), "child")
+	want := "could not get parent 'apps:parent': " + forbidden
+	var rErr ReconcileError
+	if refused.err == nil || refused.err.Error() != want || !errors.As(refused.err, &rErr) || !apierrors.IsForbidden(rErr.GetBaseError()) ||
+		!slices.Equal(refused.events, []string{"Warning GetParent " + want}) {
+		t.Fatalf("refused read: got error %v and events %q, want the error %q and the GetParent event", refused.err, refused.events, want)
+	}
+	for name, got := range map[string]reconciledContext{"missing parent": missing, "refused read": refused} {
+		if got.context.Status.Phase != kv1alpha1.ContextPhaseError {
+			t.Errorf("%s: got phase %q, want ERROR", name, got.context.Status.Phase)
+		}
 	}
 }
