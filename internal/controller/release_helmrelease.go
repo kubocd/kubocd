@@ -137,6 +137,39 @@ func PopulateHelmRelease(
 		})
 	}
 
+	spec, err := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName, module, configStore,
+		moduleRendered.SpecPatch)
+	if err != nil {
+		return err
+	}
+	if err := decodeHelmReleaseSpec(spec, &helmRelease.Spec); err != nil {
+		// Checked on failure only, as a later patch can replace what specPatch sets
+		withoutSpecPatch, buildErr := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName,
+			module, configStore, nil)
+		if buildErr == nil && decodeHelmReleaseSpec(withoutSpecPatch, &fluxv2.HelmReleaseSpec{}) == nil {
+			return fmt.Errorf("specPatch of module '%s' has %w", module.Name, err)
+		}
+		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': the spec merged from the package, the "+
+			"configuration and the Release has %w", module.Name, err)
+	}
+	return nil
+}
+
+// helmReleaseSpec merges the spec of the HelmRelease of module, in this order:
+// the chart, the rendered values and settings of the module, the failure
+// strategies and the patch of the configuration, specPatch, then the
+// overrides of the Release.
+func helmReleaseSpec(
+	helmRelease *fluxv2.HelmRelease,
+	release *kv1alpha1.Release,
+	chartRef kubopackage.ChartRef,
+	moduleRendered *kubopackage.ModuleRendered,
+	dependsOn []map[string]string,
+	helmRepositoryName string,
+	module *kubopackage.Module,
+	configStore configstore.ConfigStore,
+	specPatch map[string]interface{},
+) (map[string]interface{}, error) {
 	// Build the spec configuration
 	spec := map[string]interface{}{
 		"chart": map[string]interface{}{
@@ -168,7 +201,7 @@ func PopulateHelmRelease(
 	if moduleRendered.OnFailureStrategy != "" {
 		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
 		if strategy == nil {
-			return fmt.Errorf("onFailureStrategy of module '%s' is not a known strategy", module.Name)
+			return nil, fmt.Errorf("onFailureStrategy of module '%s' is not a known strategy", module.Name)
 		}
 		deleteFailureConf(spec)
 		spec = misc.MergeMaps(spec, strategy)
@@ -177,9 +210,9 @@ func PopulateHelmRelease(
 	var err error
 	spec, err = Merge(spec, configStore.GetSpecPatch())
 	if err != nil {
-		return fmt.Errorf("unable to merge config.specPatch on module '%s': %w", module.Name, err)
+		return nil, fmt.Errorf("unable to merge config.specPatch on module '%s': %w", module.Name, err)
 	}
-	spec = misc.MergeMaps(spec, moduleRendered.SpecPatch) // Including install.namespace
+	spec = misc.MergeMaps(spec, specPatch) // Including install.namespace
 
 	var override *kv1alpha1.ModuleOverrideSpec = nil
 	// ------------------------------------------------ Handle module override
@@ -189,7 +222,7 @@ func PopulateHelmRelease(
 				if override == nil {
 					override = &release.Spec.ModuleOverrides[idx]
 				} else {
-					return fmt.Errorf("override for module '%s' defined twice", module.Name)
+					return nil, fmt.Errorf("override for module '%s' defined twice", module.Name)
 				}
 			}
 		}
@@ -198,7 +231,7 @@ func PopulateHelmRelease(
 		if override.OnFailureStrategy != "" {
 			onFailureStrategy := configStore.GetOnFailureStrategy(override.OnFailureStrategy)
 			if onFailureStrategy == nil {
-				return fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", override.OnFailureStrategy, module.Name)
+				return nil, fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", override.OnFailureStrategy, module.Name)
 			}
 			deleteFailureConf(spec)
 			spec = misc.MergeMaps(spec, onFailureStrategy)
@@ -208,7 +241,7 @@ func PopulateHelmRelease(
 			var err error
 			spec, err = Merge(spec, override.SpecPatch)
 			if err != nil {
-				return fmt.Errorf("failed to merge spec patch for module '%s': %w", module.Name, err)
+				return nil, fmt.Errorf("failed to merge spec patch for module '%s': %w", module.Name, err)
 			}
 		}
 		if !misc.IsZero(override.Timeout) {
@@ -218,15 +251,7 @@ func PopulateHelmRelease(
 			spec["interval"] = override.Interval
 		}
 	}
-
-	if err := decodeHelmReleaseSpec(spec, &helmRelease.Spec); err != nil {
-		// Checked on failure only, as a later patch can replace what specPatch sets
-		if specPatchErr := decodeHelmReleaseSpec(moduleRendered.SpecPatch, &fluxv2.HelmReleaseSpec{}); specPatchErr != nil {
-			return fmt.Errorf("specPatch of module '%s' has %w", module.Name, specPatchErr)
-		}
-		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': the configuration or the Release sets %w", module.Name, err)
-	}
-	return nil
+	return spec, nil
 }
 
 var (

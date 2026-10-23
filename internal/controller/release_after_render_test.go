@@ -537,7 +537,26 @@ func TestAFieldThatTheReleaseAddsIsNotBlamedOnSpecPatch(t *testing.T) {
 	override := kv1alpha1.ModuleOverrideSpec{Module: "main", SpecPatch: &apiextensionsv1.JSON{Raw: []byte(`{"nope":1}`)}}
 	got := reconcileRelease(t, manifest, "", afterRenderContext, withOverride(t, override))
 	got.mustReport(t, "failed to populate HelmRelease 'demo-main': failed to unmarshal spec into HelmRelease for module 'main': "+
-		"the configuration or the Release sets a field that HelmRelease does not define")
+		"the spec merged from the package, the configuration and the Release has a field that HelmRelease does not define")
+}
+
+func TestASpecPatchValueThatTheReleaseReplacesIsNotBlamed(t *testing.T) {
+	manifest := fmt.Sprintf(afterRenderPackage, "", `    specPatch: |
+      timeout: {{ .Context.db.password }}`)
+	override := kv1alpha1.ModuleOverrideSpec{Module: "main", Timeout: &metav1.Duration{Duration: 5 * time.Minute},
+		SpecPatch: &apiextensionsv1.JSON{Raw: []byte(`{"nope":1}`)}}
+	got := reconcileRelease(t, manifest, "", afterRenderContext, withOverride(t, override))
+	got.mustReport(t, "failed to populate HelmRelease 'demo-main': failed to unmarshal spec into HelmRelease for module 'main': "+
+		"the spec merged from the package, the configuration and the Release has a field that HelmRelease does not define")
+}
+
+func TestAFailureOfSpecPatchAndOfTheReleaseIsNotBlamedOnEither(t *testing.T) {
+	manifest := fmt.Sprintf(afterRenderPackage, "", `    specPatch: |
+      timeout: {{ .Context.db.password }}`)
+	override := kv1alpha1.ModuleOverrideSpec{Module: "main", SpecPatch: &apiextensionsv1.JSON{Raw: []byte(`{"nope":1}`)}}
+	got := reconcileRelease(t, manifest, "", afterRenderContext, withOverride(t, override))
+	got.mustReport(t, "failed to populate HelmRelease 'demo-main': failed to unmarshal spec into HelmRelease for module 'main': "+
+		"the spec merged from the package, the configuration and the Release has a value of the wrong type or format")
 }
 
 func TestAPIErrorKeepsTheReasonAndTheFields(t *testing.T) {
