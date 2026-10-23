@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -579,17 +580,18 @@ func TestARefusedDeletionOfAConnectionIsLoggedWithoutTheAnswer(t *testing.T) {
 	cases := map[string]struct {
 		options func(t *testing.T) []func(*ReleaseReconciler)
 		msg     string
+		object  string
 	}{
 		"orphan Connection": {func(t *testing.T) []func(*ReleaseReconciler) {
 			orphan := ownedByDemo(readyConnection("kcd-demo-old", postgresContract, canaryValues))
 			return []func(*ReleaseReconciler){withObjects(t, readyHelmRelease(), orphan)}
-		}, "unable to delete connection"},
+		}, "unable to delete connection", `"connection"="kcd-demo-old"`},
 		"orphan ClusterConnection": {func(t *testing.T) []func(*ReleaseReconciler) {
 			return []func(*ReleaseReconciler){withObjects(t, readyHelmRelease(), clusterConnectionOfDemo())}
-		}, "unable to delete clusterConnection"},
+		}, "unable to delete clusterConnection", `"clusterConnection"="kcd-apps-demo-old"`},
 		"ClusterConnection of a deleted Release": {func(t *testing.T) []func(*ReleaseReconciler) {
 			return []func(*ReleaseReconciler){withObjects(t, clusterConnectionOfDemo()), deletingTheRelease(t)}
-		}, "Failed to delete ClusterConnection '%s'"},
+		}, "Failed to delete ClusterConnection", `"clusterConnection"="kcd-apps-demo-old"`},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -600,10 +602,21 @@ func TestARefusedDeletionOfAConnectionIsLoggedWithoutTheAnswer(t *testing.T) {
 					t.Errorf("the %s quotes the data:\n%s", sink, text)
 				}
 			}
-			if line := logLine(got.log, c.msg); !strings.Contains(line, `"error"="the API server answered Forbidden, `+objectWithheld+`"`) {
-				t.Fatalf("got log\n%s\nwant a line %q with the reason of the refusal", got.log, c.msg)
+			line := logLine(got.log, c.msg)
+			if !strings.Contains(line, `"error"="the API server answered Forbidden, `+objectWithheld+`"`) || !strings.Contains(line, c.object) {
+				t.Fatalf("got log\n%s\nwant a line %q with the reason of the refusal and %s", got.log, c.msg, c.object)
 			}
 		})
+	}
+}
+
+// The folder of the testbed has no transient flag, which SafeRemove requires.
+func TestAFolderThatTheDeletionOfAReleaseCannotRemoveIsLogged(t *testing.T) {
+	testbed := newReleaseTestbed(t, fmt.Sprintf(afterRenderPackage, "", ""), "", afterRenderContext, deletingTheRelease(t))
+	got := testbed.reconcile(t)
+	folder := `"folder"="` + filepath.Join(testbed.reconciler.ServerRoot, "hr", "apps", "demo") + `"`
+	if line := logLine(got.log, "Failed to remove helm repository folder"); !strings.Contains(line, folder) {
+		t.Fatalf("got log\n%s\nwant a line naming the folder with %s", got.log, folder)
 	}
 }
 

@@ -194,7 +194,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		err := misc.SafeRemove(helmRepositoryFolder)
 		if err != nil {
 			// Just log, without any other action
-			op.logger.Error(err, "Failed to remove helm repository folder '%s'", helmRepositoryFolder)
+			op.logger.Error(err, "Failed to remove helm repository folder", "folder", helmRepositoryFolder)
 		}
 		// Remove outputClusterConnection
 		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
@@ -206,7 +206,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 				err := r.Delete(ctx, &clusterConnection)
 				if err != nil {
 					// Just log, without any other action
-					op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection '%s'", clusterConnection.Name)
+					op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection", "clusterConnection", clusterConnection.Name)
 				}
 			}
 		}
