@@ -306,3 +306,30 @@ func TestChangingAnAnswerLeavesTheStoreUnchanged(t *testing.T) {
 		})
 	}
 }
+
+func TestTheLastConfigThatSetsASpecPatchGivesIt(t *testing.T) {
+	withPatch := func(name string, raw string) v1alpha1.Config {
+		config := v1alpha1.Config{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		if raw != "" {
+			config.Spec.SpecPatch = &apiextensionsv1.JSON{Raw: []byte(raw)}
+		}
+		return config
+	}
+	for _, test := range []struct {
+		name    string
+		configs []v1alpha1.Config
+		want    string
+	}{
+		{"a later Config without specPatch", []v1alpha1.Config{withPatch("b", ""), withPatch("a", `{"timeout":"3m"}`)},
+			`{"timeout":"3m"}`},
+		{"a later Config with a specPatch", []v1alpha1.Config{withPatch("b", `{"timeout":"4m"}`), withPatch("a", `{"timeout":"3m"}`)},
+			`{"timeout":"4m"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := loadedStore(t, &v1alpha1.ConfigList{Items: test.configs})
+			if got := store.GetSpecPatch(); got == nil || string(got.Raw) != test.want {
+				t.Fatalf("got the specPatch %v, want %s", got, test.want)
+			}
+		})
+	}
+}

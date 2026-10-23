@@ -183,7 +183,9 @@ func newConfiguration(configList *v1alpha1.ConfigList, defaultNamespace string) 
 		if config.Spec.DefaultPackageInterval != nil {
 			cfg.defaultPackageInterval = config.Spec.DefaultPackageInterval.Duration
 		}
-		cfg.specPatch = config.Spec.SpecPatch
+		if config.Spec.SpecPatch != nil {
+			cfg.specPatch = config.Spec.SpecPatch
+		}
 	}
 	for idx := range cfg.defaultContexts {
 		if cfg.defaultContexts[idx].Namespace == "" {
