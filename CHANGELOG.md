@@ -1,3 +1,20 @@
+# v0.4.1
+
+- A refused update of the finalizer of a Release no longer quotes the answer of the API server.
+- A Release computes why an output connection is not ready as its controller does, and never copies its stored message.
+- The deletion of a Release logs the folder and the ClusterConnection it could not remove as values.
+- An API error keeps a standard Kubernetes reason only, and a field only if a kind that KuboCD writes declares it.
+- The controller logs the creation of an output connection once the API server has created it.
+- A HelmRelease spec that does not decode blames `specPatch` only when the spec decodes without it.
+- A failed list of a watch of the controller is logged without its message, which can quote the selector.
+- A Context without `spec.context` is READY.
+- A module type other than `HelmChart` or `Package` is refused, and fetching the chart of a module no longer panics.
+- A Release names an output connection that no controller checked yet, and says when the `connections` gate is off.
+- A missing parent Context is no longer reported as a failed read of it, nor the reverse.
+- A Release waiting for a Flux source that is not ready shows the message of its Ready condition.
+- A change of the Configs no longer crashes the controller, nor gives a Release a half-rebuilt configuration. Configs
+  that fail to load leave the previous configuration in effect.
+
 # v0.4.0
 
 - BREAKING: Package and Release templates can only call a fixed list of functions, whose result depends on their
