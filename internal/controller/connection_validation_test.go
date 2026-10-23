@@ -203,6 +203,71 @@ func TestAContractRefusalReachesTheReleaseWithoutTheValues(t *testing.T) {
 	}
 }
 
+// withConnectionsGate turns on the connections feature gate.
+func withConnectionsGate(r *ReleaseReconciler) {
+	r.ConnectionsGate = true
+}
+
+func TestAnOutputConnectionThatNoControllerCheckedIsNamed(t *testing.T) {
+	gates := map[string]struct {
+		options []func(*ReleaseReconciler)
+		want    string
+	}{
+		"gate off": {nil, "Connection 'db': not checked, as the connections feature gate is off"},
+		"gate on":  {[]func(*ReleaseReconciler){withConnectionsGate}, "Connection 'db': not checked yet"},
+	}
+	for _, kind := range []kv1alpha1.Kind{kv1alpha1.KindConnection, kv1alpha1.KindClusterConnection} {
+		for gate, g := range gates {
+			t.Run(fmt.Sprintf("%s, %s", kind, gate), func(t *testing.T) {
+				manifest := fmt.Sprintf(afterRenderPackage, fmt.Sprintf(outputPackage, databaseContract, kind, ""), "")
+				options := append([]func(*ReleaseReconciler){withObjects(t, readyHelmRelease())}, g.options...)
+				testbed := newReleaseTestbed(t, manifest, "", afterRenderContext, options...)
+				for _, reconciliation := range []string{"creation of the connection", "next reconciliation"} {
+					got := testbed.reconcile(t)
+					release := &kv1alpha1.Release{}
+					if err := testbed.client.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+						t.Fatal(err)
+					}
+					if got.err != nil || got.status != g.want || release.Status.Phase != kv1alpha1.ReleasePhaseWaitOutputConnections {
+						t.Fatalf("%s: got error %v, phase %q and status %q, want phase %q and status %q", reconciliation, got.err,
+							release.Status.Phase, got.status, kv1alpha1.ReleasePhaseWaitOutputConnections, g.want)
+					}
+				}
+			})
+		}
+	}
+}
+
+// twoOutputsPackage has the outputs a and b.
+const twoOutputsPackage = `outputs: |
+  - contract: database
+    name: a
+    values:
+      host: pg
+  - contract: database
+    name: b
+    values:
+      host: pg`
+
+func TestAnOutputConnectionInErrorComesBeforeAnUncheckedOne(t *testing.T) {
+	manifest := fmt.Sprintf(afterRenderPackage, twoOutputsPackage, "")
+	testbed := newReleaseTestbed(t, manifest, "", afterRenderContext, withObjects(t, readyHelmRelease()), withConnectionsGate)
+	if created := testbed.reconcile(t); created.err != nil {
+		t.Fatalf("the outputs were not created: %v", created.err)
+	}
+	b := &kv1alpha1.Connection{}
+	if err := testbed.client.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: BuildConnectionName("demo", "b")}, b); err != nil {
+		t.Fatal(err)
+	}
+	b.Status.Phase = kv1alpha1.ConnectionPhaseError
+	if err := testbed.client.Status().Update(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := testbed.reconcile(t), "Connection 'b': the Contract or ClusterContract named in spec.contract is missing"; got.status != want {
+		t.Fatalf("got status %q, want %q", got.status, want)
+	}
+}
+
 // storedMessage is a status message that names a property of the values, the
 // canary, as gojsonschema words a property that the contract does not
 // declare.

@@ -556,6 +556,7 @@ var controllerCmd = &cobra.Command{
 			ConfigStore:     theConfigStore,
 			RoleStore:       roleStore,
 			AllowDNSLookups: controllerParams.allowDNSLookups,
+			ConnectionsGate: controllerParams.gates[featureGateConnections],
 		}
 
 		// There is 2 watches on Connections resource

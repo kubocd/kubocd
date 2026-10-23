@@ -28,9 +28,11 @@ import (
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
 	"kubocd/internal/tmpl"
+	"maps"
 	"os"
 	"path"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,6 +67,7 @@ type ReleaseReconciler struct {
 	ConfigStore      configstore.ConfigStore
 	RoleStore        rolestore.RoleStore
 	AllowDNSLookups  bool
+	ConnectionsGate  bool // On when the controllers that check connections run
 	statusErrorCount int
 }
 
@@ -643,10 +646,17 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 	}
 
-	// Another loop to set the user error message in every reconciliation (idempotency)
-	for k, v := range op.outputConnectionByName {
-		if v.Phase != "" && v.Phase != kv1alpha1.ConnectionPhaseReady && message == "" {
+	// Another loop to set the user error message in every reconciliation (idempotency). A connection in a phase other
+	// than READY comes before a connection that no controller checked yet.
+	outputs := slices.Sorted(maps.Keys(op.outputConnectionByName))
+	for _, k := range outputs {
+		if v := op.outputConnectionByName[k]; v.Phase != "" && v.Phase != kv1alpha1.ConnectionPhaseReady && message == "" {
 			message = fmt.Sprintf("Connection '%s': %s", k, v.Message)
+		}
+	}
+	for _, k := range outputs {
+		if op.outputConnectionByName[k].Phase == "" && message == "" {
+			message = fmt.Sprintf("Connection '%s': %s", k, r.uncheckedConnection())
 		}
 	}
 
