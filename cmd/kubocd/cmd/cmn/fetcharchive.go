@@ -104,10 +104,10 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else {
-				panic("Unrecognized module source")
+				return nil, nil, fmt.Errorf("module '%s': no source is set for its chart", module.Name)
 			}
 		} else {
-			panic("Unrecognized module type")
+			return nil, nil, fmt.Errorf("module '%s': the module type '%s' is not supported", module.Name, module.Type)
 		}
 		chartName, chartVersion, err := extractChartInfo(archive)
 		if err != nil {

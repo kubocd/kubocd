@@ -17,6 +17,7 @@ limitations under the License.
 package kubopackage
 
 import (
+	"fmt"
 	"kubocd/internal/tmpl"
 	"strings"
 	"testing"
@@ -118,5 +119,32 @@ modules:
 	want := `could not parse 'values' template: in templateHeader or on the first line of the template: template: :2: function "now" not defined`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got error %v, want one containing %q", err, want)
+	}
+}
+
+func TestAModuleTypeOtherThanHelmChartOrPackageIsRejected(t *testing.T) {
+	manifest := `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+modules:
+  - name: main
+    type: %s
+    source:
+      oci:
+        repository: registry.example/demo
+        tag: 1.0.0
+`
+	for moduleType, want := range map[string]string{
+		"HelmChart": "",
+		"Package":   "",
+		"Helmchart": "module 'main': 'type' must be HelmChart or Package (is 'Helmchart')",
+	} {
+		t.Run(moduleType, func(t *testing.T) {
+			err := groomManifest(t, fmt.Sprintf(manifest, moduleType))
+			if (want == "" && err != nil) || (want != "" && (err == nil || err.Error() != want)) {
+				t.Fatalf("got error %v, want %q", err, want)
+			}
+		})
 	}
 }

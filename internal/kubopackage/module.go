@@ -103,6 +103,9 @@ func (m *Module) groom(pck *Package, idx int, configStore configstore.ConfigStor
 		m.Type = global.HelmChartType
 		//return fmt.Errorf("module type is required")
 	}
+	if m.Type != global.HelmChartType && m.Type != global.PackageType {
+		return fmt.Errorf("'type' must be %s or %s (is '%s')", global.HelmChartType, global.PackageType, m.Type)
+	}
 	if misc.IsZero(m.TargetNamespace) {
 		m.TargetNamespace = "{{.Release.spec.targetNamespace}}"
 	}
