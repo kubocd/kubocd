@@ -28,40 +28,45 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidate bool, repoUrl string) (*sourcev1.HelmRepository, ReconcileError) {
+// waitHelmRepository is the message of a Release that waits for its HelmRepository.
+const waitHelmRepository = "Wait Helm Repository"
+
+// handleHelmRepository returns the HelmRepository of the Release once ready,
+// or otherwise the message of the wait.
+func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidate bool, repoUrl string) (*sourcev1.HelmRepository, string, ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on '%s': %w", op.helmRepositoryName, err), false, "HelmRepositoryAccess")
+			return nil, "", NewReconcileError(fmt.Errorf("on '%s': %w", op.helmRepositoryName, err), false, "HelmRepositoryAccess")
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create associated HelmRepository", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
 		err := r.createHelmRepository(op, repoUrl)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "HelmRepositoryCreateFailed")
+			return nil, "", NewReconcileError(err, false, "HelmRepositoryCreateFailed")
 		}
 		r.Event(op.release, "Normal", "HelmRepositoryCreated", fmt.Sprintf("Created HelmRepository %q", op.helmRepositoryName))
 		// Caller will Requeue
-		return nil, nil
+		return nil, waitHelmRepository, nil
 	}
 	// Helm repo exists
 	if invalidate {
 		op.logger.V(0).Info("Will delete associated HelmRepository as content have changed", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
 		err := r.Delete(op.ctx, helmRepository)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "HelmRepositoryDeleteFailed")
+			return nil, "", NewReconcileError(err, false, "HelmRepositoryDeleteFailed")
 		}
 		r.Event(op.release, "Normal", "HelmRepositoryDeleted", fmt.Sprintf("Delete HelmRepository %q for content change", op.helmRepositoryName))
 		//
 		// Caller will Requeue,
-		return nil, nil
+		return nil, waitHelmRepository, nil
 	}
 
 	changed, err := r.patchHelmRepository(op, helmRepository, repoUrl)
 	if err != nil {
-		return nil, NewReconcileError(err, false, "HelmRepositoryPatchFailed")
+		return nil, "", NewReconcileError(err, false, "HelmRepositoryPatchFailed")
 	}
 	if changed {
 		op.logger.V(0).Info("Helm repository updated", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
@@ -73,19 +78,23 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidat
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]
-		if !ok || readyCondition == metav1.ConditionUnknown || readyCondition == metav1.ConditionFalse {
+		if !ok || readyCondition == metav1.ConditionUnknown {
 			//  Caller will requeue, waiting for Helm
-			return nil, nil
+			return nil, waitHelmRepository, nil
+		}
+		if readyCondition == metav1.ConditionFalse {
+			// Flux retries on its own, and its change of status reconciles the Release
+			return nil, notReadySource("HelmRepository", op.helmRepositoryName, helmRepository.Status.Conditions), nil
 		}
 		// Something wrong with Helm repo
-		return nil, NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on HelmRepository '%s'", statusByType["Ready"], op.helmRepositoryName), true, "HelmRepositoryNotReady")
+		return nil, "", NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on HelmRepository '%s'", statusByType["Ready"], op.helmRepositoryName), true, "HelmRepositoryNotReady")
 	}
 	if helmRepository.Status.Artifact == nil {
 		//return nil, NewReconcileError(fmt.Errorf("null status.artifact on HelmRepository '%s'", name), false, "HelmRepositoryNotReady")
 		//  Caller will requeue, waiting for Helm
-		return nil, nil
+		return nil, waitHelmRepository, nil
 	}
-	return helmRepository, nil
+	return helmRepository, "", nil
 }
 
 func PopulateHelmRepository(helmRepository *sourcev1.HelmRepository, release *kv1alpha1.Release, repoUrl string) {

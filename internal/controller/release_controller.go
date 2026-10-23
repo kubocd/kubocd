@@ -253,14 +253,14 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	GroomRelease(release, logger, r.ConfigStore)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
-	ociRepository, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
+	ociRepository, waitMessage, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError, false)
 	}
 	if ociRepository == nil {
 		// set phase to WAIT_OCI
 		// No need to requeue, as we should be notified when the OCI repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, "Wait OCI repository", false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitOci, waitMessage, false)
 	}
 
 	// ---------------------------------- At this point, we have an effective primary OCI repo, so we can fetch the content, if not in cache
@@ -299,14 +299,14 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ----------------------------------------------------------Setup our companion HelmRepository and wait its readiness
 	repoUrl := fmt.Sprintf("http://%s/%s", r.HelmRepoAdvAddr, helmRepositoryPath)
-	helmRepository, reconcileError := r.handleHelmRepository(op, invalidate, repoUrl)
+	helmRepository, waitMessage, reconcileError := r.handleHelmRepository(op, invalidate, repoUrl)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError, false)
 	}
 	if helmRepository == nil {
 		// set phase to WAIT_HELM_REPO
 		// No need to requeue, as we should be notified when the Helm repo status will change
-		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, "Wait Helm Repository", false)
+		return r.updateStatus(op, kv1alpha1.ReleasePhaseWaitHelmRepo, waitMessage, false)
 	}
 
 	// ---------------------------------------------------------- Retrieve package from cache, or load it

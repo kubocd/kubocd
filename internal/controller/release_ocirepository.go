@@ -24,34 +24,40 @@ import (
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, ReconcileError) {
+// waitOciRepository is the message of a Release that waits for its OCIRepository.
+const waitOciRepository = "Wait OCI repository"
+
+// handleOciRepository returns the OCIRepository of the Release once ready, or
+// otherwise the message of the wait.
+func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, string, ReconcileError) {
 	// Fetch associated OCIRepository
 	ociRepository := &sourcev1.OCIRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.ociRepositoryName, Namespace: op.release.Namespace}, ociRepository)
 	if err != nil {
 		//logger.V(1).Info("Unable to fetch OCI Repository", "error", err.Error())
 		if !apierrors.IsNotFound(err) {
-			return nil, NewReconcileError(fmt.Errorf("on '%s': %w", op.ociRepositoryName, err), false, "OCIRepositoryAccess")
+			return nil, "", NewReconcileError(fmt.Errorf("on '%s': %w", op.ociRepositoryName, err), false, "OCIRepositoryAccess")
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create associated OCIRepository", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
 		err := r.createOciRepository(op, mediaType, ociOperation)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "OCIRepositoryCreateFailed")
+			return nil, "", NewReconcileError(err, false, "OCIRepositoryCreateFailed")
 		}
 		r.Event(op.release, "Normal", "OCIRepositoryCreated", fmt.Sprintf("Created OCIRepository %q", op.ociRepositoryName))
 		// Caller will Requeue, waiting for OCI
-		return nil, nil
+		return nil, waitOciRepository, nil
 	} else {
 		changed, err := r.patchOciRepository(op, ociRepository, mediaType, ociOperation)
 		if err != nil {
-			return nil, NewReconcileError(err, false, "OCIRepositoryPatchFailed")
+			return nil, "", NewReconcileError(err, false, "OCIRepositoryPatchFailed")
 		}
 		if changed {
 			op.logger.V(0).Info("OCI repository updated", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
@@ -63,19 +69,33 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]
-		if !ok || readyCondition == metav1.ConditionUnknown || readyCondition == metav1.ConditionFalse {
+		if !ok || readyCondition == metav1.ConditionUnknown {
 			//  Caller will requeue, waiting for OCI
-			return nil, nil
+			return nil, waitOciRepository, nil
+		}
+		if readyCondition == metav1.ConditionFalse {
+			// Flux retries on its own, and its change of status reconciles the Release
+			return nil, notReadySource("OCIRepository", op.ociRepositoryName, ociRepository.Status.Conditions), nil
 		}
 		// Something wrong with OCI repo
-		return nil, NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on OCIRepository '%s'", statusByType["Ready"], op.ociRepositoryName), true, "OCIRepositoryNotReady")
+		return nil, "", NewReconcileError(fmt.Errorf("invalid status '%s' for Ready condition on OCIRepository '%s'", statusByType["Ready"], op.ociRepositoryName), true, "OCIRepositoryNotReady")
 	}
 	if ociRepository.Status.Artifact == nil {
 		//return nil, NewReconcileError(fmt.Errorf("null status.artifact on OCIRepository '%s'", name), false, "OCIRepositoryNotReady")
 		//  Caller will requeue, waiting for OCI
-		return nil, nil
+		return nil, waitOciRepository, nil
 	}
-	return ociRepository, nil
+	return ociRepository, "", nil
+}
+
+// notReadySource is the message of a Release whose Flux source, of the kind
+// and the name given, is not ready, with the message of its Ready condition.
+func notReadySource(kind string, name string, conditions []metav1.Condition) string {
+	message := fmt.Sprintf("%s '%s' is not ready", kind, name)
+	if ready := apimeta.FindStatusCondition(conditions, "Ready"); ready != nil && ready.Message != "" {
+		message += ": " + ready.Message
+	}
+	return message
 }
 
 func PopulateOciRepository(ociRepository *sourcev1.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
