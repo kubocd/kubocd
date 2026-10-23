@@ -548,9 +548,21 @@ func TestAPIErrorKeepsTheReasonAndTheFields(t *testing.T) {
 			field.Invalid(field.NewPath("spec", "values").Key(canaryPassword), canaryPassword, "invalid"),
 			field.Invalid(field.NewPath("spec").Child(canaryPassword+"("), canaryPassword, "invalid"),
 			field.Invalid(nil, nil, "some validation rules were not checked"),
-		}), "the API server answered Invalid for spec.install, spec.values, " + objectWithheld},
+		}), "the API server answered Invalid for spec, spec.install, spec.values, " + objectWithheld},
+		"fields that the kinds declare": {apierrors.NewInvalid(gk, "demo-main", field.ErrorList{
+			field.Invalid(field.NewPath("status", "usage").Key(canaryPassword), canaryPassword, "refused"),
+			field.Invalid(field.NewPath("metadata", "name"), canaryPassword, "invalid"),
+			field.Invalid(field.NewPath("spec", "timeout"), canaryPassword, "invalid"),
+		}), "the API server answered Invalid for metadata.name, spec.timeout, status.usage, " + objectWithheld},
+		"fields that no kind declares": {apierrors.NewInvalid(gk, "demo-main", field.ErrorList{
+			field.Invalid(field.NewPath("spec", canaryName), canaryPassword, "invalid"),
+			field.Invalid(field.NewPath(canaryName, "spec"), canaryPassword, "invalid"),
+		}), "the API server answered Invalid for spec, " + objectWithheld},
 		"forbidden": {apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, canaryPassword, errors.New("access denied")),
 			"the API server answered Forbidden, " + objectWithheld},
+		"reason that the API server does not give": {&apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure,
+			Code: 403, Reason: metav1.StatusReason(canaryName), Message: "denied: " + canaryPassword}},
+			"the API server answered Unknown, " + objectWithheld},
 		"no answer": {fmt.Errorf("invalid resource name %q: [may not contain '/']", canaryPassword+"/x"),
 			"the request to the API server failed, " + objectWithheld},
 	}
