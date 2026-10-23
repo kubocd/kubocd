@@ -43,10 +43,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -306,33 +303,6 @@ var controllerCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			// The resource kind is not carried by the event, so we build one map function per watched kind.
-			findReplicationFromResource := func(kind string) handler.MapFunc {
-				return func(ctx context.Context, resource client.Object) []reconcile.Request {
-					replications := kubocdv1alpha1.ReplicationList{}
-					listOps := &client.ListOptions{
-						FieldSelector: fields.OneTermEqualSelector(controller.ResourceIndexOnReplication, controller.ResourceKey(resource.GetNamespace(), kind, resource.GetName())),
-					}
-					err := mgr.GetClient().List(ctx, &replications, listOps)
-					if err != nil {
-						if !apierrors.IsNotFound(err) {
-							controllerRootLog.Error(err, "findReplicationFromResource(): Unable to find replications", "kind", kind)
-						}
-						return []reconcile.Request{}
-					}
-					requests := make([]reconcile.Request, 0, len(replications.Items))
-					for _, item := range replications.Items {
-						requests = append(requests, reconcile.Request{
-							NamespacedName: types.NamespacedName{
-								Name:      item.GetName(),
-								Namespace: item.GetNamespace(),
-							},
-						})
-					}
-					return requests
-				}
-			}
-
 			replicationReconciler := &controller.ReplicationReconciler{
 				Client:        mgr.GetClient(),
 				EventRecorder: mgr.GetEventRecorderFor("replication"),
@@ -348,8 +318,10 @@ var controllerCmd = &cobra.Command{
 				WithOptions(ctrlcontroller.Options{
 					RateLimiter: workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](time.Millisecond*5, controller.ReplicationReconcilePeriod),
 				}).
-				Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindSecret))).
-				Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findReplicationFromResource(controller.KindConfigMap))).
+				Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(
+					findReplicationFromResource(mgr.GetClient(), controllerRootLog, controller.KindSecret))).
+				Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(
+					findReplicationFromResource(mgr.GetClient(), controllerRootLog, controller.KindConfigMap))).
 				Complete(replicationReconciler)
 			if err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "replication")
@@ -427,30 +399,6 @@ var controllerCmd = &cobra.Command{
 
 			// ---------------------------------------------------------------------------- Connection controller setup
 
-			findConnectionFromContract := func(ctx context.Context, contract client.Object) []reconcile.Request {
-				connections := kubocdv1alpha1.ConnectionList{}
-				listOps := &client.ListOptions{
-					FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnConnection, contract.GetName()),
-				}
-				err := mgr.GetClient().List(context.Background(), &connections, listOps)
-				if err != nil {
-					if !apierrors.IsNotFound(err) {
-						controllerRootLog.Error(err, "findConnectionFromContract(): Unable to find contract bindings")
-					}
-					return []reconcile.Request{}
-				}
-				requests := make([]reconcile.Request, 0, 10)
-				for _, item := range connections.Items {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      item.GetName(),
-							Namespace: item.GetNamespace(),
-						},
-					})
-				}
-				return requests
-			}
-
 			connectionReconciler := &controller.ConnectionReconciler{
 				Client:        mgr.GetClient(),
 				EventRecorder: mgr.GetEventRecorderFor("connection"),
@@ -460,8 +408,10 @@ var controllerCmd = &cobra.Command{
 			err = ctrl.NewControllerManagedBy(mgr).
 				For(&kubocdv1alpha1.Connection{}).
 				Named("kubocd-connection-controller").
-				Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
-				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findConnectionFromContract)).
+				Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(
+					findConnectionFromContract(mgr.GetClient(), controllerRootLog))).
+				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(
+					findConnectionFromContract(mgr.GetClient(), controllerRootLog))).
 				Complete(connectionReconciler)
 			if err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "connection")
@@ -469,30 +419,6 @@ var controllerCmd = &cobra.Command{
 			}
 
 			// --------------------------------------------------------------------- ClusterConnection controller setup
-
-			findClusterConnectionFromClusterContract := func(ctx context.Context, clusterContract client.Object) []reconcile.Request {
-				clusterConnections := kubocdv1alpha1.ClusterConnectionList{}
-				listOps := &client.ListOptions{
-					FieldSelector: fields.OneTermEqualSelector(controller.ContractIndexOnClusterConnection, clusterContract.GetName()),
-				}
-				err := mgr.GetClient().List(context.Background(), &clusterConnections, listOps)
-				if err != nil {
-					if !apierrors.IsNotFound(err) {
-						controllerRootLog.Error(err, "findClusterConnectionFromClusterContract(): Unable to find contract bindings")
-					}
-					return []reconcile.Request{}
-				}
-				requests := make([]reconcile.Request, 0, 10)
-				for _, item := range clusterConnections.Items {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      item.GetName(),
-							Namespace: item.GetNamespace(),
-						},
-					})
-				}
-				return requests
-			}
 
 			clusterConnectionReconciler := &controller.ClusterConnectionReconciler{
 				Client:        mgr.GetClient(),
@@ -503,7 +429,8 @@ var controllerCmd = &cobra.Command{
 			err = ctrl.NewControllerManagedBy(mgr).
 				For(&kubocdv1alpha1.ClusterConnection{}).
 				Named("kubocd-cluster-connection-controller").
-				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(findClusterConnectionFromClusterContract)).
+				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(
+					findClusterConnectionFromClusterContract(mgr.GetClient(), controllerRootLog))).
 				Complete(clusterConnectionReconciler)
 			if err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")
@@ -533,7 +460,6 @@ var controllerCmd = &cobra.Command{
 		// ----------------------------------------------------------------------------------
 		// Create an index to retrieve a Release from an output ClusterConnection in an efficient way
 		// index release by output ClusterConnections
-		const outputClusterConnectionIndexOnRelease = "outputClusterConnectionIndexOnRelease"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, outputClusterConnectionIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			clusterConnections := make([]string, 0, len(release.Status.OutputConnectionByName))
@@ -545,35 +471,9 @@ var controllerCmd = &cobra.Command{
 			return clusterConnections
 		})
 
-		// This function is needed to replace OwnerReference mechanism, as we need a cross namespace reference
-		findReleaseFromOutputClusterConnection := func(ctx context.Context, clusterConnection client.Object) []reconcile.Request {
-			releases := kubocdv1alpha1.ReleaseList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(outputClusterConnectionIndexOnRelease, fmt.Sprintf("%s", clusterConnection.GetName())),
-			}
-			err := mgr.GetClient().List(context.Background(), &releases, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromOutputClusterConnection(): Unable to find ClusterConnection bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range releases.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
 		// ----------------------------------------------------------------------------------
 		// Create an index to retrieve a Release from an input connection in an efficient way
 		// index release by input connections
-		const watchedInputConnectionIndexOnRelease = "watchedInputConnectionIndexOnRelease"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, watchedInputConnectionIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			connections := make([]string, len(release.Status.WatchedInputConnections))
@@ -590,34 +490,9 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findReleaseFromWatchedInputConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
-			releases := kubocdv1alpha1.ReleaseList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(watchedInputConnectionIndexOnRelease, fmt.Sprintf("%s:%s", connection.GetNamespace(), connection.GetName())),
-			}
-			err := mgr.GetClient().List(context.Background(), &releases, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromWatchedInputConnection(): Unable to find Connection bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range releases.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
 		// ----------------------------------------------------------------------------------
 		// Create an index to retrieve a Release from an input clusterConnection in an efficient way
 		// index release by input clusterConnections
-		const watchedInputClusterConnectionIndexOnRelease = "watchedInputClusterConnectionIndexOnRelease"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, watchedInputClusterConnectionIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			connections := make([]string, len(release.Status.WatchedInputConnections))
@@ -634,34 +509,9 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findReleaseFromWatchedInputClusterConnection := func(ctx context.Context, connection client.Object) []reconcile.Request {
-			releases := kubocdv1alpha1.ReleaseList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(watchedInputClusterConnectionIndexOnRelease, connection.GetName()),
-			}
-			err := mgr.GetClient().List(context.Background(), &releases, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromWatchedInputClusterConnection(): Unable to find ClusterConnection bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range releases.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
 		// ------------------------------------------------------------------------
 		// Create an index to retrieve a Release from a context in an efficient way
 		// index release by contexts
-		const contextIndexOnRelease = "contextIndexOnRelease"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Release{}, contextIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			contexts := make([]string, 0, len(release.Spec.Contexts))
@@ -692,53 +542,6 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findReleaseFromContext := func(ctx context.Context, kcontext client.Object) []reconcile.Request {
-			releases := kubocdv1alpha1.ReleaseList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(contextIndexOnRelease, fmt.Sprintf("%s:%s", kcontext.GetNamespace(), kcontext.GetName())),
-			}
-			err := mgr.GetClient().List(context.Background(), &releases, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromContext(): Unable to find Context bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range releases.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
-		// -------------------------------------------------
-		// If config change, will reconcile all release
-		findReleaseFromConfig := func(ctx context.Context, kcontext client.Object) []reconcile.Request {
-			releases := kubocdv1alpha1.ReleaseList{}
-			err := mgr.GetClient().List(context.Background(), &releases)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findReleaseFromConfig(): Unable to find releases")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range releases.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
 		if controllerParams.allowDNSLookups {
 			controllerRootLog.Info("Package templates may resolve host names with resolveDNS")
 		}
@@ -765,11 +568,16 @@ var controllerCmd = &cobra.Command{
 			Owns(&sourcev1.HelmRepository{}).
 			Owns(&fluxv2.HelmRelease{}).
 			Owns(&kubocdv1alpha1.Connection{}).
-			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromOutputClusterConnection)).
-			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromContext)).
-			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromConfig)).
-			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromWatchedInputConnection)).
-			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(findReleaseFromWatchedInputClusterConnection)).
+			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
+				findReleaseFromOutputClusterConnection(mgr.GetClient(), controllerRootLog))).
+			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(
+				findReleaseFromContext(mgr.GetClient(), controllerRootLog))).
+			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(
+				findReleaseFromConfig(mgr.GetClient(), controllerRootLog))).
+			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(
+				findReleaseFromWatchedInputConnection(mgr.GetClient(), controllerRootLog))).
+			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
+				findReleaseFromWatchedInputClusterConnection(mgr.GetClient(), controllerRootLog))).
 			Complete(releaseReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
@@ -778,7 +586,6 @@ var controllerCmd = &cobra.Command{
 
 		// -------------------------------------------------------------------------------------- Context controller setup
 
-		const parentIndexOnChild = "parentIndexOnChild"
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Context{}, parentIndexOnChild, func(rawObj client.Object) []string {
 			child := rawObj.(*kubocdv1alpha1.Context)
 			parents := make([]string, len(child.Spec.Parents))
@@ -796,30 +603,6 @@ var controllerCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		findChildFromParent := func(ctx context.Context, parentContext client.Object) []reconcile.Request {
-			children := kubocdv1alpha1.ContextList{}
-			listOps := &client.ListOptions{
-				FieldSelector: fields.OneTermEqualSelector(parentIndexOnChild, fmt.Sprintf("%s:%s", parentContext.GetNamespace(), parentContext.GetName())),
-			}
-			err := mgr.GetClient().List(context.Background(), &children, listOps)
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					controllerRootLog.Error(err, "findChildFromParent(): Unable to find Context bindings")
-				}
-				return []reconcile.Request{}
-			}
-			requests := make([]reconcile.Request, 0, 10)
-			for _, item := range children.Items {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      item.GetName(),
-						Namespace: item.GetNamespace(),
-					},
-				})
-			}
-			return requests
-		}
-
 		contextReconciler := &controller.ContextReconciler{
 			Client: mgr.GetClient(),
 			//Scheme:        mgr.GetScheme(),
@@ -830,7 +613,8 @@ var controllerCmd = &cobra.Command{
 		err = ctrl.NewControllerManagedBy(mgr).
 			For(&kubocdv1alpha1.Context{}).
 			Named("kubocd-context").
-			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(findChildFromParent)).
+			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(
+				findChildFromParent(mgr.GetClient(), controllerRootLog))).
 			Complete(contextReconciler)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Context")

@@ -84,6 +84,13 @@ func apiError(err error) string {
 	return fmt.Sprintf("the API server answered %s, %s", reason, apiWithheld)
 }
 
+// ClientError describes a failed request of a Kubernetes client, which the
+// API server or the cache of the manager answers, by the reason and the
+// fields of the answer, without its message, which can quote the request.
+func ClientError(err error) error {
+	return errors.New(apiError(err))
+}
+
 // apiField keeps of a field path, such as spec.timeout, its section,
 // metadata, spec or status, and the field of the section that follows when a
 // kind that the controller writes declares it, without index nor map key. A
