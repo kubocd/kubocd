@@ -154,7 +154,10 @@ func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) ReconcileErro
 			child.Namespace = kcontext.ObjectMeta.Namespace
 		}
 	}
-	// Check context is a valid map
+	// Check context is a valid map. A Context without one merges nothing.
+	if kcontext.Spec.Context == nil {
+		return nil
+	}
 	kuboContext := make(map[string]interface{})
 	err := yaml.UnmarshalStrict(kcontext.Spec.Context.Raw, &kuboContext)
 	if err != nil {
