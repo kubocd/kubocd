@@ -723,7 +723,7 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 		op.logger.V(1).Info("Release phase and message are already up-to-date", "phase", phase, "message", message)
 		return ctrl.Result{}, nil
 	}
-	op.logger.V(1).Info("Updating status", "newPhase", phase, "oldPhase", op.release.Status.Phase, "newMessage", message, "oldMessage", op.release.Status.Message, "force", force)
+	op.logger.V(1).Info("Updating status", "newPhase", phase, "oldPhase", op.release.Status.Phase, "newMessage", message, "force", force)
 	op.release.Status.Phase = phase
 	op.release.Status.Message = message
 	err := r.Status().Update(op.ctx, op.release)

@@ -2,15 +2,11 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
-	"kubocd/internal/misc"
 	"reflect"
 
 	"github.com/go-logr/logr"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,15 +54,13 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 	var finalError error = nil
 	previous := clusterConnection.DeepCopy()
 
-	clusterContract := &kv1alpha1.ClusterContract{}
-	// ClusterContract is cluster-scoped, so no namespace.
-	err = r.Get(ctx, types.NamespacedName{Name: clusterConnection.Spec.Contract}, clusterContract)
+	clusterContract, err := findContract(ctx, r, clusterConnection)
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("could not get the ClusterContract: %s", apiError(err))
-		}
+		return ctrl.Result{}, err
+	}
+	if clusterContract == nil {
 		// No corresponding ClusterContract found
-		if misc.IsZero(clusterConnection.Spec.Values) {
+		if err := connectionError(clusterContract, clusterConnection); err == nil {
 			// If no Values, this is legal
 			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
 				r.Event(clusterConnection, "Normal", "Status", "ClusterConnection ready")
@@ -76,12 +70,12 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			finalError = nil
 		} else {
 			clusterConnection.Status.Phase = kv1alpha1.ConnectionPhaseError
-			message := "the ClusterContract named in spec.contract is missing"
+			message := err.Error()
 			if clusterConnection.Status.Message != message {
 				r.Event(clusterConnection, "Warning", "Status", message)
 			}
 			clusterConnection.Status.Message = message
-			finalError = errors.New(message)
+			finalError = err
 		}
 	} else {
 		if err := checkConnection(clusterContract, clusterConnection); err != nil {
@@ -101,7 +95,7 @@ func (r *ClusterConnectionReconciler) reconcile2(ctx context.Context, req ctrl.R
 			clusterConnection.Status.Message = ""
 			finalError = nil
 		}
-		clusterConnection.Status.ContractGeneration = clusterContract.Generation
+		clusterConnection.Status.ContractGeneration = clusterContract.GetGeneration()
 	}
 	if clusterConnection.Status.Parent == "" && clusterConnection.Spec.ParentRelease != nil {
 		clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", clusterConnection.Spec.ParentRelease.Namespace, clusterConnection.Spec.ParentRelease.Name)

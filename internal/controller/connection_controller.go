@@ -62,26 +62,12 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 	var finalError error = nil
 	previous := connection.DeepCopy()
 
-	var contract kv1alpha1.ContractFacade
-
-	contract = &kv1alpha1.Contract{}
-	err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract, Namespace: connection.GetNamespace()}, contract)
+	contract, err := findContract(ctx, r, connection)
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("could not get the Contract: %s", apiError(err))
-		}
-		// Not Found. Try ClusterContract
-		contract = &kv1alpha1.ClusterContract{}
-		err = r.Get(ctx, types.NamespacedName{Name: connection.Spec.Contract}, contract)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, fmt.Errorf("could not get the ClusterContract: %s", apiError(err))
-			}
-			contract = nil // Mark not found
-		}
+		return ctrl.Result{}, err
 	}
 	if contract == nil {
-		if misc.IsZero(connection.Spec.Values) {
+		if err := connectionError(contract, connection); err == nil {
 			// If no Values, this is legal
 			if previous.Status.Phase != kv1alpha1.ConnectionPhaseReady {
 				r.Event(connection, "Normal", "Status", "Connection ready")
@@ -92,12 +78,12 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		} else {
 			connection.Status.Phase = kv1alpha1.ConnectionPhaseError
 			connection.Status.ContractKind = ""
-			message := "the Contract or ClusterContract named in spec.contract is missing"
+			message := err.Error()
 			if connection.Status.Message != message {
 				r.Event(connection, "Warning", "Status", message)
 			}
 			connection.Status.Message = message
-			finalError = errors.New(message)
+			finalError = err
 		}
 	} else {
 		if err := checkConnection(contract, connection); err != nil {
@@ -146,6 +132,50 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 		return ctrl.Result{}, fmt.Errorf("could not update the Connection status: %s", apiError(err))
 	}
 	return ctrl.Result{}, finalError
+}
+
+// findContract returns the contract that connection names: the Contract of
+// its namespace, or else the ClusterContract, for a Connection, and the
+// ClusterContract for a ClusterConnection. It is nil when there is none. A
+// refused read gives the reason of the answer only, as an output renders the
+// name of its contract.
+func findContract(ctx context.Context, reader client.Reader, connection kv1alpha1.ConnectionFacade) (kv1alpha1.ContractFacade, error) {
+	if connection.GetKind() == kv1alpha1.KindConnection {
+		contract := &kv1alpha1.Contract{}
+		err := reader.Get(ctx, types.NamespacedName{Name: connection.GetContract(), Namespace: connection.GetNamespace()}, contract)
+		if err == nil {
+			return contract, nil
+		}
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("could not get the Contract: %s", apiError(err))
+		}
+	}
+	clusterContract := &kv1alpha1.ClusterContract{}
+	err := reader.Get(ctx, types.NamespacedName{Name: connection.GetContract()}, clusterContract)
+	if err == nil {
+		return clusterContract, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("could not get the ClusterContract: %s", apiError(err))
+	}
+	return nil, nil
+}
+
+// connectionError checks connection against contract, nil when missing. It
+// returns nil when connection is ready, and otherwise the error whose text
+// the controller of connection writes in its status. A connection without
+// values needs no contract.
+func connectionError(contract kv1alpha1.ContractFacade, connection kv1alpha1.ConnectionFacade) error {
+	if contract != nil {
+		return checkConnection(contract, connection)
+	}
+	if misc.IsZero(connection.GetValuesRaw()) {
+		return nil
+	}
+	if connection.GetKind() == kv1alpha1.KindClusterConnection {
+		return errors.New("the ClusterContract named in spec.contract is missing")
+	}
+	return errors.New("the Contract or ClusterContract named in spec.contract is missing")
 }
 
 // checkConnection validates the values of connection against contract. Its

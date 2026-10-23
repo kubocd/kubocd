@@ -203,6 +203,161 @@ func TestAContractRefusalReachesTheReleaseWithoutTheValues(t *testing.T) {
 	}
 }
 
+// storedMessage is a status message that names a property of the values, the
+// canary, as gojsonschema words a property that the contract does not
+// declare.
+const storedMessage = "validation error on values: Additional property " + canaryPassword + "( is not allowed"
+
+// withStoredMessage puts the output db of the Release demo, a connection of
+// the kind given, in error with storedMessage, which the status of the Release
+// copies.
+func withStoredMessage(t *testing.T, kind kv1alpha1.Kind) func(*ReleaseReconciler) {
+	return func(r *ReleaseReconciler) {
+		ctx := context.Background()
+		values := &apiextensionsv1.JSON{Raw: []byte(`{"host":"pg","` + canaryPassword + `(":"x"}`)}
+		status := kv1alpha1.ConnectionStatus{Phase: kv1alpha1.ConnectionPhaseError, Message: storedMessage}
+		connection := ownedByDemo(&kv1alpha1.Connection{
+			ObjectMeta: metav1.ObjectMeta{Name: BuildConnectionName("demo", "db"), Namespace: "apps"},
+			Spec:       kv1alpha1.ConnectionSpec{Contract: databaseContract, Values: values, OutputName: "db"},
+		})
+		if kind == kv1alpha1.KindClusterConnection {
+			connection = &kv1alpha1.ClusterConnection{
+				ObjectMeta: metav1.ObjectMeta{Name: BuildClusterConnectionName("demo", "apps", "db")},
+				Spec: kv1alpha1.ClusterConnectionSpec{Contract: databaseContract, Values: values, OutputName: "db",
+					ParentRelease: &kv1alpha1.ParentReleaseRef{Namespace: "apps", Name: "demo"}},
+			}
+		}
+		if err := r.Create(ctx, connection); err != nil {
+			t.Fatal(err)
+		}
+		switch c := connection.(type) {
+		case *kv1alpha1.Connection:
+			c.Status = status
+		case *kv1alpha1.ClusterConnection:
+			c.Status = kv1alpha1.ClusterConnectionStatus{Phase: status.Phase, Message: status.Message}
+		}
+		if err := r.Status().Update(ctx, connection); err != nil {
+			t.Fatal(err)
+		}
+		release := &kv1alpha1.Release{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+			t.Fatal(err)
+		}
+		release.Status.Phase = kv1alpha1.ReleasePhaseWaitOutputConnections
+		release.Status.Message = "Connection 'db': " + storedMessage
+		release.Status.OutputConnectionByName = map[string]kv1alpha1.ReleaseOutputConnection{"db": {Kind: kind,
+			Name: connection.GetName(), Namespace: connection.GetNamespace(), Phase: status.Phase, Message: storedMessage}}
+		if err := r.Status().Update(ctx, release); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// refusingContractReads refuses, as RBAC would, every read of a Contract or a
+// ClusterContract.
+func refusingContractReads(base client.WithWatch) client.WithWatch {
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			switch obj.(type) {
+			case *kv1alpha1.Contract, *kv1alpha1.ClusterContract:
+				gvk, err := apiutil.GVKForObject(obj, c.Scheme())
+				if err != nil {
+					return err
+				}
+				resource := schema.GroupResource{Group: gvk.Group, Resource: strings.ToLower(gvk.Kind) + "s"}
+				return apierrors.NewForbidden(resource, key.Name, errors.New("access denied"))
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+}
+
+// The connection controllers and the Release controller are not run by the
+// envtest suite: the test chains their reconciliations on one fake client.
+func TestAnOutputConnectionKeepsItsStoredMessageOutOfTheRelease(t *testing.T) {
+	const (
+		propertyFromTheContext = "\n      \"{{ .Context.db.password }}\": x"
+		notDeclared            = "validation error on values: (root): a property is not declared in the schema"
+		refused                = ": the API server answered Forbidden, " + objectWithheld
+	)
+	contract := &kv1alpha1.Contract{
+		ObjectMeta: metav1.ObjectMeta{Name: databaseContract, Namespace: "apps"},
+		Spec:       kv1alpha1.ContractSpec{Schema: &apiextensionsv1.JSON{Raw: []byte(hostSchema)}},
+		Status:     kv1alpha1.ContractStatus{Phase: kv1alpha1.ContractPhaseReady},
+	}
+	clusterContract := &kv1alpha1.ClusterContract{
+		ObjectMeta: metav1.ObjectMeta{Name: databaseContract},
+		Spec:       kv1alpha1.ClusterContractSpec{Schema: &apiextensionsv1.JSON{Raw: []byte(hostSchema)}},
+		Status:     kv1alpha1.ClusterContractStatus{Phase: kv1alpha1.ContractPhaseReady},
+	}
+	keys := map[kv1alpha1.Kind]types.NamespacedName{
+		kv1alpha1.KindConnection:        {Namespace: "apps", Name: BuildConnectionName("demo", "db")},
+		kv1alpha1.KindClusterConnection: {Name: BuildClusterConnectionName("demo", "apps", "db")},
+	}
+	// The first contract a connection of the kind given reads
+	contractKinds := map[kv1alpha1.Kind]string{kv1alpha1.KindConnection: "Contract", kv1alpha1.KindClusterConnection: "ClusterContract"}
+	scenarios := map[string]struct {
+		refresh       func(base client.WithWatch) client.WithWatch // the connection controller runs before the Release
+		refreshStatus func(kind kv1alpha1.Kind) string
+		refreshError  func(kind kv1alpha1.Kind) string
+		release       []func(*ReleaseReconciler)
+		want          func(kind kv1alpha1.Kind) string
+	}{
+		"Release first": {want: func(kv1alpha1.Kind) string { return notDeclared }},
+		"Release after a refused refresh": {refresh: refusingContractReads,
+			refreshStatus: func(kv1alpha1.Kind) string { return storedMessage },
+			refreshError:  func(kind kv1alpha1.Kind) string { return "could not get the " + contractKinds[kind] + refused },
+			want:          func(kv1alpha1.Kind) string { return notDeclared }},
+		"Release after the replacement": {refresh: func(base client.WithWatch) client.WithWatch { return base },
+			refreshStatus: func(kv1alpha1.Kind) string { return notDeclared },
+			refreshError:  func(kv1alpha1.Kind) string { return notDeclared },
+			want:          func(kv1alpha1.Kind) string { return notDeclared }},
+		"Release whose contract read is refused": {
+			release: []func(*ReleaseReconciler){func(r *ReleaseReconciler) { r.Client = refusingContractReads(r.Client.(client.WithWatch)) }},
+			want:    func(kind kv1alpha1.Kind) string { return "could not get the " + contractKinds[kind] + refused }},
+	}
+	for kind, key := range keys {
+		for name, s := range scenarios {
+			t.Run(fmt.Sprintf("%s, %s", kind, name), func(t *testing.T) {
+				manifest := fmt.Sprintf(afterRenderPackage, fmt.Sprintf(outputPackage, databaseContract, kind, propertyFromTheContext), "")
+				options := append([]func(*ReleaseReconciler){withObjects(t, readyHelmRelease(), contract.DeepCopy(), clusterContract.DeepCopy()),
+					withStoredMessage(t, kind)}, s.release...)
+				testbed := newReleaseTestbed(t, manifest, "", afterRenderContext, options...)
+				if s.refresh != nil {
+					refreshed := reconcileConnection(t, s.refresh(testbed.client), kind, key)
+					for sink, text := range refreshed.sinks() {
+						if sink != "status" && strings.Contains(text, canaryPassword[:7]) {
+							t.Errorf("the %s of the %s quotes the data:\n%s", sink, kind, text)
+						}
+					}
+					if refreshed.status != s.refreshStatus(kind) || refreshed.err == nil || refreshed.err.Error() != s.refreshError(kind) {
+						t.Fatalf("got status %q and error %v of the %s, want %q and %q", refreshed.status, refreshed.err, kind,
+							s.refreshStatus(kind), s.refreshError(kind))
+					}
+				}
+				got := testbed.reconcile(t)
+				for sink, text := range got.sinks() {
+					if strings.Contains(text, canaryPassword[:7]) {
+						t.Errorf("the %s of the Release quotes the data:\n%s", sink, text)
+					}
+				}
+				want := s.want(kind)
+				got.mustReport(t, want)
+				if got.status != "Connection 'db': "+want {
+					t.Fatalf("got status %q of the Release, want %q", got.status, "Connection 'db': "+want)
+				}
+				release := &kv1alpha1.Release{}
+				if err := testbed.client.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+					t.Fatal(err)
+				}
+				if output := release.Status.OutputConnectionByName["db"]; output.Message != want || output.Phase != kv1alpha1.ConnectionPhaseError {
+					t.Fatalf("got output %+v in the status of the Release, want phase ERROR and message %q", output, want)
+				}
+			})
+		}
+	}
+}
+
 // refusingCanaryRequests refuses, as the API server would, to read a contract
 // of the kinds given whose name holds the canary, quoting the name, and, as an
 // admission webhook would, a status update of a connection whose values hold

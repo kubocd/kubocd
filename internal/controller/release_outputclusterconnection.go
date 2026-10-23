@@ -70,7 +70,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		Name:      clusterConnection.Name,
 		Namespace: "",
 		Phase:     clusterConnection.Status.Phase,
-		Message:   clusterConnection.Status.Message,
+		Message:   r.outputConnectionMessage(op, clusterConnection),
 	}
 	return clusterConnection, nil
 }

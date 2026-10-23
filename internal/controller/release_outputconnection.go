@@ -71,9 +71,31 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		Name:      connection.Name,
 		Namespace: connection.Namespace,
 		Phase:     connection.Status.Phase,
-		Message:   connection.Status.Message,
+		Message:   r.outputConnectionMessage(op, connection),
 	}
 	return connection, nil
+}
+
+// uncheckedConnection is the message of an output connection that its
+// controller did not check against its contract yet.
+const uncheckedConnection = "not checked yet"
+
+// outputConnectionMessage gives the reason why the output connection is not
+// ready, computed again as its controller does, and nothing when its phase
+// is READY or empty. The message of its status is not read: it is free text,
+// which can name properties of the values.
+func (r *ReleaseReconciler) outputConnectionMessage(op *releaseOperation, connection kv1alpha1.ConnectionFacade) string {
+	if phase := connection.GetStatusPhase(); phase == "" || phase == kv1alpha1.ConnectionPhaseReady {
+		return ""
+	}
+	contract, err := findContract(op.ctx, r, connection)
+	if err != nil {
+		return err.Error()
+	}
+	if err := connectionError(contract, connection); err != nil {
+		return err.Error()
+	}
+	return uncheckedConnection
 }
 
 func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) (bool, error) {
