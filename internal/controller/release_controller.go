@@ -368,9 +368,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if op.release.Spec.Protected != nil {
 		protected = *op.release.Spec.Protected
 	}
-	op.release.Status.PrintProtected = misc.Ternary(protected, "X", "-")
-	if protected != op.release.Status.Protected {
+	printProtected := misc.Ternary(protected, "X", "-")
+	if protected != op.release.Status.Protected || printProtected != op.release.Status.PrintProtected {
 		op.release.Status.Protected = protected
+		op.release.Status.PrintProtected = printProtected
 		forceUpdate = true
 	}
 	// ---------------------------------------------------------- Compute context
