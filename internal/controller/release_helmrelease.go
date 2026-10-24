@@ -17,12 +17,17 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
+	"reflect"
+	"slices"
+	"strings"
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -152,7 +157,8 @@ func PopulateHelmRelease(
 	if err != nil {
 		return err
 	}
-	if err := decodeHelmReleaseSpec(spec, &helmRelease.Spec); err != nil {
+	current := retainedSpec(&helmRelease.Spec, spec)
+	if err := decodeHelmReleaseSpec(spec, current); err != nil {
 		// Checked on failure only, as a later patch can replace what specPatch sets
 		withoutSpecPatch, buildErr := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName,
 			module, configStore, nil)
@@ -162,6 +168,7 @@ func PopulateHelmRelease(
 		return fmt.Errorf("failed to unmarshal spec into HelmRelease for module '%s': the spec merged from the package, the "+
 			"configuration and the Release has %w", module.Name, err)
 	}
+	helmRelease.Spec = *current
 	return nil
 }
 
@@ -284,6 +291,187 @@ func decodeHelmReleaseSpec(spec map[string]interface{}, target *fluxv2.HelmRelea
 		return errUndefinedField
 	}
 	return errWrongValue
+}
+
+// retainedSpec returns a copy of existing that holds only what spec sets, the
+// fields of spec resolved as encoding/json does. Decoding spec into it then
+// gives, for the fields spec sets, what decoding spec into existing gives, and
+// for the others what a new HelmRelease gets. spec.suspend stays as found when
+// spec does not set it, as flux suspend sets it on the HelmRelease itself.
+func retainedSpec(existing *fluxv2.HelmReleaseSpec, spec map[string]interface{}) *fluxv2.HelmReleaseSpec {
+	specTxt, err := yaml.Marshal(spec)
+	if err != nil {
+		return &fluxv2.HelmReleaseSpec{}
+	}
+	specJSON, err := yaml.YAMLToJSON(specTxt)
+	if err != nil {
+		return &fluxv2.HelmReleaseSpec{}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(specJSON))
+	decoder.UseNumber()
+	var tree interface{}
+	if err := decoder.Decode(&tree); err != nil {
+		return &fluxv2.HelmReleaseSpec{}
+	}
+	object, ok := tree.(map[string]interface{})
+	if !ok {
+		return &fluxv2.HelmReleaseSpec{}
+	}
+	kept := existing.DeepCopy()
+	suspend := kept.Suspend
+	keepSetFields(reflect.ValueOf(kept).Elem(), object)
+	if len(fieldKeys(object, "suspend")) == 0 {
+		kept.Suspend = suspend
+	}
+	return kept
+}
+
+var jsonUnmarshaler = reflect.TypeFor[json.Unmarshaler]()
+
+// keepSetFields zeroes, in v, what tree does not set, tree being the JSON that
+// encoding/json decodes into v: a field or a map key that tree lacks. A value
+// that decodes itself, and a value that tree sets to null or to a value of
+// another kind, are kept whole. A list is kept element by element, as
+// encoding/json decodes a list into the elements already there.
+func keepSetFields(v reflect.Value, tree interface{}) {
+	if v.CanAddr() && v.Addr().Type().Implements(jsonUnmarshaler) {
+		return
+	}
+	switch v.Kind() {
+	case reflect.Pointer:
+		if !v.IsNil() {
+			keepSetFields(v.Elem(), tree)
+		}
+	case reflect.Struct:
+		object, ok := tree.(map[string]interface{})
+		if !ok {
+			return
+		}
+		for _, field := range jsonFields(v) {
+			keys := fieldKeys(object, field.name)
+			if len(keys) == 0 {
+				field.value.SetZero()
+				continue
+			}
+			tree := object[keys[0]]
+			for _, key := range keys[1:] {
+				tree = unionTree(tree, object[key])
+			}
+			keepSetFields(field.value, tree)
+		}
+	case reflect.Map:
+		object, ok := tree.(map[string]interface{})
+		if !ok || v.Type().Key().Kind() != reflect.String {
+			return
+		}
+		for _, key := range v.MapKeys() {
+			if _, set := object[key.String()]; !set {
+				v.SetMapIndex(key, reflect.Value{})
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		list, ok := tree.([]interface{})
+		if !ok {
+			return
+		}
+		for i := 0; i < min(v.Len(), len(list)); i++ {
+			keepSetFields(v.Index(i), list[i])
+		}
+	}
+}
+
+// unionTree returns a tree that sets what a or b sets, for two members of an
+// object that encoding/json decodes into the same field, one after the other.
+// A value other than an object or a list keeps the field whole.
+func unionTree(a, b interface{}) interface{} {
+	aObject, aIsObject := a.(map[string]interface{})
+	bObject, bIsObject := b.(map[string]interface{})
+	if aIsObject && bIsObject {
+		union := make(map[string]interface{}, len(aObject)+len(bObject))
+		for key, value := range aObject {
+			union[key] = value
+		}
+		for key, value := range bObject {
+			if former, ok := union[key]; ok {
+				value = unionTree(former, value)
+			}
+			union[key] = value
+		}
+		return union
+	}
+	aList, aIsList := a.([]interface{})
+	bList, bIsList := b.([]interface{})
+	if aIsList && bIsList {
+		union := make([]interface{}, max(len(aList), len(bList)))
+		for i := range union {
+			switch {
+			case i < len(aList) && i < len(bList):
+				union[i] = unionTree(aList[i], bList[i])
+			case i < len(aList):
+				union[i] = aList[i]
+			default:
+				union[i] = bList[i]
+			}
+		}
+		return union
+	}
+	return nil
+}
+
+// fieldKeys returns the keys of object that encoding/json decodes into the
+// field called name: that name, and the keys equal to it in another case.
+func fieldKeys(object map[string]interface{}, name string) []string {
+	keys := []string{}
+	for key := range object {
+		if strings.EqualFold(key, name) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+type jsonField struct {
+	name  string
+	value reflect.Value
+}
+
+// jsonFields returns the fields of the struct v that encoding/json decodes,
+// those of an embedded struct without a name promoted, unless a field of v has
+// their name.
+func jsonFields(v reflect.Value) []jsonField {
+	var fields, promoted []jsonField
+	for i := 0; i < v.NumField(); i++ {
+		structField := v.Type().Field(i)
+		tag := structField.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		value := v.Field(i)
+		if structField.Anonymous && name == "" {
+			embedded := value
+			if embedded.Kind() == reflect.Pointer && !embedded.IsNil() {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct {
+				promoted = append(promoted, jsonFields(embedded)...)
+				continue
+			}
+		}
+		if !structField.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = structField.Name
+		}
+		fields = append(fields, jsonField{name: name, value: value})
+	}
+	for _, field := range promoted {
+		if !slices.ContainsFunc(fields, func(f jsonField) bool { return f.name == field.name }) {
+			fields = append(fields, field)
+		}
+	}
+	return fields
 }
 
 func deleteFailureConf(spec map[string]interface{}) {

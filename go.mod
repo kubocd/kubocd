@@ -14,6 +14,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/bombsimon/logrusr/v4 v4.2.0
 	github.com/fluxcd/helm-controller/api v1.6.4
+	github.com/fluxcd/pkg/apis/kustomize v1.21.0
 	github.com/fluxcd/pkg/apis/meta v1.32.0
 	github.com/fluxcd/source-controller/api v1.9.5
 	github.com/go-git/go-git/v5 v5.19.2
@@ -129,7 +130,6 @@ require (
 	github.com/firefart/nonamedreturns v1.0.8 // indirect
 	github.com/fluxcd/cli-utils v1.2.3 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.11.0 // indirect
-	github.com/fluxcd/pkg/apis/kustomize v1.21.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
