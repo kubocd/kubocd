@@ -253,12 +253,12 @@ func bimFilterConnection(connections []kv1alpha1.ConnectionFacade, idx int, inpu
 	}
 	// And set the list of connectors
 	inputList := make([]map[string]interface{}, len(electedConnections))
-	for idx, electedConnection := range electedConnections {
+	for i, electedConnection := range electedConnections {
 		values, err := parseValue(idx, electedConnection)
 		if err != nil {
 			return err
 		}
-		inputList[idx] = values
+		inputList[i] = values
 	}
 	resultCollector.InputListModel[input.Alias] = inputList
 	return nil
@@ -269,7 +269,7 @@ func parseValue(idx int, conn kv1alpha1.ConnectionFacade) (map[string]interface{
 	if conn.GetValuesRaw() != nil {
 		err := yaml.UnmarshalStrict(conn.GetValuesRaw(), &values)
 		if err != nil {
-			return nil, NewReconcileError(fmt.Errorf("input #%d: the values of the connection are not a map", idx), false, "")
+			return nil, NewReconcileError(fmt.Errorf("input#%d: the values of the connection are not a map", idx+1), false, "")
 		}
 	}
 	return values, nil
