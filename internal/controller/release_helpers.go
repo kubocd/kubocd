@@ -49,6 +49,7 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	}
 
 	var err error
+	jsonObject := strings.HasPrefix(parametersStr, "{")
 	if strings.Contains(parametersStr, "\\n") && parametersStr[0:1] != "{" { // If there is some '\n' and this is not JSON.
 		parametersStr, err = strconv.Unquote(parametersStr)
 		if err != nil {
@@ -57,6 +58,12 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	}
 
 	parametersTmpl, err := tmpl.NewFromAny("", parametersStr, "", tmpl.ReleaseFunctions())
+	if err != nil && jsonObject {
+		// The text that parses as stored is kept, as a JSON escape can also be a Go escape in an action
+		if written := actionsAsWritten(parametersStr); written != parametersStr {
+			parametersTmpl, err = tmpl.NewFromAny("", written, "", tmpl.ReleaseFunctions())
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("could not create template from parameters: %w", err)
 	}
