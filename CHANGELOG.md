@@ -14,6 +14,93 @@
 - A Release waiting for a Flux source that is not ready shows the message of its Ready condition.
 - A change of the Configs no longer crashes the controller, nor gives a Release a half-rebuilt configuration. Configs
   that fail to load leave the previous configuration in effect.
+- A Config without `specPatch` no longer removes the `specPatch` of a Config sorted before it.
+- A failed status update of a Release no longer changes how the next failure of another Release is reported.
+- A Release names the Connection or the ClusterConnection of an output in its status from the pass that creates it.
+- The controller stops when it cannot create an index of the Releases, instead of running without it.
+- `kubocd package` reports a `manifest.json` that it cannot add to the image, instead of a later error.
+- A Release is not READY while it cannot list its output connections, and retries.
+- The error on the values of a connection of an input names the input as the other input errors do, `input#N` from 1.
+- A Release leaves alone a ClusterConnection whose `parentRelease` names another Release, and reports it.
+- A Release patches or deletes only the HelmReleases it controls. One of another Release, of a deleted Release of the
+  same name, or without owner, is refused for an enabled module and left in place for a disabled one.
+- A change of the Helm timeout or interval defaults of the Configs reaches, at their next reconciliation, the modules
+  that take these defaults, also when their package is already loaded.
+- The finalizer of a deleted Release stays until the API server accepts the deletion of each of its ClusterConnections.
+- A cycle in the parents of a Context is reported as `parents form a cycle`, and the Context stays in ERROR until it is
+  broken.
+- A commit of `main` is published once its CI passed. A final version never moves its tag, nor deletes its release.
+- The NetworkPolicy of the `kubocd-ctrl` chart opens source-controller to the pods of the KuboCD controller and of the
+  Flux namespace, where it opened it to every pod of the cluster.
+- A NetworkPolicy of the `kubocd-ctrl` chart lets only source-controller reach the chart server of the controller, and
+  keeps the metrics port open when the metrics are on. The chart server no longer lists its folders.
+- The `kubocd-wh` chart no longer installs mutating webhooks, and its validating webhooks check deletions only. Releases
+  and Contexts can be created and updated, and a deleted Release loses its finalizer, while the webhook is down.
+- The deletion of a Release checks `spec.protected` when it is set, before the protection in its status.
+- A restarted controller keeps the HelmRepository of each Release whose package has not changed, where it deleted and
+  recreated it. The first start of this version still recreates once the HelmRepositories that an earlier version
+  created.
+- One execution of a template renders at most 4 MiB of text, and fails past it with
+  `the rendered text is larger than 4194304 bytes`. The controller schedules no retry on such an error, a change of what
+  the Release reads reconciling it again.
+- `until` builds at most 10000 items either way, and fails past it with `until: the count is beyond the limit of 10000`,
+  with no retry either.
+- The controller refuses a package archive larger than `--maxPackageArtifactSize` bytes (20 MiB by default), whose files
+  hold more than `--maxPackageContentSize` bytes (40 MiB), or with more than `--maxPackageEntries` entries (1000), with
+  no retry on the refusal. The folders that a name needs count as entries, and a name of more than 32 levels is refused.
+  A fetch ends after 5 minutes. The flags go in the `controller.additionalArgs` of the `kubocd-ctrl` chart, for instance
+  `--maxPackageArtifactSize=52428800`.
+- The `original.yaml` and the `status.yaml` of a package are refused past `--maxPackageManifestSize` bytes each (1 MiB
+  by default).
+- The cache of loaded packages holds at most `--maxCachedPackages` packages (100 by default), and the packages of at
+  most `--maxCachedPackagesSize` bytes of `original.yaml` and `status.yaml` (4 MiB). A package that left it is loaded
+  again from its files.
+- A field removed from a `specPatch`, or left by a change of failure strategy, leaves the existing HelmRelease, as it is
+  absent from a new one. A field that the spec sets, `null` included, is written as before, and `spec.suspend` set on
+  the HelmRelease, by `flux suspend` for instance, stays when the spec does not set it.
+- A Release waits for its OCIRepository, its HelmRepository and its HelmReleases until Flux has reconciled their current
+  generation, where it took a Ready condition of their previous spec.
+- A package schema in OpenAPI form, with `$schema` set, keeps the `default` of an array parameter, where the parameter
+  got an empty list.
+- `kubocd package` refuses more than one manifest, where it packaged the first one only.
+- An action in the `parameters` of a Release written as a map can quote a string, as in
+  `{{ printf "%s.%s" .Context.a .Context.b }}`. Such parameters are parsed as before, then, when that fails, with their
+  actions as written, unless an action holds, outside its comments, a backslash, a control character, or a tab or a
+  newline in a string, which keeps the parse error. The text that an action renders is still inserted in the parameters
+  as it is, and must leave them a valid document.
+- `kubocd render` runs `helm template` with the namespace and the release name that Flux uses for the HelmRelease it
+  writes, and `values.yaml` holds the values of that HelmRelease, patches included. It used the target namespace of the
+  Release, the name of the HelmRelease and the values of the module before the patches. `valuesFrom` and the values
+  files of a chart are not read.
+- A Context with parents writes its status only when its phase, its parents or its values change.
+- The CRD descriptions of `defaultHelmInterval` and `defaultPackageInterval` in the Config, and of
+  `spec.package.interval` in the Release, give the defaults that apply: 30m for `defaultHelmInterval`, 5m for
+  `spec.package.interval`, which the API server sets, and 30m for `defaultPackageInterval`, which applies to an interval
+  of 0s.
+- The deletion of a Release without `spec.protected` is refused until the controller has written its computed
+  protection, which `status.printProtected` (column `PRT`) shows, with a message that says to set
+  `spec.protected: false` to delete it anyway, as for a Release whose package never loads. A status without
+  `printProtected` gets it at the next status write after the controller loads the package. A protection computed for an
+  earlier package is not detected.
+- The kustomize installer is removed: `make build-installer`, `config/_dist_/install.yaml` and the files of `config/`
+  that only it read. It could not start the controller. The Helm charts install KuboCD.
+- The Replication controller reports a refused request with the reason of the API server and without its message, in the
+  status, the events and the log, as the other controllers do.
+- The check of the dependencies of a Release reads one configuration, where it could accept one dependency by the
+  previous configuration and another by the new one.
+- A Release is reconciled when a Context it takes by default changes, also after a change of the default Contexts of the
+  Configs, and the deletion of a Release no longer stops the reconciliation of the other Releases of its Contexts.
+- The spec of a HelmRelease is built from one configuration, and a change of the Configs during the build no longer
+  blames the `specPatch` of a module for an error of the configuration.
+- Every Release is reconciled again once a change of the Configs is published, where a Release reconciled before the
+  publication could keep the previous configuration until another change.
+- `make docker-buildx` fails when the image build fails, and the publication of a commit with it.
+- While the Ready condition of a HelmRelease is Unknown, as before an upgrade, the Release shows `Deploying...`, and no
+  longer gives a Warning event with the message of the previous Helm action.
+- Hardening: building the model of the templates of a Release returns an error, where it panicked, when the JSON of the
+  Release does not convert to YAML.
+- The `manifests.yaml` of `kubocd render` holds the manifests only, the debug lines of helm going to the standard error.
+- The errors of the defaults of an OpenAPI schema name the property at fault from its own path.
 
 # v0.4.0
 
