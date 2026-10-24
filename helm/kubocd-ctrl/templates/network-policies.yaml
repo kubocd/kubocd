@@ -26,3 +26,40 @@ spec:
   policyTypes:
     - Ingress
 {{ end }}
+{{ if and .Values.networkPolicies.enabled .Values.controller.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kubocd.controller.baseName" . }}-helm-repository
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # The probes need no rule: they come from the node, which a NetworkPolicy does not filter
+  podSelector:
+    matchLabels:
+      {{- include "kubocd.controller.selectorLabels" . | nindent 6 }}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicies.fluxNamespace }}
+          podSelector:
+            matchLabels:
+              app: source-controller
+      ports:
+        - port: 9090
+          protocol: TCP
+    {{- if .Values.controller.metrics.enabled }}
+    - ports:
+        - port: 8443
+          protocol: TCP
+    {{- end }}
+  policyTypes:
+    - Ingress
+{{ end }}

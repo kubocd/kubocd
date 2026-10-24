@@ -377,3 +377,77 @@ func TestTheChartLetsOnlyTheControllerAndFluxReachSourceController(t *testing.T)
 		}
 	})
 }
+
+// chartServerPolicy is the NetworkPolicy of the chart server, with the
+// default base name.
+const chartServerPolicy = "kubocd-ctrl-controller-helm-repository"
+
+func TestTheChartLetsOnlySourceControllerReachTheChartServer(t *testing.T) {
+	withMetrics := func(secured bool) func(values map[string]interface{}) {
+		return func(values map[string]interface{}) {
+			metrics := values["controller"].(map[string]interface{})["metrics"].(map[string]interface{})
+			metrics["enabled"] = true
+			metrics["secured"] = secured
+		}
+	}
+	otherFlux := chartValues("networkPolicies", "fluxNamespace", "flux")
+	otherBase := chartValues("controller", "baseNameOverride", "other")
+	// base is the base name of the controller resources, the release name
+	// followed by -controller when empty
+	cases := map[string]struct {
+		values        func(values map[string]interface{})
+		base          string
+		fluxNamespace string
+		metrics       bool
+	}{
+		"defaults":               {noChange, "", "flux-system", false},
+		"metrics":                {withMetrics(false), "", "flux-system", true},
+		"secured metrics":        {withMetrics(true), "", "flux-system", true},
+		"another Flux namespace": {otherFlux, "", "flux", false},
+		"another base name":      {otherBase, "other", "flux-system", false},
+	}
+	for _, install := range policyInstalls {
+		for name, c := range cases {
+			namespace := install.namespace
+			t.Run(install.release+" in "+namespace+", "+name, func(t *testing.T) {
+				documents := renderRelease(t, "kubocd-ctrl", install.release, namespace, c.values)
+				controller := deploymentOf(t, documents).Spec.Selector.MatchLabels
+				policies := networkPolicies(t, documents)
+				base := c.base
+				if base == "" {
+					base = install.release + "-controller"
+				}
+				if got := policiesIn(policies, namespace); !slices.Equal(got, []string{base + "-helm-repository"}) {
+					t.Fatalf("got the NetworkPolicies %v in %s, want %s-helm-repository only", got, namespace, base)
+				}
+				policy := policies[namespace+"/"+base+"-helm-repository"]
+				rules := []networkingv1.NetworkPolicyIngressRule{{
+					From: []networkingv1.NetworkPolicyPeer{{
+						NamespaceSelector: namespaceNamed(c.fluxNamespace),
+						PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"app": "source-controller"}},
+					}},
+					Ports: tcpPorts(9090),
+				}}
+				if c.metrics {
+					rules = append(rules, networkingv1.NetworkPolicyIngressRule{Ports: tcpPorts(8443)})
+				}
+				mustEqualSpec(t, policy, networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{MatchLabels: controller},
+					Ingress:     rules,
+					PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+				})
+			})
+		}
+	}
+	for name, values := range map[string]func(values map[string]interface{}){
+		"policies disabled":  chartValues("networkPolicies", "enabled", false),
+		"controller outside": chartValues("controller", "enabled", false),
+	} {
+		t.Run(name, func(t *testing.T) {
+			policies := networkPolicies(t, renderChart(t, "kubocd-ctrl", values))
+			if _, ok := policies["kubocd/"+chartServerPolicy]; ok {
+				t.Fatalf("got the NetworkPolicies %v, want none in kubocd", slices.Sorted(maps.Keys(policies)))
+			}
+		})
+	}
+}
