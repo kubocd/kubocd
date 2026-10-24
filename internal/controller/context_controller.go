@@ -17,16 +17,18 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"math/big"
 	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,6 +79,7 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		// (we'll need to wait for a new notification), and we can get them on deleted requests.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	read := kcontext.Status.DeepCopy()
 
 	op := &contextOperation{
 		ctx:      ctx,
@@ -147,7 +150,8 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		kcontext.Status.Context = &apiextensionsv1.JSON{
 			Raw: ba,
 		}
-		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
+		changed := kcontext.Status.Parents != read.Parents || !sameJSON(kcontext.Status.Context, read.Context)
+		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, changed)
 	}
 }
 
@@ -228,6 +232,65 @@ func (r *ContextReconciler) reportError(op *contextOperation, rErr ReconcileErro
 	} else {
 		return ctrl.Result{}, rErr
 	}
+}
+
+// sameJSON tells whether a and b hold the same JSON value, numbers compared
+// by their value. The API server can encode a value it stores differently
+// from the controller.
+func sameJSON(a, b *apiextensionsv1.JSON) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	aValue, aErr := decodeJSON(a.Raw)
+	bValue, bErr := decodeJSON(b.Raw)
+	return aErr == nil && bErr == nil && sameValue(aValue, bValue)
+}
+
+// decodeJSON decodes raw, its numbers kept as written.
+func decodeJSON(raw []byte) (interface{}, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value interface{}
+	err := decoder.Decode(&value)
+	return value, err
+}
+
+// sameValue tells whether two decoded JSON values are the same, numbers
+// compared by their exact value, so that 1, 1.0 and 1e0 are one.
+func sameValue(a, b interface{}) bool {
+	switch a := a.(type) {
+	case json.Number:
+		b, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		x, xOk := new(big.Rat).SetString(a.String())
+		y, yOk := new(big.Rat).SetString(b.String())
+		return xOk && yOk && x.Cmp(y) == 0
+	case map[string]interface{}:
+		b, ok := b.(map[string]interface{})
+		if !ok || len(a) != len(b) {
+			return false
+		}
+		for key, value := range a {
+			if other, ok := b[key]; !ok || !sameValue(value, other) {
+				return false
+			}
+		}
+		return true
+	case []interface{}:
+		b, ok := b.([]interface{})
+		if !ok || len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if !sameValue(a[i], b[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return a == b
 }
 
 func (r *ContextReconciler) updatePhase(op *contextOperation, phase kv1alpha1.ContextPhase, force bool) error {

@@ -231,3 +231,134 @@ func TestTwoPathsToTheSameParentAreNotACycle(t *testing.T) {
 		t.Fatalf("got error %v, phase %q and events %q, want READY", got.err, got.context.Status.Phase, got.events)
 	}
 }
+
+// statusWrites counts the status updates of the Context apps/child. With
+// encodedAs set, it serves the status context of the child in that encoding,
+// as an API server can, the stored status being unchanged.
+type statusWrites struct {
+	count     int
+	encodedAs string
+}
+
+func (w *statusWrites) client(base client.WithWatch) client.WithWatch {
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := c.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if kcontext, ok := obj.(*kv1alpha1.Context); ok && key.Name == "child" && w.encodedAs != "" {
+				kcontext.Status.Context = &apiextensionsv1.JSON{Raw: []byte(w.encodedAs)}
+			}
+			return nil
+		},
+		SubResourceUpdate: func(ctx context.Context, c client.Client, subResource string, obj client.Object,
+			opts ...client.SubResourceUpdateOption) error {
+			if subResource == "status" && obj.GetName() == "child" {
+				w.count++
+			}
+			return c.SubResource(subResource).Update(ctx, obj, opts...)
+		},
+	})
+}
+
+// childOfParent is a READY Context parent with values, and a Context child of
+// it with values of its own.
+func childOfParent() (*kv1alpha1.Context, *kv1alpha1.Context) {
+	parent := contextWithParents("parent")
+	parent.Spec.Context = &apiextensionsv1.JSON{Raw: []byte(`{"db":{"host":"pg"}}`)}
+	child := contextWithParents("child", "parent")
+	child.Spec.Context = &apiextensionsv1.JSON{Raw: []byte(`{"z":1,"a":2}`)}
+	return ready(parent), child
+}
+
+func TestAContextWritesItsStatusOnlyWhenItChanges(t *testing.T) {
+	parent, child := childOfParent()
+	writes := &statusWrites{}
+	other := contextWithParents("other")
+	other.Spec.Context = nil
+	base := contextClient(t, parent, child, ready(other))
+	k8sClient := writes.client(base)
+	for range 3 {
+		if got := reconcileContext(t, k8sClient, "child"); got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseReady {
+			t.Fatalf("got error %v and phase %q, want READY", got.err, got.context.Status.Phase)
+		}
+	}
+	if writes.count != 1 {
+		t.Fatalf("three reconciliations wrote the status %d times, want once", writes.count)
+	}
+
+	for _, encoding := range []string{`{ "z": 1, "db": { "host": "pg" }, "a": 2 }`, `{"a":2.0,"db":{"host":"pg"},"z":1e0}`} {
+		writes.encodedAs = encoding
+		got := reconcileContext(t, k8sClient, "child")
+		if got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseReady || writes.count != 1 {
+			t.Fatalf("the same values encoded as %s gave the error %v, the phase %q and %d writes, want READY and no "+
+				"new write", encoding, got.err, got.context.Status.Phase, writes.count)
+		}
+	}
+	writes.encodedAs = ""
+
+	stored := &kv1alpha1.Context{}
+	if err := base.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "child"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	stored.Spec.Parents = append(stored.Spec.Parents, kv1alpha1.NamespacedName{Namespace: "apps", Name: "other"})
+	if err := base.Update(context.Background(), stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := reconcileContext(t, k8sClient, "child"); writes.count != 2 || got.context.Status.Parents != "apps:parent,apps:other" {
+		t.Fatalf("a new parent without values gave %d writes and the parents %q, want 2 writes and both parents", writes.count,
+			got.context.Status.Parents)
+	}
+
+	if err := base.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "parent"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	stored.Status.Context = &apiextensionsv1.JSON{Raw: []byte(`{"db":{"host":"pg2"}}`)}
+	if err := base.Status().Update(context.Background(), stored); err != nil {
+		t.Fatal(err)
+	}
+	got := reconcileContext(t, k8sClient, "child")
+	if writes.count != 3 || string(got.context.Status.Context.Raw) != `{"a":2,"db":{"host":"pg2"},"z":1}` {
+		t.Fatalf("new values of the parent gave %d writes and the context %s, want 3 writes and the new values", writes.count,
+			got.context.Status.Context.Raw)
+	}
+}
+
+func TestAContextInErrorWritesItsStatusOnceReady(t *testing.T) {
+	parent, child := childOfParent()
+	child.Status = kv1alpha1.ContextStatus{Phase: kv1alpha1.ContextPhaseError, Parents: "apps:parent",
+		Context: &apiextensionsv1.JSON{Raw: []byte(`{"a":2,"db":{"host":"pg"},"z":1}`)}}
+	writes := &statusWrites{}
+	got := reconcileContext(t, writes.client(contextClient(t, parent, child)), "child")
+	if got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseReady || writes.count != 1 {
+		t.Fatalf("got error %v, phase %q and %d writes, want READY written once", got.err, got.context.Status.Phase, writes.count)
+	}
+}
+
+func TestTheValuesOfAContextAreComparedAsJSONValues(t *testing.T) {
+	cases := []struct {
+		a, b string
+		same bool
+	}{
+		{`{"n":1}`, `{"n":1.0}`, true},
+		{`{"n":1}`, `{"n":1e0}`, true},
+		{`{"n":0.5}`, `{"n":5e-1}`, true},
+		{`{"n":1}`, `{"n":2}`, false},
+		{`{"n":9007199254740992}`, `{"n":9007199254740993}`, false},
+		{`{"l":[1,2]}`, `{"l":[1,2]}`, true},
+		{`{"l":[1,2]}`, `{"l":[2,1]}`, false},
+		{`{"l":[1,2]}`, `{"l":[1,2,3]}`, false},
+		{`{"a":null}`, `{"b":null}`, false},
+		{`{"a":null}`, `{}`, false},
+		{`{"s":"1"}`, `{"s":1}`, false},
+		{`{"a":{"b":true}}`, `{ "a" : { "b" : true } }`, true},
+	}
+	for _, c := range cases {
+		if got := sameJSON(&apiextensionsv1.JSON{Raw: []byte(c.a)}, &apiextensionsv1.JSON{Raw: []byte(c.b)}); got != c.same {
+			t.Errorf("%s and %s compared as the same: %v, want %v", c.a, c.b, got, c.same)
+		}
+	}
+	if !sameJSON(nil, nil) || sameJSON(nil, &apiextensionsv1.JSON{Raw: []byte(`{}`)}) {
+		t.Error("a missing value is the same as a missing one only")
+	}
+}
