@@ -4,7 +4,7 @@ Setting up a local KuboCD development environment.
 
 ## Tooling
 
-Tool versions are pinned in [`.tool-versions`](.tool-versions) (Go 1.25, `kubectl`, `kind`, `flux`, `kustomize`, …).
+Tool versions are pinned in [`.tool-versions`](.tool-versions) (Go, `kubectl`, `kind`, `flux`, `kustomize`, …).
 
 - **💡 Recommended — Devcontainer:** every tool, binary, and cache provisioned for you. See
   [`.devcontainer/README.md`](.devcontainer/README.md) to open it (any Dev Containers-capable editor, or the headless

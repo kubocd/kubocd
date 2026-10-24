@@ -1,8 +1,8 @@
 # .devcontainer/Dockerfile
-FROM mcr.microsoft.com/devcontainers/go:dev-1.25-bookworm
+FROM mcr.microsoft.com/devcontainers/go:dev-1.27-bookworm
 
-# Freeze the Go toolchain to ensure absolute determinism matching Go v1.25.0
-ENV GOTOOLCHAIN=local
+# The image sets GOTOOLCHAIN=local, and its Go can be older than the go line of go.mod: auto fetches that version
+ENV GOTOOLCHAIN=auto
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -137,12 +137,9 @@ RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     && pre-commit --version
 
 # 10. Pre-cache envtest assets in /usr/local/share/envtest
-# Pinned to a SHA on the release-0.23 branch (Go 1.25-compatible); published
-# v0.24.x tags require Go 1.26. To bump:
-#   git ls-remote https://github.com/kubernetes-sigs/controller-runtime release-0.23
 RUN --mount=type=bind,source=.tool-versions,target=/tmp/.tool-versions \
     K8S_ENVTEST_VERSION=$(awk '/^kubectl/ {split($2, a, "."); print a[1]"."a[2]}' /tmp/.tool-versions) \
-    && GOBIN=/usr/local/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@f9589b9f2b9dddf8532b432bb8315f2820ab9971 \
+    && GOBIN=/usr/local/bin go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2 \
     && mkdir -p /usr/local/share/envtest \
     && ENVTEST_PATH=$(/usr/local/bin/setup-envtest use "${K8S_ENVTEST_VERSION}" --bin-dir /usr/local/share/envtest -p path | tail -n 1) \
     && ln -s "${ENVTEST_PATH}" /usr/local/share/envtest/active \

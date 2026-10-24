@@ -320,14 +320,13 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT ?= go tool golangci-lint
 
 ## Tool Versions
-# Note: Kustomize, Controller-gen, and Golangci-lint versions are pinned via the
-# `tool` directive in go.mod and invoked through `go tool ...` — no separate
-# version variables are needed here.
+# Note: Controller-gen and Golangci-lint versions are pinned via the `tool`
+# directive in go.mod and invoked through `go tool ...` — no separate version
+# variables are needed here. Kustomize is the one of the PATH.
 #
-# setup-envtest is kept in $(LOCALBIN) as an exception: the only published tags
-# of its submodule (v0.24.x) require Go 1.26, while this project pins Go 1.25 in
-# .tool-versions. It is therefore installed dynamically on host demand (and
-# pre-cached globally inside the Devcontainer).
+# setup-envtest is installed in $(LOCALBIN) on demand, at the release branch of
+# the controller-runtime version of go.mod (ENVTEST_VERSION below), and
+# pre-cached in the Devcontainer.
 #
 # govulncheck is the other exception: it runs through `go run` at the version
 # below, outside of go.mod, so that its dependencies stay out of the module
@@ -353,7 +352,7 @@ envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
 
-# Note: Golangci-lint is managed natively via Go 1.25 tools in go.mod.
+# Note: Golangci-lint is managed natively via the tool directive of go.mod.
 # No local bin install rules needed.
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
