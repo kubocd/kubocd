@@ -18,6 +18,7 @@ package tmpl
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -96,5 +97,25 @@ func TestARenderStopsAtTheLimit(t *testing.T) {
 	}
 	if calls != maxRenderedText/piece+1 {
 		t.Fatalf("got %d calls, want the render to stop at the write past the limit, call %d", calls, maxRenderedText/piece+1)
+	}
+}
+
+func TestUntilBuildsUpToTheLimitEitherWay(t *testing.T) {
+	for _, count := range []int{3, -3, 0, maxUntil, -maxUntil} {
+		got, err := until(count)
+		if want := sprigUntil(count); err != nil || !slices.Equal(got, want) {
+			t.Errorf("until %d: got %d items and the error %v, want the %d items of sprig", count, len(got), err, len(want))
+		}
+	}
+	const refusal = "line 1, column 4: error calling until: until: the count is beyond the limit of 10000"
+	for _, count := range []string{"10001", "-10001"} {
+		tt, err := New("", "{{ until "+count+" | len }}", "", ReleaseFunctions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tt.RenderToText(nil)
+		if err == nil || err.Error() != refusal || !errors.Is(err, ErrLimit) {
+			t.Errorf("until %s: got the error %v, want %q, a limit error", count, err, refusal)
+		}
 	}
 }

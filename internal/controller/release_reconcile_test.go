@@ -324,14 +324,24 @@ func TestAuthorMessagesReachTheStatus(t *testing.T) {
 }
 
 func TestARenderPastALimitIsReportedAndNotRetried(t *testing.T) {
-	got := reconcileRelease(t, fmt.Sprintf(reconciledPackage, `big: "{{ range 5 }}{{ printf "%1000000s" "" }}{{ end }}"`), "", canaryContext)
-	want := "error on rendering: module 'main': could not render 'values' template: the rendered text is larger than 4194304 bytes"
-	if got.status != want || got.err != nil || !got.result.IsZero() {
-		t.Fatalf("got the status %q, the error %v and the result %+v, want the status %q, no error and no requeue", got.status,
-			got.err, got.result, want)
+	cases := map[string]struct{ values, want string }{
+		"rendered text": {`big: "{{ range 5 }}{{ printf "%1000000s" "" }}{{ end }}"`,
+			"could not render 'values' template: the rendered text is larger than 4194304 bytes"},
+		"until": {"items: {{ until 10001 | len }}",
+			"could not render 'values' template: line 1, column 11: error calling until: until: the count is beyond the limit of 10000"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := reconcileRelease(t, fmt.Sprintf(reconciledPackage, c.values), "", canaryContext)
+			want := "error on rendering: module 'main': " + c.want
+			if got.status != want || got.err != nil || !got.result.IsZero() {
+				t.Fatalf("got the status %q, the error %v and the result %+v, want the status %q, no error and no requeue",
+					got.status, got.err, got.result, want)
+			}
+		})
 	}
 	// A control: a render error on no limit is still returned, for a retry
-	got = reconcileRelease(t, fmt.Sprintf(reconciledPackage, `{{ fail "no database" }}`), "", canaryContext)
+	got := reconcileRelease(t, fmt.Sprintf(reconciledPackage, `{{ fail "no database" }}`), "", canaryContext)
 	if got.err == nil {
 		t.Fatalf("got no error and the status %q, want the error returned", got.status)
 	}

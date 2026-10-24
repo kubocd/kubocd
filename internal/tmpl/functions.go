@@ -42,7 +42,7 @@ var sprigFunctions = []string{
 	"trunc", "upper",
 	// Lists
 	"append", "compact", "concat", "first", "has", "join", "last", "list",
-	"prepend", "sortAlpha", "uniq", "until",
+	"prepend", "sortAlpha", "uniq",
 	// Dictionaries
 	"dict", "dig", "get", "hasKey", "omit", "set",
 	// Logic, defaults and types
@@ -63,6 +63,7 @@ var kubocdFunctions = template.FuncMap{
 	"required":      required,
 	"toJson":        toJSON,
 	"toYaml":        toYAML,
+	"until":         until,
 	"urlParse":      urlParse,
 }
 
@@ -186,6 +187,20 @@ func printf(format string, args ...interface{}) (string, error) {
 		return "", shownf("printf: the %%p verb is not allowed")
 	}
 	return fmt.Sprintf(format, args...), nil
+}
+
+// maxUntil is the most items that until builds, either way.
+const maxUntil = 10000
+
+var sprigUntil = sprig.TxtFuncMap()["until"].(func(int) []int)
+
+// until is the sprig function, except that it refuses a count beyond
+// maxUntil either way, as it allocates the whole list.
+func until(count int) ([]int, error) {
+	if count > maxUntil || count < -maxUntil {
+		return nil, &limitError{msg: fmt.Sprintf("until: the count is beyond the limit of %d", maxUntil)}
+	}
+	return sprigUntil(count), nil
 }
 
 var sprigURLParse = sprig.TxtFuncMap()["urlParse"].(func(string) map[string]interface{})

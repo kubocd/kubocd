@@ -214,7 +214,8 @@ var execCategories = []struct{ start, category string }{
 // executionError turns an execution error of text/template into the place of
 // the failing action and a category. The messages of text/template and of
 // sprig functions are left out, as they can quote the data. Those of KuboCD
-// functions, and those written with fail and required, are kept as written.
+// functions, and those written with fail and required, are kept as written. A
+// function error on a limit stays a limit error.
 func (tt *tmpl) executionError(err error) error {
 	reason := "execution error"
 	var execErr template.ExecError
@@ -222,15 +223,23 @@ func (tt *tmpl) executionError(err error) error {
 		reason = execReason(execErr.Err)
 	}
 	var shown *shownError
-	if errors.As(err, &shown) {
+	var limit *limitError
+	switch {
+	case errors.As(err, &shown):
 		reason += ": " + shown.msg
-	} else {
+	case errors.As(err, &limit):
+		reason += ": " + limit.msg
+	default:
 		reason += ", " + withheld
 	}
+	message := reason
 	if place := tt.execPlace(err.Error()); place != "" {
-		return fmt.Errorf("%s: %s", place, reason)
+		message = fmt.Sprintf("%s: %s", place, reason)
 	}
-	return errors.New(reason)
+	if limit != nil {
+		return &limitError{msg: message}
+	}
+	return errors.New(message)
 }
 
 // execReason names what failed: the function an error comes from, read in the
