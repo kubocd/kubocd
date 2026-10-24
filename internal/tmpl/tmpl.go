@@ -127,6 +127,45 @@ func NewFromAny(templateName string, src interface{}, header string, functions F
 	return nil, fmt.Errorf("invalid template object type %T", src)
 }
 
+// maxRenderedText is the most bytes of text that one execution of a template
+// renders.
+const maxRenderedText = 4 << 20
+
+// ErrLimit is matched, with errors.Is, by the error of a render that goes past
+// a limit of KuboCD. Such a render fails the same way until its input changes.
+var ErrLimit = errors.New("template limit")
+
+// limitError is the error of a render that goes past a limit. Its message
+// holds no template data.
+type limitError struct {
+	msg string
+}
+
+func (e *limitError) Error() string {
+	return e.msg
+}
+
+func (e *limitError) Is(target error) bool {
+	return target == ErrLimit
+}
+
+var errRenderedTextTooLarge = &limitError{msg: fmt.Sprintf("the rendered text is larger than %d bytes", maxRenderedText)}
+
+// renderedText collects the rendered text, and refuses a write that would make
+// it longer than limit. It has no other write method, so that no write skips
+// the check.
+type renderedText struct {
+	text  bytes.Buffer
+	limit int
+}
+
+func (r *renderedText) Write(p []byte) (int, error) {
+	if len(p) > r.limit-r.text.Len() {
+		return 0, errRenderedTextTooLarge
+	}
+	return r.text.Write(p)
+}
+
 // RenderToText executes the template on its own copy of model, which must
 // hold plain data only.
 func (tt *tmpl) RenderToText(model map[string]interface{}) (string, error) {
@@ -134,15 +173,19 @@ func (tt *tmpl) RenderToText(model map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	buf := &bytes.Buffer{}
-	err = tt.template.Execute(buf, data)
+	out := &renderedText{limit: maxRenderedText}
+	err = tt.template.Execute(out, data)
+	if errors.Is(err, errRenderedTextTooLarge) {
+		// text/template returns a write error unwrapped, which executionError would withhold
+		return "", err
+	}
 	if err != nil {
 		return "", tt.executionError(err)
 	}
 	// Work around the issue where Go will emit "<no value>" even if Options(missing=zero)
 	// is set. Since missing=error will never get here, we do not need to handle
 	// the Strict case.
-	return strings.ReplaceAll(buf.String(), "<no value>", ""), nil
+	return strings.ReplaceAll(out.text.String(), "<no value>", ""), nil
 }
 
 // withheld stands for a message of text/template or of a sprig function,

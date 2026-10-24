@@ -485,7 +485,8 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// -------------------------------------------------------------------- Render all values
 	rendered, err := op.pckContainer.Package.Render(model, release)
 	if err != nil {
-		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), false, "Rendering"), forceUpdate)
+		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), errors.Is(err, tmpl.ErrLimit), "Rendering"),
+			forceUpdate)
 	}
 	// --------------------------------------------------- Store some rendered values to status
 	if !reflect.DeepEqual(rendered.Usage, op.release.Status.Usage) {

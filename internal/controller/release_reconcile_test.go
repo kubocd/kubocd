@@ -51,6 +51,7 @@ import (
 
 // reconciledRelease is what one reconciliation of a Release left behind.
 type reconciledRelease struct {
+	result ctrl.Result
 	err    error
 	status string
 	events []string
@@ -174,12 +175,12 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 func (b *releaseTestbed) reconcile(t *testing.T) reconciledRelease {
 	t.Helper()
 	key := types.NamespacedName{Namespace: "apps", Name: "demo"}
-	_, err := b.reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	reconciled, err := b.reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 	got := &kv1alpha1.Release{}
 	if err := b.client.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
-	result := reconciledRelease{err: err, status: got.Status.Message, log: b.log.buf.String()}
+	result := reconciledRelease{result: reconciled, err: err, status: got.Status.Message, log: b.log.buf.String()}
 	for len(b.recorder.Events) > 0 {
 		result.events = append(result.events, <-b.recorder.Events)
 	}
@@ -319,6 +320,20 @@ func TestAuthorMessagesReachTheStatus(t *testing.T) {
 	got := reconcileRelease(t, fmt.Sprintf(reconciledPackage, `{{ fail (printf "no database on %s" .Context.db.host) }}`), "", canaryContext)
 	if want := "error calling fail: no database on pg"; !strings.Contains(got.status, want) {
 		t.Fatalf("got status %q, want one containing %q", got.status, want)
+	}
+}
+
+func TestARenderPastALimitIsReportedAndNotRetried(t *testing.T) {
+	got := reconcileRelease(t, fmt.Sprintf(reconciledPackage, `big: "{{ range 5 }}{{ printf "%1000000s" "" }}{{ end }}"`), "", canaryContext)
+	want := "error on rendering: module 'main': could not render 'values' template: the rendered text is larger than 4194304 bytes"
+	if got.status != want || got.err != nil || !got.result.IsZero() {
+		t.Fatalf("got the status %q, the error %v and the result %+v, want the status %q, no error and no requeue", got.status,
+			got.err, got.result, want)
+	}
+	// A control: a render error on no limit is still returned, for a retry
+	got = reconcileRelease(t, fmt.Sprintf(reconciledPackage, `{{ fail "no database" }}`), "", canaryContext)
+	if got.err == nil {
+		t.Fatalf("got no error and the status %q, want the error returned", got.status)
 	}
 }
 
