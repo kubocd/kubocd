@@ -1,13 +1,15 @@
 name: build-artifact
 
-# Build and push the multi-arch image on every push to main.
+# Build and push the multi-arch image of a commit of main once its CI passed.
 # Delegates the actual work to `make docker-buildx`, which builds for
 # $(PLATFORMS) and pushes to $(REGISTRY)/exec/kubocd.
 on:
-  push:
-    branches:
-      - main
-  # Allow manual runs from the Actions tab / `gh workflow run`.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Allow manual runs from the Actions tab / `gh workflow run`, for a commit
+  # whose CI passed.
   workflow_dispatch:
 
 # Required repo configuration (Settings > Secrets and variables > Actions):
@@ -19,15 +21,49 @@ env:
 
 permissions:
   contents: write
+  actions: read
+
+# A publication waits for the one in progress, never cancels it.
+concurrency:
+  group: build-artifact
+  cancel-in-progress: false
 
 jobs:
   build-artifact:
+    # A branch named main in a fork also matches the branch filter of
+    # workflow_run, hence the checks of the event and of the repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
+      # Under workflow_run, github.sha is the head of main, not the commit that
+      # the CI tested.
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0          # goreleaser needs tags + full history
+
+      # A run started by hand publishes a commit whose CI passed on a push to
+      # main, as the workflow_run trigger does.
+      - name: Check that the CI passed on this commit
+        if: github.event_name == 'workflow_dispatch'
+        run: bash hack/ci-passed.sh "$GITHUB_SHA"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tag is derived from APP_VERSION in the Makefile. A snapshot version
+      # moves its tag to this commit, so that goreleaser releases it (it
+      # releases the tagged commit). A final version never moves its tag: the
+      # job stops here when the tag is on another commit.
+      - name: Tag the commit
+        id: tag
+        run: |
+          APP_VERSION=$(grep -m1 '^APP_VERSION' Makefile | awk '{print $3}')
+          bash hack/release-tag.sh "$APP_VERSION" >> "$GITHUB_OUTPUT"
 
       # ubuntu-latest already ships make, go and docker; this only adds the
       # bits `make docker-buildx` needs for cross-platform builds.
@@ -72,20 +108,12 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
 
-      # We reuse the same tag across runs. Force-move it to the current commit
-      # so goreleaser releases the just-pushed code (it releases the tagged
-      # commit, not branch HEAD). The tag is derived from APP_VERSION in the
-      # Makefile to avoid drift.
-      - name: Move tag to current commit
-        run: |
-          APP_VERSION=$(grep -m1 '^APP_VERSION' Makefile | awk '{print $3}')
-          git tag -f "$APP_VERSION"
-          git push -f origin "refs/tags/$APP_VERSION"
-
-      # We reuse the same tag across runs, so delete any previous release
-      # first. `|| true` keeps the first run (no release yet) from failing.
-      # The tag is derived from APP_VERSION in the Makefile to avoid drift.
+      # A snapshot reuses its tag across runs, so delete any previous release
+      # first. `|| true` keeps the first run (no release yet) from failing. The
+      # release of a final version stays: a run again on its commit uploads its
+      # assets again (replace_existing_artifacts in .goreleaser.yaml).
       - name: Delete previous release
+        if: steps.tag.outputs.snapshot == 'true'
         run: |
           APP_VERSION=$(grep -m1 '^APP_VERSION' Makefile | awk '{print $3}')
           gh release delete "$APP_VERSION" --yes || true
