@@ -2,7 +2,8 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.34.0
+  # The build for the kind release of .tool-versions, by digest: a tag alone can name a build of another release
+  image: kindest/node:v1.34.11@sha256:44e222ee2132dab25ff87301682f89eb82c7880ea3a1bf543bfe9708fd08d67d
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry]
