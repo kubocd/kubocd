@@ -38,8 +38,6 @@ import (
 	"strings"
 	"time"
 
-	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
-	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -462,12 +461,14 @@ var controllerCmd = &cobra.Command{
 		}
 
 		// -------------------------------------------------------------------------------------- Config controller setup
+		configPublished := make(chan event.GenericEvent, 1)
 		configReconciler := &controller.ConfigReconciler{
 			Client:         mgr.GetClient(),
 			EventRecorder:  mgr.GetEventRecorderFor("config"),
 			Logger:         controllerRootLog.WithName("ConfigReconciler"),
 			ConfigStore:    theConfigStore,
 			MyPodNamespace: myPodNamespace,
+			Published:      configPublished,
 		}
 
 		err = ctrl.NewControllerManagedBy(mgr).
@@ -503,27 +504,7 @@ var controllerCmd = &cobra.Command{
 			ConnectionsGate: controllerParams.gates[featureGateConnections],
 		}
 
-		// There is 2 watches on Connections resource
-		// - The one on Owns(...), watching output connections.
-		// - The one on Watches(...) watching input connections.
-		err = ctrl.NewControllerManagedBy(mgr).
-			For(&kubocdv1alpha1.Release{}).
-			Named("kubocd-release").
-			Owns(&sourcev1.OCIRepository{}).
-			Owns(&sourcev1.HelmRepository{}).
-			Owns(&fluxv2.HelmRelease{}).
-			Owns(&kubocdv1alpha1.Connection{}).
-			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromOutputClusterConnection(mgr.GetClient(), controllerRootLog))).
-			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromContext(mgr.GetClient(), theConfigStore, controllerRootLog))).
-			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromConfig(mgr.GetClient(), controllerRootLog))).
-			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromWatchedInputConnection(mgr.GetClient(), controllerRootLog))).
-			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromWatchedInputClusterConnection(mgr.GetClient(), controllerRootLog))).
-			Complete(releaseReconciler)
+		err = releaseController(mgr, releaseReconciler, theConfigStore, configPublished, controllerRootLog)
 		if err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Release")
 			os.Exit(1)

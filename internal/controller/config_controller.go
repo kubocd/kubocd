@@ -23,9 +23,11 @@ import (
 	"kubocd/internal/configstore"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 // ConfigReconciler load all configs to sore in configstore.ConfigStore
@@ -35,6 +37,11 @@ type ConfigReconciler struct {
 	Logger         logr.Logger
 	ConfigStore    configstore.ConfigStore
 	MyPodNamespace string
+	// Published, when set, gets an event once a configuration is published.
+	// On a buffered channel, a send that would block is dropped: the event
+	// already waiting is handled later, when the store holds this
+	// configuration.
+	Published chan<- event.GenericEvent
 }
 
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=configs,verbs=get;list;watch;create;update;patch;delete
@@ -65,6 +72,13 @@ func (r *ConfigReconciler) reconcile2(ctx context.Context, req ctrl.Request, log
 	err = r.ConfigStore.AddConfigs(configs, r.MyPodNamespace)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if r.Published != nil {
+		select {
+		case r.Published <- event.GenericEvent{Object: &kv1alpha1.Config{
+			ObjectMeta: metav1.ObjectMeta{Namespace: req.Namespace, Name: req.Name}}}:
+		default:
+		}
 	}
 	return ctrl.Result{}, nil
 }

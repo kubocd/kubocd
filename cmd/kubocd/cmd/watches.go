@@ -24,15 +24,50 @@ import (
 	"kubocd/internal/controller"
 	"slices"
 
+	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
+	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
+
+// releaseController builds the controller of the Releases, with the objects
+// it owns and the events of the objects that a Release reads. A change of the
+// Configs enqueues every Release at its event, and again once the Config
+// controller has published the configuration, which configPublished signals.
+// Connections are watched twice: as outputs of a Release, which owns them,
+// and as inputs.
+func releaseController(mgr ctrl.Manager, reconciler reconcile.Reconciler, configStore configstore.ConfigStore,
+	configPublished <-chan event.GenericEvent, logger logr.Logger) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&kubocdv1alpha1.Release{}).
+		Named("kubocd-release").
+		Owns(&sourcev1.OCIRepository{}).
+		Owns(&sourcev1.HelmRepository{}).
+		Owns(&fluxv2.HelmRelease{}).
+		Owns(&kubocdv1alpha1.Connection{}).
+		Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromOutputClusterConnection(mgr.GetClient(), logger))).
+		Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromContext(mgr.GetClient(), configStore, logger))).
+		Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromConfig(mgr.GetClient(), logger))).
+		WatchesRawSource(source.Channel(configPublished, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromConfig(mgr.GetClient(), logger)))).
+		Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromWatchedInputConnection(mgr.GetClient(), logger))).
+		Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
+			findReleaseFromWatchedInputClusterConnection(mgr.GetClient(), logger))).
+		Complete(reconciler)
+}
 
 // The indexes of the cache, on Releases and Contexts, that the map functions
 // below read.
