@@ -22,6 +22,10 @@ import (
 
 	If !ok, the message must contains a human-readable explanation of the error
 
+	The controller reads the object live, with its own rights: it needs get on the kind. With the RBAC of the chart, it
+	can read Secrets and ConfigMaps only when the 'replications' feature gate is on. kubocd render reads the object with
+	the rights of its user.
+
 	Some examples:
 	- kind: Secret
       name: myapp-secret

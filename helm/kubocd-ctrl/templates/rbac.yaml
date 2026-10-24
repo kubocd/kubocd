@@ -59,9 +59,9 @@ rules:
       - list
       - watch
   {{- if .Values.controller.featureGates.replications }}
-  # All the rules below are only required by the replication controller, so they are granted only when
-  # the 'replications' feature gate is on. Note the Secret/ConfigMap one: this is the only part of
-  # kubocd accessing them.
+  # The rules below are granted only when the 'replications' feature gate is on, as the replication
+  # controller needs them. The Secret/ConfigMap one is the only rule on these kinds: it also lets the
+  # conditions of a package read them.
   - apiGroups:
       - kubocd.kubotal.io
     resources:
