@@ -5,7 +5,6 @@
 domain: kubotal.io
 layout:
 - go.kubebuilder.io/v4
-multigroup: true
 projectName: kubocd
 repo: kubocd
 resources:
@@ -16,7 +15,7 @@ resources:
   domain: kubotal.io
   group: kubocd
   kind: Release
-  path: kubocd/api/kubocd/v1alpha1
+  path: kubocd/api/v1alpha1
   version: v1alpha1
   webhooks:
     validation: true
@@ -24,9 +23,67 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
+  controller: true
   domain: kubotal.io
   group: kubocd
   kind: Context
-  path: kubocd/api/kubocd/v1alpha1
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: false
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: ClusterConnection
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: false
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: ClusterContract
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: Config
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: Connection
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: Contract
+  path: kubocd/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubotal.io
+  group: kubocd
+  kind: Replication
+  path: kubocd/api/v1alpha1
   version: v1alpha1
 version: "3"
