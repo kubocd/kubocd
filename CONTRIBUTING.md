@@ -13,7 +13,7 @@ Tool versions are pinned in [`.tool-versions`](.tool-versions) (Go 1.25, `kubect
 
 ## Code standards
 
-A `pre-commit` hook hard-wraps Markdown to 80 columns with Prettier — pre-wired in the Devcontainer. On the host, put
+A `pre-commit` hook hard-wraps Markdown to 120 columns with Prettier — pre-wired in the Devcontainer. On the host, put
 `pre-commit` and `prettier` on your PATH (`brew install pre-commit prettier`, or `mise`/`asdf` from `.tool-versions`),
 then run `pre-commit install` once. If a commit is rejected after auto-reformatting, re-stage and commit again.
 

@@ -1,6 +1,6 @@
 # Pre-commit hooks for KuboCD.
 #
-# Markdown is hard-wrapped at 80 columns via Prettier (config in
+# Markdown is hard-wrapped at 120 columns via Prettier (config in
 # .prettierrc.yaml) so the raw source stays readable. This is a local hook
 # (language: system): it runs whatever `prettier` is on PATH, so pre-commit does
 # not manage its own Node environment — fast and offline.
@@ -21,7 +21,7 @@ repos:
   - repo: local
     hooks:
       - id: prettier-markdown
-        name: prettier (wrap markdown at 80)
+        name: prettier (wrap markdown at 120)
         entry: prettier --write
         language: system
         files: \.md$

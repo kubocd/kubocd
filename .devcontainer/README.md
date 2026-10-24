@@ -43,8 +43,8 @@ The OCI registry follows the same path: from inside the devcontainer, reach it a
 `localhost:5001` works only from the host shell or for `docker` commands — those execute on the host daemon, not in the
 container.
 
-A `pre-commit` hook is wired automatically (via `postCreateCommand`): it hard-wraps Markdown at 80 columns with Prettier
-on every commit.
+A `pre-commit` hook is wired automatically (via `postCreateCommand`): it hard-wraps Markdown at 120 columns with
+Prettier on every commit.
 
 ## Quick Start (in your editor)
 
