@@ -243,8 +243,8 @@ PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
 docker-buildx: check-registry display  ## Build and push docker image with cross-platform support
 	- $(CONTAINER_TOOL) buildx create --name kubocd-builder --driver=docker-container
-	- $(CONTAINER_TOOL) buildx build --builder kubocd-builder --push --platform=$(PLATFORMS) --build-arg VERSION=$(APP_VERSION) --build-arg BUILD_TS=$(BUILD_TS) --tag $(IMG_REPO):$(APP_VERSION) -f Dockerfile .
-	- $(CONTAINER_TOOL) buildx rm kubocd-builder
+	$(CONTAINER_TOOL) buildx build --builder kubocd-builder --push --platform=$(PLATFORMS) --build-arg VERSION=$(APP_VERSION) --build-arg BUILD_TS=$(BUILD_TS) --tag $(IMG_REPO):$(APP_VERSION) -f Dockerfile .; \
+	status=$$?; $(CONTAINER_TOOL) buildx rm kubocd-builder; exit $$status
 
 
 ##@ Helm
