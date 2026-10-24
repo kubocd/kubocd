@@ -282,6 +282,9 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 
 	// Add config stuff
 	configFileDescriptor, err := ociFs.Add(ctx, "manifest.json", global.PackageConfigMediaType, "")
+	if err != nil {
+		return fmt.Errorf("failed to add manifest.json to the OCI file system: %w", err)
+	}
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := ""
