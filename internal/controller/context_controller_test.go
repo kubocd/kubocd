@@ -22,6 +22,7 @@ import (
 	"errors"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr/funcr"
@@ -127,5 +128,106 @@ func TestAMissingParentIsToldFromAFailedRead(t *testing.T) {
 		if got.context.Status.Phase != kv1alpha1.ContextPhaseError {
 			t.Errorf("%s: got phase %q, want ERROR", name, got.context.Status.Phase)
 		}
+	}
+}
+
+// contextIn is the Context namespace/name, whose parents are given as
+// namespace:name, or name for the namespace of the Context.
+func contextIn(namespace string, name string, parents ...string) *kv1alpha1.Context {
+	kcontext := &kv1alpha1.Context{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec: kv1alpha1.ContextSpec{Context: &apiextensionsv1.JSON{Raw: []byte(`{"` + name + `":"x"}`)}}}
+	for _, parent := range parents {
+		ref := kv1alpha1.NamespacedName{Name: parent}
+		if parentNamespace, parentName, ok := strings.Cut(parent, ":"); ok {
+			ref = kv1alpha1.NamespacedName{Namespace: parentNamespace, Name: parentName}
+		}
+		kcontext.Spec.Parents = append(kcontext.Spec.Parents, ref)
+	}
+	return kcontext
+}
+
+// contextWithParents is the Context apps/name, whose parents are in apps.
+func contextWithParents(name string, parents ...string) *kv1alpha1.Context {
+	return contextIn("apps", name, parents...)
+}
+
+// withPhase gives the Context the status of an earlier reconciliation.
+func withPhase(phase kv1alpha1.ContextPhase, kcontext *kv1alpha1.Context) *kv1alpha1.Context {
+	kcontext.Status = kv1alpha1.ContextStatus{Phase: phase, Context: kcontext.Spec.Context}
+	return kcontext
+}
+
+func ready(kcontext *kv1alpha1.Context) *kv1alpha1.Context {
+	return withPhase(kv1alpha1.ContextPhaseReady, kcontext)
+}
+
+func TestACycleOfParentsIsReported(t *testing.T) {
+	cases := map[string]struct {
+		contexts []client.Object
+		want     string
+	}{
+		"new cycle": {[]client.Object{contextWithParents("a", "b"), contextWithParents("b", "a")},
+			"parents form a cycle: apps:a -> apps:b -> apps:a"},
+		"cycle formed once both are READY": {[]client.Object{ready(contextWithParents("a", "b")), ready(contextWithParents("b", "a"))},
+			"parents form a cycle: apps:a -> apps:b -> apps:a"},
+		"cycle through a grandparent": {[]client.Object{contextWithParents("a", "c", "b"), ready(contextWithParents("b", "d")),
+			ready(contextWithParents("c")), ready(contextWithParents("d", "a"))},
+			"parents form a cycle: apps:a -> apps:b -> apps:d -> apps:a"},
+		"cycle across two namespaces": {[]client.Object{contextIn("apps", "a", "other:b"), ready(contextIn("other", "b", "c")),
+			ready(contextIn("other", "c", "apps:a")), ready(contextIn("apps", "c"))},
+			"parents form a cycle: apps:a -> other:b -> other:c -> apps:a"},
+		"parent of itself": {[]client.Object{ready(contextWithParents("a", "a"))}, "parents form a cycle: apps:a -> apps:a"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := reconcileContext(t, contextClient(t, c.contexts...), "a")
+			if got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseError ||
+				!slices.Equal(got.events, []string{"Warning ParentCycle " + c.want}) {
+				t.Fatalf("got error %v, phase %q and events %q, want ERROR and the event %q", got.err, got.context.Status.Phase,
+					got.events, "Warning ParentCycle "+c.want)
+			}
+		})
+	}
+}
+
+func TestAContextIsReadyOnceItsCycleIsBroken(t *testing.T) {
+	k8sClient := contextClient(t, contextWithParents("a", "b"), contextWithParents("b", "a"))
+	if got := reconcileContext(t, k8sClient, "a"); got.context.Status.Phase != kv1alpha1.ContextPhaseError {
+		t.Fatalf("got the phase %q of the cycle, want ERROR", got.context.Status.Phase)
+	}
+	b := &kv1alpha1.Context{}
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "b"}, b); err != nil {
+		t.Fatal(err)
+	}
+	b.Spec.Parents = nil
+	if err := k8sClient.Update(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	if got := reconcileContext(t, k8sClient, "b"); got.context.Status.Phase != kv1alpha1.ContextPhaseReady {
+		t.Fatalf("got the phase %q of b without parent, want READY", got.context.Status.Phase)
+	}
+	if got := reconcileContext(t, k8sClient, "a"); got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseReady {
+		t.Fatalf("got error %v and phase %q once the cycle is broken, want READY", got.err, got.context.Status.Phase)
+	}
+}
+
+func TestAContextAboveACycleGetsTheErrorOfItsParent(t *testing.T) {
+	k8sClient := contextClient(t, contextWithParents("a", "b"), withPhase(kv1alpha1.ContextPhaseError, contextWithParents("b", "c")),
+		withPhase(kv1alpha1.ContextPhaseError, contextWithParents("c", "b")))
+	got := reconcileContext(t, k8sClient, "a")
+	if got.err == nil || got.context.Status.Phase != kv1alpha1.ContextPhaseError ||
+		!slices.Equal(got.events, []string{"Warning ParentError parent 'apps:b' is in error"}) {
+		t.Fatalf("got error %v, phase %q and events %q, want ERROR and the ParentError event", got.err, got.context.Status.Phase,
+			got.events)
+	}
+}
+
+// A control: two paths to the same parent are no cycle.
+func TestTwoPathsToTheSameParentAreNotACycle(t *testing.T) {
+	k8sClient := contextClient(t, contextWithParents("a", "b", "c"), ready(contextWithParents("b", "d")),
+		ready(contextWithParents("c", "d")), ready(contextWithParents("d")))
+	got := reconcileContext(t, k8sClient, "a")
+	if got.err != nil || got.context.Status.Phase != kv1alpha1.ContextPhaseReady || len(got.events) != 0 {
+		t.Fatalf("got error %v, phase %q and events %q, want READY", got.err, got.context.Status.Phase, got.events)
 	}
 }

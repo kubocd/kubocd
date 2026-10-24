@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -104,6 +105,10 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 		kcontext.Status.Parents = strings.Join(parents, ",")
 
+		if cycle := parentCycle(ctx, r, kcontext); cycle != "" {
+			return r.reportError(op, NewReconcileError(fmt.Errorf("parents form a cycle: %s", cycle), true, "ParentCycle"))
+		}
+
 		// ------ And now, build the current context
 		base := make(map[string]interface{})
 		for _, parent := range kcontext.Spec.Parents {
@@ -144,6 +149,47 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 		return ctrl.Result{}, r.updatePhase(op, kv1alpha1.ContextPhaseReady, true)
 	}
+}
+
+// parentCycle follows the parents of the Context, then theirs, and returns the
+// path that leads back to the Context, such as apps:a -> apps:b -> apps:a, or
+// "" when none does. A parent that cannot be read ends its branch: the loop on
+// the parents of the Context, or the Context whose parent it is, reports it.
+func parentCycle(ctx context.Context, reader client.Reader, kcontext *kv1alpha1.Context) string {
+	self := kv1alpha1.NamespacedName{Namespace: kcontext.Namespace, Name: kcontext.Name}
+	explored := make(map[kv1alpha1.NamespacedName]bool)
+	var walk func(path []kv1alpha1.NamespacedName, parents []kv1alpha1.NamespacedName) []kv1alpha1.NamespacedName
+	walk = func(path []kv1alpha1.NamespacedName, parents []kv1alpha1.NamespacedName) []kv1alpha1.NamespacedName {
+		for _, parent := range parents {
+			if parent == self {
+				return append(slices.Clip(path), parent)
+			}
+			if explored[parent] {
+				continue
+			}
+			explored[parent] = true
+			parentContext := &kv1alpha1.Context{}
+			if err := reader.Get(ctx, parent.ToObjectKey(), parentContext); err != nil {
+				continue
+			}
+			grandParents := slices.Clone(parentContext.Spec.Parents)
+			for i := range grandParents {
+				if grandParents[i].Namespace == "" {
+					grandParents[i].Namespace = parentContext.Namespace
+				}
+			}
+			if cycle := walk(append(slices.Clip(path), parent), grandParents); cycle != nil {
+				return cycle
+			}
+		}
+		return nil
+	}
+	cycle := walk([]kv1alpha1.NamespacedName{self}, kcontext.Spec.Parents)
+	names := make([]string, len(cycle))
+	for i := range cycle {
+		names[i] = cycle[i].String()
+	}
+	return strings.Join(names, " -> ")
 }
 
 func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) ReconcileError {
