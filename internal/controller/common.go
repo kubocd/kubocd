@@ -30,8 +30,18 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
+
+// mergeFromWithUID is client.MergeFrom, whose patch also carries the UID of
+// object. The API server refuses that patch when the object of that name is
+// another one, created since object was read.
+func mergeFromWithUID(object client.Object) client.Patch {
+	base := object.DeepCopyObject().(client.Object)
+	base.SetUID("")
+	return client.MergeFrom(base)
+}
 
 // apiWithheld stands for the message of a failed request to the API server,
 // which can quote a value of the object, or a name built from rendered text.

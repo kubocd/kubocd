@@ -18,6 +18,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
@@ -25,7 +26,6 @@ import (
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, clusterConnectionName string, outputRendered *kubopackage.OutputRendered) (*kv1alpha1.ClusterConnection, ReconcileError) {
@@ -54,6 +54,9 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		return created, nil
 	}
 	// Connection exist. Update if needed
+	if parent := clusterConnection.Spec.ParentRelease; parent != nil && (parent.Namespace != op.release.Namespace || parent.Name != op.release.Name) {
+		return nil, NewReconcileError(errors.New("its ClusterConnection belongs to another Release"), false, "ClusterConnectionOwner")
+	}
 	op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
 	changed, err := patchClusterConnection(r, op, clusterConnection, outputRendered)
 	if err != nil {
@@ -79,7 +82,7 @@ func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterC
 	originalGeneration := clusterConnection.Generation
 
 	// Create a deep copy for the patch operation
-	patch := client.MergeFrom(clusterConnection.DeepCopy())
+	patch := mergeFromWithUID(clusterConnection)
 
 	// Populate the HelmRelease with updated configuration
 	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
