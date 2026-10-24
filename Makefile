@@ -247,12 +247,6 @@ docker-buildx: check-registry display  ## Build and push docker image with cross
 	- $(CONTAINER_TOOL) buildx rm kubocd-builder
 
 
-.PHONY: build-installer
-build-installer: manifests generate ## Generate a consolidated YAML with CRDs and deployment.
-	mkdir -p dist
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG_REPO):$(APP_VERSION)
-	$(KUSTOMIZE) build config/default > config/_dist_/install.yaml
-
 ##@ Helm
 
 .PHONY: crds
