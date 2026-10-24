@@ -693,7 +693,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ---------------------------------------------------------- Find orphan connection, and delete them
 	//
-	outputConnections, err := r.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	outputConnections, listErr := r.FindOutputConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	if listErr != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("could not list its Connections: %s", apiError(listErr.GetBaseError())), false,
+			"ConnectionAccess"), forceUpdate)
+	}
 	for _, connection := range outputConnections {
 		_, ok := op.outputConnectionK8sName[connection.Name]
 		if !ok {
@@ -707,7 +711,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// ---------------------------------------------------------- Find orphan clusterConnection, and delete them
 	//
-	outputClusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	outputClusterConnections, listErr := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.GetNamespace(), Name: release.Name})
+	if listErr != nil {
+		return r.reportError(op, NewReconcileError(fmt.Errorf("could not list its ClusterConnections: %s", apiError(listErr.GetBaseError())),
+			false, "ClusterConnectionAccess"), forceUpdate)
+	}
 	for _, clusterConnection := range outputClusterConnections {
 		_, ok := op.outputClusterConnectionK8sName[clusterConnection.Name]
 		if !ok {
@@ -779,6 +787,16 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 
 const ReleaseIndexOnOutputConnection = "releaseIndexOnOutputConnection"
 
+// OutputConnectionReleaseKeys returns the keys of a Connection in the index
+// ReleaseIndexOnOutputConnection: the name of the Release that controls it.
+func OutputConnectionReleaseKeys(connection *kv1alpha1.Connection) []string {
+	owner := metav1.GetControllerOf(connection)
+	if owner == nil {
+		return []string{}
+	}
+	return []string{owner.Name}
+}
+
 func (r *ReleaseReconciler) FindOutputConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.Connection, ReconcileError) {
 	connections := kv1alpha1.ConnectionList{}
 	listOps := &client.ListOptions{
@@ -796,6 +814,17 @@ func (r *ReleaseReconciler) FindOutputConnectionsFromRelease(ctx context.Context
 }
 
 const ReleaseIndexOnOutputClusterConnection = "ReleaseIndexOnOutputClusterConnection"
+
+// OutputClusterConnectionReleaseKeys returns the keys of a ClusterConnection in
+// the index ReleaseIndexOnOutputClusterConnection: the namespace and the name
+// of its parent Release.
+func OutputClusterConnectionReleaseKeys(clusterConnection *kv1alpha1.ClusterConnection) []string {
+	parent := clusterConnection.Spec.ParentRelease
+	if parent == nil {
+		return []string{}
+	}
+	return []string{fmt.Sprintf("%s:%s", parent.Namespace, parent.Name)}
+}
 
 func (r *ReleaseReconciler) FindOutputClusterConnectionsFromRelease(ctx context.Context, release types.NamespacedName) ([]kv1alpha1.ClusterConnection, ReconcileError) {
 	clusterConnections := kv1alpha1.ClusterConnectionList{}

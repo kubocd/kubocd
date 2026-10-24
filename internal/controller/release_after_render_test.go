@@ -183,49 +183,6 @@ func refusingCanaryDeletes(r *ReleaseReconciler) {
 	})
 }
 
-// listingOwnedConnections serves the lists of the output connections of a
-// Release, which the controller reads through an index of its cache.
-func listingOwnedConnections(r *ReleaseReconciler) {
-	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
-		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-			listOptions := client.ListOptions{}
-			listOptions.ApplyOptions(opts)
-			if listOptions.FieldSelector == nil {
-				return c.List(ctx, list, opts...)
-			}
-			switch l := list.(type) {
-			case *kv1alpha1.ConnectionList:
-				if release, ok := listOptions.FieldSelector.RequiresExactMatch(ReleaseIndexOnOutputConnection); ok {
-					all := &kv1alpha1.ConnectionList{}
-					if err := c.List(ctx, all, client.InNamespace(listOptions.Namespace)); err != nil {
-						return err
-					}
-					for _, connection := range all.Items {
-						if owner := metav1.GetControllerOf(&connection); owner != nil && owner.Name == release {
-							l.Items = append(l.Items, connection)
-						}
-					}
-					return nil
-				}
-			case *kv1alpha1.ClusterConnectionList:
-				if release, ok := listOptions.FieldSelector.RequiresExactMatch(ReleaseIndexOnOutputClusterConnection); ok {
-					all := &kv1alpha1.ClusterConnectionList{}
-					if err := c.List(ctx, all); err != nil {
-						return err
-					}
-					for _, clusterConnection := range all.Items {
-						if parent := clusterConnection.Spec.ParentRelease; parent != nil && parent.Namespace+":"+parent.Name == release {
-							l.Items = append(l.Items, clusterConnection)
-						}
-					}
-					return nil
-				}
-			}
-			return c.List(ctx, list, opts...)
-		},
-	})
-}
-
 // refusingCanaryStatus refuses, as a validation rule would, a status of the
 // Release whose usage holds the canary. The error quotes the usage.
 func refusingCanaryStatus(r *ReleaseReconciler) {
@@ -629,7 +586,7 @@ func TestARefusedDeletionOfAConnectionIsLoggedWithoutTheAnswer(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			options := append(c.options(t), listingOwnedConnections, refusingCanaryDeletes)
+			options := append(c.options(t), refusingCanaryDeletes)
 			got := reconcileRelease(t, fmt.Sprintf(afterRenderPackage, "", ""), "", afterRenderContext, options...)
 			for sink, text := range got.sinks() {
 				if strings.Contains(text, canaryPassword[:7]) {

@@ -43,7 +43,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -549,12 +548,7 @@ var controllerCmd = &cobra.Command{
 		// Used by func (r *ReleaseReconciler) FindOutputConnectionFromRelease(ctx context.Context, release client.Object, logger logr.Logger) []string
 		//
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.Connection{}, controller.ReleaseIndexOnOutputConnection, func(rawObj client.Object) []string {
-			connection := rawObj.(*kubocdv1alpha1.Connection)
-			owner := metav1.GetControllerOf(connection)
-			if owner == nil {
-				return []string{}
-			}
-			return []string{owner.Name}
+			return controller.OutputConnectionReleaseKeys(rawObj.(*kubocdv1alpha1.Connection))
 		})
 		if err != nil {
 			setupLog.Error(err, "Unable to index Connection by Release")
@@ -568,11 +562,7 @@ var controllerCmd = &cobra.Command{
 		// Used by func (r *ReleaseReconciler) FindOutputClusterConnectionFromRelease(ctx context.Context, release client.Object) []string
 		//
 		err = mgr.GetFieldIndexer().IndexField(context.Background(), &kubocdv1alpha1.ClusterConnection{}, controller.ReleaseIndexOnOutputClusterConnection, func(rawObj client.Object) []string {
-			connection := rawObj.(*kubocdv1alpha1.ClusterConnection)
-			if connection.Spec.ParentRelease == nil {
-				return []string{}
-			}
-			return []string{fmt.Sprintf("%s:%s", connection.Spec.ParentRelease.Namespace, connection.Spec.ParentRelease.Name)}
+			return controller.OutputClusterConnectionReleaseKeys(rawObj.(*kubocdv1alpha1.ClusterConnection))
 		})
 		if err != nil {
 			setupLog.Error(err, "Unable to index ClusterConnection by Release")

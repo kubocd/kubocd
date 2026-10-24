@@ -93,7 +93,8 @@ type releaseTestbed struct {
 // newReleaseTestbed prepares the reconciliations of the Release demo, whose
 // package manifest is already fetched, against a fake API server. A non empty
 // contextValues is the Context the Release uses. The module main has a chart,
-// and the REST mapper knows the Context kind.
+// the REST mapper knows the Context kind, and the fake API server serves the
+// indexes of the output connections of a Release.
 func newReleaseTestbed(t *testing.T, manifest string, parameters string, contextValues string, options ...func(*ReleaseReconciler)) *releaseTestbed {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -127,7 +128,13 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 	restMapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{kv1alpha1.GroupVersion})
 	restMapper.Add(kv1alpha1.GroupVersion.WithKind("Context"), apimeta.RESTScopeNamespace)
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).WithObjects(append(objects, release)...).
-		WithStatusSubresource(&kv1alpha1.Release{}, &kv1alpha1.Connection{}, &kv1alpha1.ClusterConnection{}).Build()
+		WithStatusSubresource(&kv1alpha1.Release{}, &kv1alpha1.Connection{}, &kv1alpha1.ClusterConnection{}).
+		WithIndex(&kv1alpha1.Connection{}, ReleaseIndexOnOutputConnection, func(o client.Object) []string {
+			return OutputConnectionReleaseKeys(o.(*kv1alpha1.Connection))
+		}).
+		WithIndex(&kv1alpha1.ClusterConnection{}, ReleaseIndexOnOutputClusterConnection, func(o client.Object) []string {
+			return OutputClusterConnectionReleaseKeys(o.(*kv1alpha1.ClusterConnection))
+		}).Build()
 
 	serverRoot := t.TempDir()
 	folder := filepath.Join(serverRoot, "hr", "apps", "demo")
