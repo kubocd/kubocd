@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/global"
@@ -102,7 +101,10 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 		logger.V(1).Info("Unable to fetch resource. Seems deleted")
 		// we'll ignore not-found errors, since they can't be fixed by an immediate requeue
 		// (we'll need to wait for a new notification), and we can get them on deleted requests.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("could not read the Replication: %s", apiError(err))
 	}
 	// NB: A finalizer is required, as the replicated resource lies in another namespace. So, its deletion
 	// can't be delegated to the Kubernetes garbage collector, which does not handle cross namespace ownership.
@@ -124,7 +126,7 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 		controllerutil.RemoveFinalizer(replication, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Remove finalizer)")
 		if err := r.Update(ctx, replication); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not remove the finalizer of the Replication: %s", apiError(err))
 		}
 		return ctrl.Result{}, nil
 	}
@@ -134,8 +136,10 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 		logger.V(1).Info("Add finalizer")
 		controllerutil.AddFinalizer(replication, global.FinalizerName)
 		logger.V(1).Info(">-> Update resource (Add finalizer)")
-		err := r.Update(ctx, replication)
-		return ctrl.Result{}, err // we reschedule, to avoid an 'object has been modified' on next status update
+		if err := r.Update(ctx, replication); err != nil {
+			return ctrl.Result{}, fmt.Errorf("could not add the finalizer to the Replication: %s", apiError(err))
+		}
+		return ctrl.Result{}, nil // we reschedule, to avoid an 'object has been modified' on next status update
 	}
 
 	previous := replication.DeepCopy()
@@ -174,7 +178,7 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 		// Status modified. (Using Patch does not prevent an unnecessary round trip)
 		err = r.Status().Patch(ctx, replication, client.MergeFrom(previous))
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("could not update the Replication status: %s", apiError(err))
 		}
 	}
 	if retryable {
@@ -256,14 +260,14 @@ func (r *ReplicationReconciler) deleteReplicated(ctx context.Context, replicated
 			// Already gone
 			return nil
 		}
-		return fmt.Errorf("unable to fetch %s '%s/%s': %s", replicated.Kind, replicated.Namespace, replicated.Name, apiErrorMessage(err))
+		return fmt.Errorf("unable to fetch %s '%s/%s': %s", replicated.Kind, replicated.Namespace, replicated.Name, apiError(err))
 	}
 	if !isReplicatedBy(object, replication) {
 		logger.V(0).Info("Replicated resource is not ours anymore. Leaving it untouched", "kind", replicated.Kind, "namespace", replicated.Namespace, "name", replicated.Name)
 		return nil
 	}
 	if err := r.Delete(ctx, object); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("unable to delete %s '%s/%s': %s", replicated.Kind, replicated.Namespace, replicated.Name, apiErrorMessage(err))
+		return fmt.Errorf("unable to delete %s '%s/%s': %s", replicated.Kind, replicated.Namespace, replicated.Name, apiError(err))
 	}
 	logger.V(0).Info("Replicated resource deleted", "kind", replicated.Kind, "namespace", replicated.Namespace, "name", replicated.Name)
 	r.Event(replication, "Normal", "Replication", fmt.Sprintf("Deleted %s '%s/%s'", replicated.Kind, replicated.Namespace, replicated.Name))
@@ -289,7 +293,7 @@ func (r *ReplicationReconciler) replicateSecret(ctx context.Context, replication
 		}
 		setReplicatedMetadata(dst, replication, &src.ObjectMeta)
 		if err := r.Create(ctx, dst); err != nil {
-			return true, fmt.Errorf("unable to create %s '%s/%s': %s", KindSecret, destination.Namespace, destination.Name, apiErrorMessage(err))
+			return true, fmt.Errorf("unable to create %s '%s/%s': %s", KindSecret, destination.Namespace, destination.Name, apiError(err))
 		}
 		logger.V(0).Info("Destination created", "kind", KindSecret, "namespace", destination.Namespace, "name", destination.Name)
 		r.Event(replication, "Normal", "Replication", fmt.Sprintf("Created %s '%s/%s'", KindSecret, destination.Namespace, destination.Name))
@@ -312,7 +316,7 @@ func (r *ReplicationReconciler) replicateSecret(ctx context.Context, replication
 	}
 	// NB: Update (and not Patch) as we also want removed source entries to be removed from the destination.
 	if err := r.Update(ctx, updated); err != nil {
-		return true, fmt.Errorf("unable to update %s '%s/%s': %s", KindSecret, destination.Namespace, destination.Name, apiErrorMessage(err))
+		return true, fmt.Errorf("unable to update %s '%s/%s': %s", KindSecret, destination.Namespace, destination.Name, apiError(err))
 	}
 	logger.V(0).Info("Destination updated", "kind", KindSecret, "namespace", destination.Namespace, "name", destination.Name)
 	r.Event(replication, "Normal", "Replication", fmt.Sprintf("Updated %s '%s/%s'", KindSecret, destination.Namespace, destination.Name))
@@ -338,7 +342,7 @@ func (r *ReplicationReconciler) replicateConfigMap(ctx context.Context, replicat
 		}
 		setReplicatedMetadata(dst, replication, &src.ObjectMeta)
 		if err := r.Create(ctx, dst); err != nil {
-			return true, fmt.Errorf("unable to create %s '%s/%s': %s", KindConfigMap, destination.Namespace, destination.Name, apiErrorMessage(err))
+			return true, fmt.Errorf("unable to create %s '%s/%s': %s", KindConfigMap, destination.Namespace, destination.Name, apiError(err))
 		}
 		logger.V(0).Info("Destination created", "kind", KindConfigMap, "namespace", destination.Namespace, "name", destination.Name)
 		r.Event(replication, "Normal", "Replication", fmt.Sprintf("Created %s '%s/%s'", KindConfigMap, destination.Namespace, destination.Name))
@@ -358,7 +362,7 @@ func (r *ReplicationReconciler) replicateConfigMap(ctx context.Context, replicat
 	}
 	// NB: Update (and not Patch) as we also want removed source entries to be removed from the destination.
 	if err := r.Update(ctx, updated); err != nil {
-		return true, fmt.Errorf("unable to update %s '%s/%s': %s", KindConfigMap, destination.Namespace, destination.Name, apiErrorMessage(err))
+		return true, fmt.Errorf("unable to update %s '%s/%s': %s", KindConfigMap, destination.Namespace, destination.Name, apiError(err))
 	}
 	logger.V(0).Info("Destination updated", "kind", KindConfigMap, "namespace", destination.Namespace, "name", destination.Name)
 	r.Event(replication, "Normal", "Replication", fmt.Sprintf("Updated %s '%s/%s'", KindConfigMap, destination.Namespace, destination.Name))
@@ -428,17 +432,9 @@ func (r *ReplicationReconciler) sourceFetchError(ctx context.Context, replicatio
 		replication.Status.Destination = nil
 		return false, fmt.Errorf("source %s '%s/%s' does not exists", kind, source.Namespace, source.Name)
 	}
-	return true, fmt.Errorf("unable to fetch source %s '%s/%s': %s", kind, source.Namespace, source.Name, apiErrorMessage(err))
+	return true, fmt.Errorf("unable to fetch source %s '%s/%s': %s", kind, source.Namespace, source.Name, apiError(err))
 }
 
 func destinationFetchError(kind string, destination types.NamespacedName, err error) error {
-	return fmt.Errorf("unable to fetch %s '%s/%s': %s", kind, destination.Namespace, destination.Name, apiErrorMessage(err))
-}
-
-// apiErrorMessage extracts a human comprehensible message from a Kubernetes API error.
-func apiErrorMessage(err error) string {
-	if status := apierrors.APIStatus(nil); errors.As(err, &status) {
-		return status.Status().Message
-	}
-	return err.Error()
+	return fmt.Errorf("unable to fetch %s '%s/%s': %s", kind, destination.Namespace, destination.Name, apiError(err))
 }
