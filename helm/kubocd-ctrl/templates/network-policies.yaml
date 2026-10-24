@@ -8,7 +8,15 @@ metadata:
 spec:
   ingress:
     - from:
-        - namespaceSelector: {}
+        # This policy isolates source-controller: the Flux controllers of its namespace must stay admitted, also when
+        # Flux runs without its own policies
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "kubocd.controller.selectorLabels" . | nindent 14 }}
       ports:
         - port: 9090
           protocol: TCP

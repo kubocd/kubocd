@@ -19,10 +19,12 @@ package cmd
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"helm.sh/helm/v4/pkg/chart/common"
@@ -32,14 +34,26 @@ import (
 	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/yaml"
 )
 
-// chartDeployment renders the chart of helm/<name>, with the values of its
-// values.yaml changed by setValues. Every rendered document must decode as
-// YAML, as helm template requires. It returns the Deployment, decoded with
-// no unknown field.
-func chartDeployment(t *testing.T, name string, setValues func(values map[string]interface{})) *appsv1.Deployment {
+// renderChart renders the chart of helm/<name> as the release of that name,
+// in the namespace kubocd, as renderRelease does.
+func renderChart(t *testing.T, name string, setValues func(values map[string]interface{})) map[string]string {
+	t.Helper()
+	return renderRelease(t, name, name, "kubocd", setValues)
+}
+
+// renderRelease renders the chart of helm/<name> as the release given, in the
+// namespace given, with the values of its values.yaml changed by setValues.
+// Every rendered document must decode as YAML, as helm template requires. It
+// returns the documents by kind and name, such as
+// Deployment/kubocd-ctrl-controller.
+func renderRelease(t *testing.T, name string, release string, namespace string,
+	setValues func(values map[string]interface{})) map[string]string {
 	t.Helper()
 	dir := filepath.Join("..", "..", "..", "helm", name)
 	raw, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
@@ -68,7 +82,7 @@ func chartDeployment(t *testing.T, name string, setValues func(values map[string
 		}
 		ch.Templates = append(ch.Templates, &common.File{Name: "templates/" + entry.Name(), Data: data})
 	}
-	renderValues, err := util.ToRenderValues(ch, nil, common.ReleaseOptions{Name: name, Namespace: "kubocd"}, nil)
+	renderValues, err := util.ToRenderValues(ch, nil, common.ReleaseOptions{Name: release, Namespace: namespace}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,17 +90,65 @@ func chartDeployment(t *testing.T, name string, setValues func(values map[string
 	if err != nil {
 		t.Fatal(err)
 	}
+	documents := map[string]string{}
 	for file, content := range rendered {
 		for _, document := range releaseutil.SplitManifests(content) {
-			if err := yaml.Unmarshal([]byte(document), &map[string]interface{}{}); err != nil {
+			object := struct {
+				Kind     string `json:"kind"`
+				Metadata struct {
+					Name string `json:"name"`
+				} `json:"metadata"`
+			}{}
+			if err := yaml.Unmarshal([]byte(document), &object); err != nil {
 				t.Fatalf("%s is not valid YAML: %v\n%s", file, err, document)
 			}
+			if object.Kind == "" {
+				continue
+			}
+			key := object.Kind + "/" + object.Metadata.Name
+			if _, ok := documents[key]; ok {
+				t.Fatalf("%s is rendered twice", key)
+			}
+			documents[key] = document
 		}
 	}
-	deployment := &appsv1.Deployment{}
-	if err := yaml.UnmarshalStrict([]byte(rendered[name+"/templates/deployment.yaml"]), deployment); err != nil {
-		t.Fatalf("the Deployment does not decode: %v", err)
+	return documents
+}
+
+// decodeStrict decodes the rendered document of kind and name into object,
+// with no unknown field.
+func decodeStrict(t *testing.T, documents map[string]string, kind string, name string, object interface{}) {
+	t.Helper()
+	document, ok := documents[kind+"/"+name]
+	if !ok {
+		t.Fatalf("no %s/%s rendered, got %v", kind, name, slices.Sorted(maps.Keys(documents)))
 	}
+	if err := yaml.UnmarshalStrict([]byte(document), object); err != nil {
+		t.Fatalf("%s/%s does not decode: %v", kind, name, err)
+	}
+}
+
+// chartDeployment renders the chart of helm/<name> in the namespace kubocd, as
+// renderChart does. It returns its Deployment.
+func chartDeployment(t *testing.T, name string, setValues func(values map[string]interface{})) *appsv1.Deployment {
+	t.Helper()
+	return deploymentOf(t, renderChart(t, name, setValues))
+}
+
+// deploymentOf returns the only Deployment of a render.
+func deploymentOf(t *testing.T, documents map[string]string) *appsv1.Deployment {
+	t.Helper()
+	names := make([]string, 0)
+	for key := range documents {
+		if kind, name, _ := strings.Cut(key, "/"); kind == "Deployment" {
+			names = append(names, name)
+		}
+	}
+	if len(names) != 1 {
+		t.Fatalf("got the Deployments %v, want one", names)
+	}
+	deployment := &appsv1.Deployment{}
+	decodeStrict(t, documents, "Deployment", names[0], deployment)
 	if len(deployment.Spec.Template.Spec.Containers) == 0 {
 		t.Fatal("the Deployment has no container")
 	}
@@ -204,4 +266,114 @@ func TestChartsRenderTheirExtraEnvAndVolumes(t *testing.T) {
 			})
 		}
 	}
+}
+
+// networkPolicies returns the NetworkPolicies of a render, by namespace and
+// name.
+func networkPolicies(t *testing.T, documents map[string]string) map[string]networkingv1.NetworkPolicy {
+	t.Helper()
+	policies := map[string]networkingv1.NetworkPolicy{}
+	for key := range documents {
+		if kind, name, _ := strings.Cut(key, "/"); kind == "NetworkPolicy" {
+			policy := networkingv1.NetworkPolicy{}
+			decodeStrict(t, documents, kind, name, &policy)
+			policies[policy.Namespace+"/"+policy.Name] = policy
+		}
+	}
+	return policies
+}
+
+// tcpPorts are NetworkPolicy ports, TCP.
+func tcpPorts(ports ...int32) []networkingv1.NetworkPolicyPort {
+	tcp := corev1.ProtocolTCP
+	policyPorts := make([]networkingv1.NetworkPolicyPort, 0, len(ports))
+	for _, port := range ports {
+		number := intstr.FromInt32(port)
+		policyPorts = append(policyPorts, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: &number})
+	}
+	return policyPorts
+}
+
+// mustEqualSpec fails the test unless the spec of the policy is want, and
+// prints both as YAML.
+func mustEqualSpec(t *testing.T, policy networkingv1.NetworkPolicy, want networkingv1.NetworkPolicySpec) {
+	t.Helper()
+	if !reflect.DeepEqual(policy.Spec, want) {
+		got, _ := yaml.Marshal(policy.Spec)
+		expected, _ := yaml.Marshal(want)
+		t.Fatalf("NetworkPolicy %s/%s, got the spec\n%s\nwant\n%s", policy.Namespace, policy.Name, got, expected)
+	}
+}
+
+// chartValues sets a value of a section of values.yaml.
+func chartValues(section string, key string, value interface{}) func(values map[string]interface{}) {
+	return func(values map[string]interface{}) {
+		values[section].(map[string]interface{})[key] = value
+	}
+}
+
+// noChange leaves the values of values.yaml as they are.
+func noChange(map[string]interface{}) {}
+
+// namespaceNamed selects the namespace of that name.
+func namespaceNamed(name string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": name}}
+}
+
+// policyInstalls are the releases and namespaces of the chart that the policy
+// tests render, so that a release or a namespace written in a template fails.
+var policyInstalls = []struct{ release, namespace string }{{"kubocd-ctrl", "kubocd"}, {"kcd", "kcd-system"}}
+
+// policiesIn returns the names of the NetworkPolicies of a namespace.
+func policiesIn(policies map[string]networkingv1.NetworkPolicy, namespace string) []string {
+	names := make([]string, 0)
+	for _, policy := range policies {
+		if policy.Namespace == namespace {
+			names = append(names, policy.Name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+func TestTheChartLetsOnlyTheControllerAndFluxReachSourceController(t *testing.T) {
+	cases := map[string]struct {
+		values        func(values map[string]interface{})
+		fluxNamespace string
+	}{
+		"defaults":               {noChange, "flux-system"},
+		"another Flux namespace": {chartValues("networkPolicies", "fluxNamespace", "flux"), "flux"},
+		"another base name":      {chartValues("controller", "baseNameOverride", "other"), "flux-system"},
+	}
+	for _, install := range policyInstalls {
+		for name, c := range cases {
+			namespace := install.namespace
+			t.Run(install.release+" in "+namespace+", "+name, func(t *testing.T) {
+				documents := renderRelease(t, "kubocd-ctrl", install.release, namespace, c.values)
+				controller := deploymentOf(t, documents).Spec.Selector.MatchLabels
+				policies := networkPolicies(t, documents)
+				if got := policiesIn(policies, c.fluxNamespace); !slices.Equal(got, []string{"kubocd-allow-sources-fetch"}) {
+					t.Fatalf("got the NetworkPolicies %v in %s, want kubocd-allow-sources-fetch only", got, c.fluxNamespace)
+				}
+				mustEqualSpec(t, policies[c.fluxNamespace+"/kubocd-allow-sources-fetch"], networkingv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "source-controller"}},
+					Ingress: []networkingv1.NetworkPolicyIngressRule{{
+						From: []networkingv1.NetworkPolicyPeer{
+							{PodSelector: &metav1.LabelSelector{}},
+							{NamespaceSelector: namespaceNamed(namespace), PodSelector: &metav1.LabelSelector{MatchLabels: controller}},
+						},
+						Ports: tcpPorts(9090),
+					}},
+					PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+				})
+			})
+		}
+	}
+	t.Run("disabled", func(t *testing.T) {
+		disabled := chartValues("networkPolicies", "enabled", false)
+		policies := networkPolicies(t, renderChart(t, "kubocd-ctrl", disabled))
+		if len(policies) != 0 {
+			t.Fatalf("got the NetworkPolicies %v, want none", slices.Sorted(maps.Keys(policies)))
+		}
+	})
 }
