@@ -33,13 +33,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-type ConfigStore interface {
-	Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error
+// Configuration reads a configuration that the Configs set.
+type Configuration interface {
 	IsClusterRole(role string) bool
 	GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string)
 	GetImageRedirects() []*v1alpha1.ImageRedirectSpec
 	GetDefaultContexts() []v1alpha1.NamespacedName
-	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string) error
 	ObjectMap() map[string]interface{} // Get a map to dump as yaml in debug
 	GetDefaultNamespaceContexts() []string
 	GetOnFailureStrategy(name string) map[string]interface{}
@@ -48,8 +47,20 @@ type ConfigStore interface {
 	GetDefaultHelmInterval() time.Duration
 	GetSpecPatch() *apiextensionsv1.JSON
 	GetDefaultPackageInterval() time.Duration
-	// Version grows with each configuration that AddConfigs publishes.
+	// Version numbers the configuration, each one that AddConfigs publishes
+	// getting the next number.
 	Version() uint64
+}
+
+// ConfigStore holds the configuration that the Configs set. Its methods of
+// Configuration read, at each call, the configuration published last.
+type ConfigStore interface {
+	Configuration
+	Init(ctx context.Context, kubeClient client.Client, myPodNamespace string) error
+	AddConfigs(configs *v1alpha1.ConfigList, defaultNamespace string) error
+	// Current returns the configuration published last, which the later
+	// publications leave as it is.
+	Current() Configuration
 }
 
 // configuration holds what the Configs set. Once published, it is never
@@ -75,6 +86,7 @@ type configStore struct {
 }
 
 var _ ConfigStore = &configStore{}
+var _ Configuration = &configuration{}
 
 func New() ConfigStore {
 	store := &configStore{}
@@ -82,14 +94,70 @@ func New() ConfigStore {
 	return store
 }
 
+func (c *configStore) Current() Configuration {
+	return c.current.Load()
+}
+
 func (c *configStore) IsClusterRole(role string) bool {
-	return c.current.Load().clusterRoles[role]
+	return c.current.Load().IsClusterRole(role)
+}
+
+func (c *configStore) GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string) {
+	return c.current.Load().GetPackageRedirect(oldUrl)
+}
+
+func (c *configStore) GetImageRedirects() []*v1alpha1.ImageRedirectSpec {
+	return c.current.Load().GetImageRedirects()
+}
+
+func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {
+	return c.current.Load().GetDefaultContexts()
+}
+
+func (c *configStore) GetDefaultNamespaceContexts() []string {
+	return c.current.Load().GetDefaultNamespaceContexts()
+}
+
+func (c *configStore) ObjectMap() map[string]interface{} {
+	return c.current.Load().ObjectMap()
+}
+
+func (c *configStore) GetOnFailureStrategy(name string) map[string]interface{} {
+	return c.current.Load().GetOnFailureStrategy(name)
+}
+
+func (c *configStore) GetDefaultOnFailureStrategy() map[string]interface{} {
+	return c.current.Load().GetDefaultOnFailureStrategy()
+}
+
+func (c *configStore) GetDefaultHelmTimeout() time.Duration {
+	return c.current.Load().GetDefaultHelmTimeout()
+}
+
+func (c *configStore) GetDefaultHelmInterval() time.Duration {
+	return c.current.Load().GetDefaultHelmInterval()
+}
+
+func (c *configStore) GetDefaultPackageInterval() time.Duration {
+	return c.current.Load().GetDefaultPackageInterval()
+}
+
+func (c *configStore) GetSpecPatch() *apiextensionsv1.JSON {
+	return c.current.Load().GetSpecPatch()
+}
+
+func (c *configStore) Version() uint64 {
+	return c.current.Load().Version()
+}
+
+func (cfg *configuration) IsClusterRole(role string) bool {
+	return cfg.clusterRoles[role]
 }
 
 // GetPackageRedirect return a redirected url
 // oldUrl and NewUrl must be without scheme (oci:// or other)
-func (c *configStore) GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string) {
-	for _, redirect := range c.current.Load().packageRedirects {
+func (cfg *configuration) GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1alpha1.PackageRedirectSpec, newUrl string) {
+	for _, redirect := range cfg.packageRedirects {
 		if strings.HasPrefix(oldUrl, redirect.OldPrefix) {
 			if redirect.NewPrefix == "" {
 				// We don't want to change the URL. Just add some addOns
@@ -104,21 +172,20 @@ func (c *configStore) GetPackageRedirect(oldUrl string) (packageRedirectSpec *v1
 
 // GetImageRedirects returns a copy of the image redirects of all Configs, in
 // Config name order.
-func (c *configStore) GetImageRedirects() []*v1alpha1.ImageRedirectSpec {
-	imageRedirects := c.current.Load().imageRedirects
-	redirects := make([]*v1alpha1.ImageRedirectSpec, len(imageRedirects))
-	for i, redirect := range imageRedirects {
+func (cfg *configuration) GetImageRedirects() []*v1alpha1.ImageRedirectSpec {
+	redirects := make([]*v1alpha1.ImageRedirectSpec, len(cfg.imageRedirects))
+	for i, redirect := range cfg.imageRedirects {
 		redirects[i] = redirect.DeepCopy()
 	}
 	return redirects
 }
 
-func (c *configStore) GetDefaultContexts() []v1alpha1.NamespacedName {
-	return slices.Clone(c.current.Load().defaultContexts)
+func (cfg *configuration) GetDefaultContexts() []v1alpha1.NamespacedName {
+	return slices.Clone(cfg.defaultContexts)
 }
 
-func (c *configStore) GetDefaultNamespaceContexts() []string {
-	return slices.Clone(c.current.Load().defaultNamespaceContexts)
+func (cfg *configuration) GetDefaultNamespaceContexts() []string {
+	return slices.Clone(cfg.defaultNamespaceContexts)
 }
 
 // AddConfigs replaces the configuration with the one that the Configs of
@@ -202,8 +269,7 @@ func newConfiguration(configList *v1alpha1.ConfigList, defaultNamespace string) 
 	return cfg, nil
 }
 
-func (c *configStore) ObjectMap() map[string]interface{} {
-	cfg := c.current.Load()
+func (cfg *configuration) ObjectMap() map[string]interface{} {
 	m := map[string]interface{}{
 		"packageRedirects":         deepCopies(cfg.packageRedirects),
 		"imageRedirects":           deepCopies(cfg.imageRedirects),
@@ -255,35 +321,34 @@ func (c *configStore) Init(ctx context.Context, kubeClient client.Client, myPodN
 	return err
 }
 
-func (c *configStore) GetOnFailureStrategy(name string) map[string]interface{} {
+func (cfg *configuration) GetOnFailureStrategy(name string) map[string]interface{} {
 	// We need to DeepCopy the result, as this result may be modified by the caller. See release_helmrelease.deleteFailureConf()
-	return misc.DeepCopyMap(c.current.Load().onFailureStrategyByName[name])
+	return misc.DeepCopyMap(cfg.onFailureStrategyByName[name])
 }
 
-func (c *configStore) GetDefaultOnFailureStrategy() map[string]interface{} {
-	cfg := c.current.Load()
+func (cfg *configuration) GetDefaultOnFailureStrategy() map[string]interface{} {
 	if cfg.defaultOnFailureStrategy == "" {
 		return nil
 	}
 	return misc.DeepCopyMap(cfg.onFailureStrategyByName[cfg.defaultOnFailureStrategy])
 }
 
-func (c *configStore) GetDefaultHelmTimeout() time.Duration {
-	return c.current.Load().defaultHelmTimeout
+func (cfg *configuration) GetDefaultHelmTimeout() time.Duration {
+	return cfg.defaultHelmTimeout
 }
 
-func (c *configStore) GetDefaultHelmInterval() time.Duration {
-	return c.current.Load().defaultHelmInterval
+func (cfg *configuration) GetDefaultHelmInterval() time.Duration {
+	return cfg.defaultHelmInterval
 }
 
-func (c *configStore) GetDefaultPackageInterval() time.Duration {
-	return c.current.Load().defaultPackageInterval
+func (cfg *configuration) GetDefaultPackageInterval() time.Duration {
+	return cfg.defaultPackageInterval
 }
 
-func (c *configStore) GetSpecPatch() *apiextensionsv1.JSON {
-	return c.current.Load().specPatch.DeepCopy()
+func (cfg *configuration) GetSpecPatch() *apiextensionsv1.JSON {
+	return cfg.specPatch.DeepCopy()
 }
 
-func (c *configStore) Version() uint64 {
-	return c.current.Load().version
+func (cfg *configuration) Version() uint64 {
+	return cfg.version
 }

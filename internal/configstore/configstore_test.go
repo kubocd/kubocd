@@ -42,29 +42,29 @@ const (
 
 type reader struct {
 	name string
-	read func(store configstore.ConfigStore) interface{}
+	read func(c configstore.Configuration) interface{}
 }
 
-// readers call every method of ConfigStore that reads the configuration, once
-// each: two calls can see two configurations.
+// readers call every method of Configuration, once each: two calls to a
+// ConfigStore can see two configurations.
 var readers = []reader{
-	{"IsClusterRole", func(s configstore.ConfigStore) interface{} { return s.IsClusterRole("role-a") }},
+	{"IsClusterRole", func(s configstore.Configuration) interface{} { return s.IsClusterRole("role-a") }},
 	{"GetPackageRedirect", packageRedirect(packageUrl)},
 	{"GetPackageRedirect with no NewPrefix", packageRedirect(keptPackageUrl)},
-	{"GetImageRedirects", func(s configstore.ConfigStore) interface{} { return s.GetImageRedirects() }},
-	{"GetDefaultContexts", func(s configstore.ConfigStore) interface{} { return s.GetDefaultContexts() }},
-	{"GetDefaultNamespaceContexts", func(s configstore.ConfigStore) interface{} { return s.GetDefaultNamespaceContexts() }},
-	{"ObjectMap", func(s configstore.ConfigStore) interface{} { return sortedObjectMap(s.ObjectMap()) }},
-	{"GetOnFailureStrategy", func(s configstore.ConfigStore) interface{} { return s.GetOnFailureStrategy("retry") }},
-	{"GetDefaultOnFailureStrategy", func(s configstore.ConfigStore) interface{} { return s.GetDefaultOnFailureStrategy() }},
-	{"GetDefaultHelmTimeout", func(s configstore.ConfigStore) interface{} { return s.GetDefaultHelmTimeout().String() }},
-	{"GetDefaultHelmInterval", func(s configstore.ConfigStore) interface{} { return s.GetDefaultHelmInterval().String() }},
-	{"GetSpecPatch", func(s configstore.ConfigStore) interface{} { return s.GetSpecPatch() }},
-	{"GetDefaultPackageInterval", func(s configstore.ConfigStore) interface{} { return s.GetDefaultPackageInterval().String() }},
+	{"GetImageRedirects", func(s configstore.Configuration) interface{} { return s.GetImageRedirects() }},
+	{"GetDefaultContexts", func(s configstore.Configuration) interface{} { return s.GetDefaultContexts() }},
+	{"GetDefaultNamespaceContexts", func(s configstore.Configuration) interface{} { return s.GetDefaultNamespaceContexts() }},
+	{"ObjectMap", func(s configstore.Configuration) interface{} { return sortedObjectMap(s.ObjectMap()) }},
+	{"GetOnFailureStrategy", func(s configstore.Configuration) interface{} { return s.GetOnFailureStrategy("retry") }},
+	{"GetDefaultOnFailureStrategy", func(s configstore.Configuration) interface{} { return s.GetDefaultOnFailureStrategy() }},
+	{"GetDefaultHelmTimeout", func(s configstore.Configuration) interface{} { return s.GetDefaultHelmTimeout().String() }},
+	{"GetDefaultHelmInterval", func(s configstore.Configuration) interface{} { return s.GetDefaultHelmInterval().String() }},
+	{"GetSpecPatch", func(s configstore.Configuration) interface{} { return s.GetSpecPatch() }},
+	{"GetDefaultPackageInterval", func(s configstore.Configuration) interface{} { return s.GetDefaultPackageInterval().String() }},
 }
 
-func packageRedirect(url string) func(store configstore.ConfigStore) interface{} {
-	return func(s configstore.ConfigStore) interface{} {
+func packageRedirect(url string) func(c configstore.Configuration) interface{} {
+	return func(s configstore.Configuration) interface{} {
 		spec, newUrl := s.GetPackageRedirect(url)
 		return []interface{}{spec, newUrl}
 	}
@@ -80,8 +80,8 @@ func sortedObjectMap(m map[string]interface{}) map[string]interface{} {
 	return m
 }
 
-func answer(t *testing.T, r reader, store configstore.ConfigStore) string {
-	data, err := json.Marshal(r.read(store))
+func answer(t *testing.T, r reader, c configstore.Configuration) string {
+	data, err := json.Marshal(r.read(c))
 	if err != nil {
 		t.Errorf("%s: %v", r.name, err)
 	}
@@ -90,10 +90,10 @@ func answer(t *testing.T, r reader, store configstore.ConfigStore) string {
 
 // answers gives the answer of every reader, marshalled, so that it can be
 // compared once the store changed.
-func answers(t *testing.T, store configstore.ConfigStore) map[string]string {
+func answers(t *testing.T, c configstore.Configuration) map[string]string {
 	result := make(map[string]string, len(readers))
 	for _, r := range readers {
-		result[r.name] = answer(t, r, store)
+		result[r.name] = answer(t, r, c)
 	}
 	return result
 }
@@ -253,35 +253,35 @@ func TestAFailedAddConfigsKeepsThePreviousConfiguration(t *testing.T) {
 	}
 }
 
-func TestChangingAnAnswerLeavesTheStoreUnchanged(t *testing.T) {
+func TestChangingAnAnswerLeavesTheStoreAndItsConfigurationUnchanged(t *testing.T) {
 	for _, test := range []struct {
 		reader string
-		change func(store configstore.ConfigStore)
+		change func(c configstore.Configuration)
 	}{
-		{"GetPackageRedirect", func(s configstore.ConfigStore) {
+		{"GetPackageRedirect", func(s configstore.Configuration) {
 			redirect, _ := s.GetPackageRedirect(packageUrl)
 			redirect.NewPrefix = "changed/"
 			redirect.SecretRef.Name = changed
 		}},
-		{"GetPackageRedirect with no NewPrefix", func(s configstore.ConfigStore) {
+		{"GetPackageRedirect with no NewPrefix", func(s configstore.Configuration) {
 			redirect, _ := s.GetPackageRedirect(keptPackageUrl)
 			redirect.SecretRef.Name = changed
 		}},
-		{"GetImageRedirects", func(s configstore.ConfigStore) {
+		{"GetImageRedirects", func(s configstore.Configuration) {
 			redirects := s.GetImageRedirects()
 			redirects[0].NewPrefix = "changed/"
 			redirects[0].ImagePullSecrets[0] = changed
 		}},
-		{"GetDefaultContexts", func(s configstore.ConfigStore) { s.GetDefaultContexts()[0].Name = changed }},
-		{"GetDefaultNamespaceContexts", func(s configstore.ConfigStore) { s.GetDefaultNamespaceContexts()[0] = changed }},
-		{"GetOnFailureStrategy", func(s configstore.ConfigStore) {
+		{"GetDefaultContexts", func(s configstore.Configuration) { s.GetDefaultContexts()[0].Name = changed }},
+		{"GetDefaultNamespaceContexts", func(s configstore.Configuration) { s.GetDefaultNamespaceContexts()[0] = changed }},
+		{"GetOnFailureStrategy", func(s configstore.Configuration) {
 			s.GetOnFailureStrategy("retry")["install"].(map[string]interface{})["remediation"] = changed
 		}},
-		{"GetDefaultOnFailureStrategy", func(s configstore.ConfigStore) {
+		{"GetDefaultOnFailureStrategy", func(s configstore.Configuration) {
 			s.GetDefaultOnFailureStrategy()["install"].(map[string]interface{})["remediation"] = changed
 		}},
-		{"GetSpecPatch", func(s configstore.ConfigStore) { s.GetSpecPatch().Raw[2] = 'X' }},
-		{"ObjectMap", func(s configstore.ConfigStore) {
+		{"GetSpecPatch", func(s configstore.Configuration) { s.GetSpecPatch().Raw[2] = 'X' }},
+		{"ObjectMap", func(s configstore.Configuration) {
 			m := s.ObjectMap()
 			m["packageRedirects"].([]*v1alpha1.PackageRedirectSpec)[0].SecretRef.Name = changed
 			m["imageRedirects"].([]*v1alpha1.ImageRedirectSpec)[0].ImagePullSecrets[0] = changed
@@ -297,10 +297,13 @@ func TestChangingAnAnswerLeavesTheStoreUnchanged(t *testing.T) {
 			store := loadedStore(t, configsA())
 			want := answers(t, store)
 			test.change(store)
-			got := answers(t, store)
-			for _, r := range readers {
-				if got[r.name] != want[r.name] {
-					t.Errorf("%s gives %s, want %s", r.name, got[r.name], want[r.name])
+			test.change(store.Current())
+			for name, c := range map[string]configstore.Configuration{"store": store, "configuration": store.Current()} {
+				got := answers(t, c)
+				for _, r := range readers {
+					if got[r.name] != want[r.name] {
+						t.Errorf("%s: %s gives %s, want %s", name, r.name, got[r.name], want[r.name])
+					}
 				}
 			}
 		})
@@ -351,5 +354,28 @@ func TestTheVersionGrowsWithEachPublishedConfiguration(t *testing.T) {
 	}
 	if got := store.Version(); got != 2 {
 		t.Fatalf("after a failed AddConfigs, got the version %d, want 2", got)
+	}
+}
+
+func TestAConfigurationTakenBeforeAPublicationKeepsItsAnswers(t *testing.T) {
+	store := loadedStore(t, configsA())
+	want := answers(t, store)
+	configuration := store.Current()
+	if err := store.AddConfigs(configsB(), defaultNamespace); err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Version() != 1 || store.Version() != 2 {
+		t.Fatalf("got the versions %d for the configuration and %d for the store, want 1 and 2", configuration.Version(),
+			store.Version())
+	}
+	got := answers(t, configuration)
+	published := answers(t, store)
+	for _, r := range readers {
+		if got[r.name] != want[r.name] {
+			t.Errorf("%s gives %s once B is published, want %s", r.name, got[r.name], want[r.name])
+		}
+		if published[r.name] == want[r.name] {
+			t.Errorf("%s of the store gives the answer of A once B is published: %s", r.name, published[r.name])
+		}
 	}
 }

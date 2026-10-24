@@ -47,8 +47,8 @@ func New(configStore configstore.ConfigStore, logger logr.Logger) RoleStore {
 	}
 }
 
-func (store *roleStore) isDependencyOK(requester types.NamespacedName, dependency string) bool {
-	if store.configStore.IsClusterRole(dependency) {
+func (store *roleStore) isDependencyOK(configuration configstore.Configuration, requester types.NamespacedName, dependency string) bool {
+	if configuration.IsClusterRole(dependency) {
 		store.logger.V(1).Info("dependency OK (cluster role)", "dependency", dependency, "requester", requester.String())
 		return true
 	}
@@ -63,11 +63,15 @@ func (store *roleStore) isDependencyOK(requester types.NamespacedName, dependenc
 	return false
 }
 
+// MissingDependency returns the first of the dependencies that neither a
+// cluster role of the configuration nor a READY Release fulfills, and "" when
+// none is missing. One check reads one configuration.
 func (store *roleStore) MissingDependency(requester types.NamespacedName, dependencies []string) string {
+	configuration := store.configStore.Current()
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	for _, dependency := range dependencies {
-		if !store.isDependencyOK(requester, dependency) {
+		if !store.isDependencyOK(configuration, requester, dependency) {
 			store.logger.V(1).Info("dependency missing", "dependency", dependency, "requester", requester.String())
 			return dependency
 		}
