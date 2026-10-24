@@ -341,24 +341,24 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	} else {
 		// Fetch Package from the image
 		pck := &kubopackage.Package{}
-		_, err = r.Fetcher.LoadFile(helmRepositoryFolder, "original.yaml", pck)
+		originalSize, err := r.Fetcher.LoadFile(helmRepositoryFolder, "original.yaml", pck)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing package original.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		// -------- And fetch status
 		status := &kubopackage.Status{}
-		_, err = r.Fetcher.LoadFile(helmRepositoryFolder, "status.yaml", status)
+		statusSize, err := r.Fetcher.LoadFile(helmRepositoryFolder, "status.yaml", status)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		op.pckContainer = &kubopackage.PckContainer{}
-		err := op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore, tmpl.PackageFunctions(r.AllowDNSLookups))
+		err = op.pckContainer.SetPackage(pck, status, revision, r.ConfigStore, tmpl.PackageFunctions(r.AllowDNSLookups))
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}
 		// A package loaded while the Configs changed can hold two configurations
 		if r.ConfigStore.Version() == configVersion {
-			r.PackageCache.Set(packageKey, op.pckContainer)
+			r.PackageCache.Set(packageKey, op.pckContainer, originalSize+statusSize)
 		}
 	}
 

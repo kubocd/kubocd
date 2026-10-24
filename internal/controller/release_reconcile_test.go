@@ -161,7 +161,7 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 		ServerRoot:      serverRoot,
 		HelmRepoAdvAddr: "kubocd-helm-repository.kubocd.svc",
 		Fetcher:         NewPackageFetcher(DefaultPackageLimits, 0, ""),
-		PackageCache:    cache.NewCache(time.Minute, logr.Discard()),
+		PackageCache:    cache.NewCache(time.Minute, 100, 4<<20, logr.Discard()),
 		ConfigStore:     store,
 		RoleStore:       rolestore.New(store, logr.Discard()),
 	}

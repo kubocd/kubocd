@@ -29,6 +29,7 @@ import (
 	"kubocd/internal/k8sapi"
 	"kubocd/internal/misc"
 	"kubocd/internal/rolestore"
+	"math"
 	"net/http"
 	"os"
 	"path"
@@ -76,7 +77,9 @@ var controllerParams struct {
 
 	allowDNSLookups bool
 
-	packageLimits controller.PackageLimits
+	packageLimits         controller.PackageLimits
+	maxCachedPackages     int
+	maxCachedPackagesSize int64
 
 	featureGates []string
 	// Resolved from featureGates by PersistentPreRun. Always hold an entry for each known gate.
@@ -148,6 +151,10 @@ func init() {
 	controllerCmd.PersistentFlags().Int64Var(&controllerParams.packageLimits.ManifestSize, "maxPackageManifestSize",
 		controller.DefaultPackageLimits.ManifestSize,
 		"The most bytes of the original.yaml of a package, and of its status.yaml. A larger one is refused.")
+	controllerCmd.PersistentFlags().IntVar(&controllerParams.maxCachedPackages, "maxCachedPackages", 100,
+		"The most packages kept loaded in memory. Beyond, the oldest one is loaded again from its files when needed.")
+	controllerCmd.PersistentFlags().Int64Var(&controllerParams.maxCachedPackagesSize, "maxCachedPackagesSize", 4<<20,
+		"The most bytes of original.yaml and status.yaml that the packages kept loaded in memory come from.")
 
 	controllerCmd.PersistentFlags().StringSliceVar(&controllerParams.featureGates, "featureGates", nil,
 		fmt.Sprintf("Comma separated list of EXPERIMENTAL features to activate, as '<name>=true|false'. Valid names: %s", strings.Join(knownFeatureGates, ", ")))
@@ -172,6 +179,11 @@ var controllerCmd = &cobra.Command{
 		}
 		if err := controllerParams.packageLimits.Validate(); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "Invalid package limits: %v\n", err)
+			os.Exit(2)
+		}
+		if controllerParams.maxCachedPackages <= 0 || controllerParams.maxCachedPackagesSize <= 0 ||
+			controllerParams.maxCachedPackagesSize > math.MaxInt64/2 {
+			_, _ = fmt.Fprintln(os.Stderr, "Invalid package cache: both of its limits must be positive, and not too large")
 			os.Exit(2)
 		}
 	},
@@ -489,7 +501,8 @@ var controllerCmd = &cobra.Command{
 			Fetcher:         packageFetcher,
 			ServerRoot:      serverRoot,
 			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
-			PackageCache:    cache.NewCache(time.Second*60, controllerRootLog.WithName("PackageCache")),
+			PackageCache: cache.NewCache(time.Second*60, controllerParams.maxCachedPackages,
+				controllerParams.maxCachedPackagesSize, controllerRootLog.WithName("PackageCache")),
 			ConfigStore:     theConfigStore,
 			RoleStore:       roleStore,
 			AllowDNSLookups: controllerParams.allowDNSLookups,
