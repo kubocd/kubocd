@@ -35,7 +35,8 @@ type PackageSourceSpec struct {
 	// Interval at which the OCIRepository URL is checked for updates.
 	// This interval is approximate and may be subject to jitter to ensure
 	// efficient use of resources.
-	// Default in global config (Or 30m)
+	// Default: 5m, set by the API server. The defaultPackageInterval of the Configs applies to an interval of 0s, and
+	// in kubocd render to an interval that the Release file does not set.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +kubebuilder:default="5m"

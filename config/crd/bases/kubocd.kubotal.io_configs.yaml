@@ -71,7 +71,7 @@ spec:
               defaultHelmInterval:
                 description: |-
                   Value to set to helmRelease.spec.interval (interval at which to reconcile the Helm release)
-                  Default: 2mn
+                  Default: 30m
                 type: string
               defaultHelmTimeout:
                 description: |-
@@ -89,8 +89,10 @@ spec:
                 type: string
               defaultPackageInterval:
                 description: |-
-                  Default value for Release.spec.package.interval. Interval applied to the OciRepository, to check against new package version
-                  Default: 30mn
+                  Interval applied to the OciRepository of a Release, to check against new package version, when its
+                  spec.package.interval is 0s. The API server sets 5m when a Release does not set it, while kubocd render, which
+                  reads the Release from a file, applies this one.
+                  Default: 30m
                 type: string
               imageRedirects:
                 description: |-

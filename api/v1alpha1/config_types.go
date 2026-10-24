@@ -124,12 +124,14 @@ type ConfigSpec struct {
 	DefaultHelmTimeout *metav1.Duration `json:"defaultHelmTimeout,omitempty"`
 
 	// Value to set to helmRelease.spec.interval (interval at which to reconcile the Helm release)
-	// Default: 2mn
+	// Default: 30m
 	// +kubebuilder:validation:Optional
 	DefaultHelmInterval *metav1.Duration `json:"defaultHelmInterval,omitempty"`
 
-	// Default value for Release.spec.package.interval. Interval applied to the OciRepository, to check against new package version
-	// Default: 30mn
+	// Interval applied to the OciRepository of a Release, to check against new package version, when its
+	// spec.package.interval is 0s. The API server sets 5m when a Release does not set it, while kubocd render, which
+	// reads the Release from a file, applies this one.
+	// Default: 30m
 	// +kubebuilder:validation:Optional
 	DefaultPackageInterval *metav1.Duration `json:"defaultPackageInterval,omitempty"`
 

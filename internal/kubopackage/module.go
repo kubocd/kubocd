@@ -82,11 +82,10 @@ type Module struct {
 	Timeout KcdTemplateDuration `json:"timeout,omitempty"`
 	// Will be set as spec.interval of the generated HelmRelease, interval at which to reconcile the Helm release.
 	// May be overridden at the release level
-	// Default from the KuboCD global configuration, or '2m'
+	// Default from the KuboCD global configuration, or '30m'
 	Interval KcdTemplateDuration `json:"interval,omitempty"`
 	// Default: {{ .Release.spec.targetNamespace }}
 	TargetNamespace KcdTemplateString `json:"targetNamespace,omitempty"`
-	// Effective value is And-ed with the release corresponding value
 	// Default: "true"
 	Enabled KcdTemplateBool `json:"enabled,omitempty"`
 	// Intra-package dependency. List of module names
