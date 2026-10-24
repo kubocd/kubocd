@@ -68,12 +68,11 @@ func defaulterHandleNode(path string, node map[string]interface{}) (interface{},
 			if !ok {
 				return nil, fmt.Errorf("node '%s': properties is not a map", path)
 			}
+			propertyPath := k
 			if path != "" {
-				path = path + "." + k
-			} else {
-				path = k
+				propertyPath = path + "." + k
 			}
-			node2, err := defaulterHandleNode(path, property)
+			node2, err := defaulterHandleNode(propertyPath, property)
 			if err != nil {
 				return nil, err
 			}

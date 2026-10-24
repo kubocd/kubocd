@@ -89,3 +89,40 @@ properties:
 		t.Fatalf("got error %v, want the default of an array refused", err)
 	}
 }
+
+func TestTheErrorOfTheDefaulterNamesThePathOfItsProperty(t *testing.T) {
+	cases := map[string]struct {
+		schema string
+		want   string
+	}{
+		"top level": {`
+$schema: http://json-schema.org/schema#
+properties:
+  a: {type: string}
+  b:
+    properties:
+      c: not a map
+  d: {type: integer}
+`, "node 'b': properties is not a map"},
+		"nested": {`
+$schema: http://json-schema.org/schema#
+properties:
+  outer:
+    properties:
+      a: {type: string}
+      b:
+        properties:
+          c: not a map
+      d: {type: integer}
+`, "node 'outer.b': properties is not a map"},
+	}
+	for name, c := range cases {
+		schema := schemaOf(t, c.schema)
+		// Go ranges over the properties in a random order, which the path must not depend on
+		for range 100 {
+			if _, err := Defaulter(schema); err == nil || err.Error() != c.want {
+				t.Fatalf("%s: got the error %v, want %q", name, err, c.want)
+			}
+		}
+	}
+}
