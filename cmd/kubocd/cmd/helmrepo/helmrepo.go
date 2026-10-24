@@ -110,13 +110,11 @@ func DumpHelmRepo(op *Operation) error {
 // WARNING: We can't reuse the same repo name several times in the same execution
 // (Maybe some global stuff inside the "github.com/mittwald/go-helm-client" library)
 func SetupHelmRepo(op *Operation, repoName string) (loc string, helmClient helmclient.Client, err error) {
-	//misc.WaitUserInput("setupHelmRepo entry")
 	// Prepare landing zone
 	loc = path.Join(op.WorkDir, "helmRepo")
 	if err := misc.SafeEnsureEmpty(loc); err != nil {
 		return loc, nil, err
 	}
-	//misc.WaitUserInput("setupHelmRepo after cleanup")
 	opt := &helmclient.Options{
 		Namespace:        "default", // Don't care, as we do not interact with a cluster
 		RepositoryCache:  path.Join(loc, ".helmcache"),
@@ -143,7 +141,6 @@ func SetupHelmRepo(op *Operation, repoName string) (loc string, helmClient helmc
 	if err := helmClient.AddOrUpdateChartRepo(chartRepo); err != nil {
 		return loc, helmClient, err
 	}
-	//misc.WaitUserInput("setupHelmRepo exit")
 	return loc, helmClient, nil
 }
 

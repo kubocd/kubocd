@@ -17,10 +17,8 @@ limitations under the License.
 package misc
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"os"
@@ -147,15 +145,6 @@ func CopyFile(src, dest string) error {
 		return err
 	}
 	return out.Close()
-}
-
-// -----------------------------------------------
-
-func WaitUserInput(prompt string) string {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print(prompt)
-	text, _ := reader.ReadString('\n')
-	return strings.TrimSpace(text)
 }
 
 // -----------------------------------------------

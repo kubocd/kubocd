@@ -46,17 +46,3 @@ const HelmChartMediaType = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
 // ----------------------
 
 const FinalizerName = "kubocd.kubotal.io/finalizer"
-
-// Annotation in Artifact object
-
-const ModuleNameAnnotation = "io.kubotal.kubocd.module.name"
-
-// Files in image
-
-//const ManifestYaml = "manifest.yaml"
-//const ManifestJson = "manifest.json"
-
-// Subfolders of rootDataFolder
-
-const SourceFolder = "source"
-const StorageFolder = "storage"

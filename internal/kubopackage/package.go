@@ -49,9 +49,6 @@ type KcdTemplateStringList interface{}
 // May be a string or a []string
 type KcdTemplateObjectList interface{}
 
-// KcdTemplateInt A template where expected result is an integer
-type KcdTemplateInt string
-
 // ------------------------------------------------
 
 type PackageSchema struct {

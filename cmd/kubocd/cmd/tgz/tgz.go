@@ -167,16 +167,6 @@ func ExtractDataFromTgz(tgzPath string, fileName string) ([]byte, error) {
 	return bb.Bytes(), nil
 }
 
-func ExtractFileFromTgz(tgzPath string, fileName string, targetFile string) error {
-	out, err := os.Create(targetFile)
-	if err != nil {
-		return err
-	}
-	defer func(out *os.File) { _ = out.Close() }(out)
-	err = ExtractFromTgz(tgzPath, fileName, out)
-	return err
-}
-
 func AddToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
