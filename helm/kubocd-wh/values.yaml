@@ -112,5 +112,3 @@ webhook:
   certificateSelfSignedIssuerName:
   # -- Will default to {{ include "kubocd.webhook.baseName" . }}-validating-webhook-configuration
   validatingWebhookConfiguration:
-  # -- Will default to {{ include "kubocd.webhook.baseName" . }}-mutating-webhook-configuration
-  mutatingWebhookConfiguration:

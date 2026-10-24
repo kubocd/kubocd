@@ -33,69 +33,27 @@ func SetupReleaseWebhookWithManager(mgr ctrl.Manager) error {
 		WithValidator(&ReleaseCustomValidator{
 			logger: mgr.GetLogger().WithName("release-webhook-validator"),
 		}).
-		WithDefaulter(&ReleaseCustomDefaulter{
-			logger: mgr.GetLogger().WithName("release-webhook-defaulter"),
-		}).
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
+// +kubebuilder:webhook:path=/validate-kubocd-kubotal-io-v1alpha1-release,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=releases,verbs=delete,versions=v1alpha1,name=vrelease-v1alpha1.kb.io,admissionReviewVersions=v1
 
-// +kubebuilder:webhook:path=/mutate-kubocd-kubotal-io-v1alpha1-release,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=releases,verbs=create;update,versions=v1alpha1,name=mrelease-v1alpha1.kb.io,admissionReviewVersions=v1
-
-// ReleaseCustomDefaulter struct is responsible for setting default values on the custom resource of the
-// Kind Release when those are created or updated.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as it is used only for temporary operations and does not need to be deeply copied.
-type ReleaseCustomDefaulter struct {
-	// TODO(user): Add more fields as needed for defaulting
-	logger logr.Logger
-}
-
-var _ admission.Defaulter[*kubocdv1alpha1.Release] = &ReleaseCustomDefaulter{}
-
-// Default implements admission.Defaulter so a webhook will be registered for the Kind Release.
-func (d *ReleaseCustomDefaulter) Default(ctx context.Context, release *kubocdv1alpha1.Release) error {
-	d.logger.Info("Defaulting for Release", "name", release.GetName())
-
-	// TODO(user): fill in your defaulting logic.
-
-	return nil
-}
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-// NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
-// Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
-// +kubebuilder:webhook:path=/validate-kubocd-kubotal-io-v1alpha1-release,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=releases,verbs=create;update;delete,versions=v1alpha1,name=vrelease-v1alpha1.kb.io,admissionReviewVersions=v1
-
-// ReleaseCustomValidator struct is responsible for validating the Release resource
-// when it is created, updated, or deleted.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as this struct is used only for temporary operations and does not need to be deeply copied.
+// ReleaseCustomValidator checks the deletion of a Release.
 type ReleaseCustomValidator struct {
-	// TODO(user): Add more fields as needed for validation
 	logger logr.Logger
 }
 
 var _ admission.Validator[*kubocdv1alpha1.Release] = &ReleaseCustomValidator{}
 
-// ValidateCreate implements admission.Validator so a webhook will be registered for the type Release.
+// ValidateCreate admits every creation. The webhook configurations send
+// deletions only.
 func (v *ReleaseCustomValidator) ValidateCreate(ctx context.Context, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
-	v.logger.Info("Validation for Release upon creation", "name", release.GetName())
-
-	// TODO(user): fill in your validation logic upon object creation.
-
 	return nil, nil
 }
 
-// ValidateUpdate implements admission.Validator so a webhook will be registered for the type Release.
+// ValidateUpdate admits every update. The webhook configurations send
+// deletions only.
 func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
-	v.logger.Info("Validation for Release upon update", "name", release.GetName())
-
-	// TODO(user): fill in your validation logic upon object update.
-
 	return nil, nil
 }
 

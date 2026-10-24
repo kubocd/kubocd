@@ -32,6 +32,7 @@ import (
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	"helm.sh/helm/v4/pkg/engine"
 	releaseutil "helm.sh/helm/v4/pkg/release/v1/util"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -449,5 +450,78 @@ func TestTheChartLetsOnlySourceControllerReachTheChartServer(t *testing.T) {
 				t.Fatalf("got the NetworkPolicies %v, want none in kubocd", slices.Sorted(maps.Keys(policies)))
 			}
 		})
+	}
+}
+
+// validatingWebhooks describes the webhooks of a ValidatingWebhookConfiguration
+// by name, path, failure policy and rules, one per line.
+func validatingWebhooks(configuration admissionregistrationv1.ValidatingWebhookConfiguration) []string {
+	webhooks := make([]string, 0, len(configuration.Webhooks))
+	for _, webhook := range configuration.Webhooks {
+		path := ""
+		if webhook.ClientConfig.Service != nil && webhook.ClientConfig.Service.Path != nil {
+			path = *webhook.ClientConfig.Service.Path
+		}
+		policy := ""
+		if webhook.FailurePolicy != nil {
+			policy = string(*webhook.FailurePolicy)
+		}
+		rules := make([]string, 0, len(webhook.Rules))
+		for _, rule := range webhook.Rules {
+			rules = append(rules, fmt.Sprintf("%v %v %v %v", rule.APIGroups, rule.APIVersions, rule.Resources,
+				rule.Operations))
+		}
+		webhooks = append(webhooks, fmt.Sprintf("%s %s %s %v", webhook.Name, path, policy, rules))
+	}
+	slices.Sort(webhooks)
+	return webhooks
+}
+
+func TestTheWebhookChartValidatesDeletionsOnly(t *testing.T) {
+	want := []string{
+		"vcontext-v1alpha1.kb.io /validate-kubocd-kubotal-io-v1alpha1-context Fail " +
+			"[[kubocd.kubotal.io] [v1alpha1] [contexts] [DELETE]]",
+		"vrelease-v1alpha1.kb.io /validate-kubocd-kubotal-io-v1alpha1-release Fail " +
+			"[[kubocd.kubotal.io] [v1alpha1] [releases] [DELETE]]",
+	}
+	documents := renderChart(t, "kubocd-wh", noChange)
+	configuration := admissionregistrationv1.ValidatingWebhookConfiguration{}
+	decodeStrict(t, documents, "ValidatingWebhookConfiguration", "kubocd-wh-webhook-validating-webhook-configuration",
+		&configuration)
+	if got := validatingWebhooks(configuration); !slices.Equal(got, want) {
+		t.Errorf("the chart validates\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// The configuration generated from the markers of the webhooks, which the envtest suite installs
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "config", "webhook", "manifests.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := map[string]string{}
+	for _, document := range releaseutil.SplitManifests(string(raw)) {
+		object := struct {
+			Kind string `json:"kind"`
+		}{}
+		if err := yaml.Unmarshal([]byte(document), &object); err != nil {
+			t.Fatal(err)
+		}
+		generated[object.Kind] = document
+	}
+	for _, kind := range []string{"MutatingWebhookConfiguration"} {
+		for key := range documents {
+			if strings.HasPrefix(key, kind+"/") {
+				t.Errorf("the chart renders %s", key)
+			}
+		}
+		if _, ok := generated[kind]; ok {
+			t.Errorf("config/webhook/manifests.yaml has a %s", kind)
+		}
+	}
+	configuration = admissionregistrationv1.ValidatingWebhookConfiguration{}
+	if err := yaml.UnmarshalStrict([]byte(generated["ValidatingWebhookConfiguration"]), &configuration); err != nil {
+		t.Fatal(err)
+	}
+	if got := validatingWebhooks(configuration); !slices.Equal(got, want) {
+		t.Errorf("config/webhook/manifests.yaml validates\n%s\nwant\n%s", strings.Join(got, "\n"),
+			strings.Join(want, "\n"))
 	}
 }

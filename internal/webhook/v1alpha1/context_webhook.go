@@ -33,69 +33,27 @@ func SetupContextWebhookWithManager(mgr ctrl.Manager) error {
 		WithValidator(&ContextCustomValidator{
 			logger: mgr.GetLogger().WithName("context-webhook-validator"),
 		}).
-		WithDefaulter(&ContextCustomDefaulter{
-			logger: mgr.GetLogger().WithName("context-webhook-defaulter"),
-		}).
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
+// +kubebuilder:webhook:path=/validate-kubocd-kubotal-io-v1alpha1-context,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=contexts,verbs=delete,versions=v1alpha1,name=vcontext-v1alpha1.kb.io,admissionReviewVersions=v1
 
-// +kubebuilder:webhook:path=/mutate-kubocd-kubotal-io-v1alpha1-context,mutating=true,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=contexts,verbs=create;update,versions=v1alpha1,name=mcontext-v1alpha1.kb.io,admissionReviewVersions=v1
-
-// ContextCustomDefaulter struct is responsible for setting default values on the custom resource of the
-// Kind Context when those are created or updated.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as it is used only for temporary operations and does not need to be deeply copied.
-type ContextCustomDefaulter struct {
-	// TODO(user): Add more fields as needed for defaulting
-	logger logr.Logger
-}
-
-var _ admission.Defaulter[*kubocdv1alpha1.Context] = &ContextCustomDefaulter{}
-
-// Default implements admission.Defaulter so a webhook will be registered for the Kind Context.
-func (d *ContextCustomDefaulter) Default(ctx context.Context, context *kubocdv1alpha1.Context) error {
-	d.logger.Info("Defaulting for Context", "name", context.GetName())
-
-	// TODO(user): fill in your defaulting logic.
-
-	return nil
-}
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-// NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
-// Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
-// +kubebuilder:webhook:path=/validate-kubocd-kubotal-io-v1alpha1-context,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubocd.kubotal.io,resources=contexts,verbs=create;update;delete,versions=v1alpha1,name=vcontext-v1alpha1.kb.io,admissionReviewVersions=v1
-
-// ContextCustomValidator struct is responsible for validating the Context resource
-// when it is created, updated, or deleted.
-//
-// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
-// as this struct is used only for temporary operations and does not need to be deeply copied.
+// ContextCustomValidator checks the deletion of a Context.
 type ContextCustomValidator struct {
-	// TODO(user): Add more fields as needed for validation
 	logger logr.Logger
 }
 
 var _ admission.Validator[*kubocdv1alpha1.Context] = &ContextCustomValidator{}
 
-// ValidateCreate implements admission.Validator so a webhook will be registered for the type Context.
+// ValidateCreate admits every creation. The webhook configurations send
+// deletions only.
 func (v *ContextCustomValidator) ValidateCreate(ctx context.Context, kcontext *kubocdv1alpha1.Context) (admission.Warnings, error) {
-	v.logger.Info("Validation for Context upon creation", "name", kcontext.GetName())
-
-	// TODO(user): fill in your validation logic upon object creation.
-
 	return nil, nil
 }
 
-// ValidateUpdate implements admission.Validator so a webhook will be registered for the type Context.
+// ValidateUpdate admits every update. The webhook configurations send
+// deletions only.
 func (v *ContextCustomValidator) ValidateUpdate(ctx context.Context, oldObj, kcontext *kubocdv1alpha1.Context) (admission.Warnings, error) {
-	v.logger.Info("Validation for Context upon update", "name", kcontext.GetName())
-
-	// TODO(user): fill in your validation logic upon object update.
-
 	return nil, nil
 }
 

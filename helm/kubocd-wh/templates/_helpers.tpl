@@ -148,10 +148,3 @@ Create the name of the validating webhook configuration
 {{- define "kubocd.webhook.validatingWebhookConfiguration" -}}
 {{- default (printf "%s-validating-webhook-configuration" (include "kubocd.webhook.baseName" .)) .Values.webhook.validatingWebhookConfiguration }}
 {{- end }}
-
-{{/*
-Create the name of the mutating webhook configuration
-*/}}
-{{- define "kubocd.webhook.mutatingWebhookConfiguration" -}}
-{{- default (printf "%s-mutating-webhook-configuration" (include "kubocd.webhook.baseName" .)) .Values.webhook.mutatingWebhookConfiguration }}
-{{- end }}

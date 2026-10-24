@@ -2,60 +2,6 @@
 
 ---
 apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: {{ include "kubocd.webhook.mutatingWebhookConfiguration" . }}
-  labels:
-    {{- include "kubocd.webhook.labels" . | nindent 4 }}
-  annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubocd.webhook.secretName" . }}
-  {{- with .Values.webhook.commonAnnotations }}
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-webhooks:
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: {{ include "kubocd.webhook.serviceName" . }}
-        namespace: {{ .Release.Namespace }}
-        path: /mutate-kubocd-kubotal-io-v1alpha1-release
-    failurePolicy: Fail
-    name: mrelease-v1alpha1.kb.io
-    rules:
-      - apiGroups:
-          - kubocd.kubotal.io
-        apiVersions:
-          - v1alpha1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - releases
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: {{ include "kubocd.webhook.serviceName" . }}
-        namespace: {{ .Release.Namespace }}
-        path: /mutate-kubocd-kubotal-io-v1alpha1-context
-    failurePolicy: Fail
-    name: mcontext-v1alpha1.kb.io
-    rules:
-      - apiGroups:
-          - kubocd.kubotal.io
-        apiVersions:
-          - v1alpha1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - contexts
-    sideEffects: None
-
----
-apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: {{ include "kubocd.webhook.validatingWebhookConfiguration" . }}
@@ -82,8 +28,6 @@ webhooks:
         apiVersions:
           - v1alpha1
         operations:
-          - CREATE
-          - UPDATE
           - DELETE
         resources:
           - releases
@@ -103,8 +47,6 @@ webhooks:
         apiVersions:
           - v1alpha1
         operations:
-          - CREATE
-          - UPDATE
           - DELETE
         resources:
           - contexts

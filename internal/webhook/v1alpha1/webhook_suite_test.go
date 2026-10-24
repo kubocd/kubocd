@@ -115,6 +115,8 @@ var _ = BeforeSuite(func() {
 
 	err = SetupReleaseWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
+	err = SetupContextWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
 
