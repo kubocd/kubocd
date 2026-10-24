@@ -37,7 +37,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,7 +60,7 @@ type ReleaseReconciler struct {
 	client.Client
 	record.EventRecorder
 	Logger          logr.Logger
-	Fetcher         *fetch.ArchiveFetcher
+	Fetcher         *PackageFetcher
 	ServerRoot      string
 	HelmRepoAdvAddr string
 	PackageCache    cache.Cache
@@ -299,9 +298,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to clean helmRepoFolder: %w", err), true, "LocalFS"), false)
 		}
 		logger.V(1).Info("Will fetch artifact", "artifact.URL", ociArtifact.URL, "location", helmRepositoryFolder)
-		err = r.Fetcher.Fetch(ociArtifact.URL, ociArtifact.Digest, helmRepositoryFolder)
+		err = r.Fetcher.Fetch(ctx, ociArtifact, helmRepositoryFolder)
 		if err != nil {
-			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to fetch artifact: %w", err), false, "OCIRepository"), false)
+			if err := misc.SafeEnsureEmpty(helmRepositoryFolder); err != nil {
+				op.logger.Error(err, "Failed to empty helm repository folder", "folder", helmRepositoryFolder)
+			}
+			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to fetch artifact: %w", err), errors.Is(err, errPackageLimit),
+				"OCIRepository"), false)
 		}
 		err = os.WriteFile(revisionFile, []byte(ociArtifact.Revision), 0644)
 		if err != nil {

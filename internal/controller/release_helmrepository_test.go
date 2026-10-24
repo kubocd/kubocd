@@ -36,7 +36,6 @@ import (
 	"testing"
 
 	"github.com/fluxcd/pkg/apis/meta"
-	"github.com/fluxcd/pkg/http/fetch"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,13 +83,19 @@ func servedPackage(t *testing.T, manifest string) (map[string]string, func(*Rele
 	t.Helper()
 	files := map[string]string{"original.yaml": manifest,
 		"status.yaml": "apiVersion: v1alpha1\nchartByModule:\n  main: {name: demo, version: 1.0.0}\n"}
-	archive := packageArchive(t, files)
+	return files, servedArchive(t, packageArchive(t, files))
+}
+
+// servedArchive serves archive as the content of the package of the Release
+// demo, as servedPackage does.
+func servedArchive(t *testing.T, archive []byte) func(*ReleaseReconciler) {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(archive)
 	}))
 	t.Cleanup(server.Close)
-	return files, func(r *ReleaseReconciler) {
-		r.Fetcher = fetch.New(fetch.WithRetries(0), fetch.WithUntar())
+	return func(r *ReleaseReconciler) {
+		r.Fetcher = NewPackageFetcher(DefaultPackageLimits, 0, "")
 		source := &sourcev1.OCIRepository{}
 		key := types.NamespacedName{Namespace: "apps", Name: fmt.Sprintf(OciRepositoryNameFormat, "demo")}
 		if err := r.Get(context.Background(), key, source); err != nil {

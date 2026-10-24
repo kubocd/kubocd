@@ -38,8 +38,6 @@ import (
 	"time"
 
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
-	"github.com/fluxcd/pkg/http/fetch"
-	"github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
@@ -77,6 +75,8 @@ var controllerParams struct {
 	helmRepoBindAddr         string
 
 	allowDNSLookups bool
+
+	packageLimits controller.PackageLimits
 
 	featureGates []string
 	// Resolved from featureGates by PersistentPreRun. Always hold an entry for each known gate.
@@ -136,6 +136,16 @@ func init() {
 	controllerCmd.PersistentFlags().BoolVar(&controllerParams.allowDNSLookups, "allowDNSLookups", false,
 		"Let the templates of all packages resolve host names with resolveDNS. Release parameters never can.")
 
+	controllerCmd.PersistentFlags().Int64Var(&controllerParams.packageLimits.ArtifactSize, "maxPackageArtifactSize",
+		controller.DefaultPackageLimits.ArtifactSize,
+		"The most bytes of a package archive, as source-controller serves it. A larger one is refused.")
+	controllerCmd.PersistentFlags().Int64Var(&controllerParams.packageLimits.ContentSize, "maxPackageContentSize",
+		controller.DefaultPackageLimits.ContentSize,
+		"The most bytes that the files of a package archive hold once extracted. More is refused.")
+	controllerCmd.PersistentFlags().IntVar(&controllerParams.packageLimits.Entries, "maxPackageEntries",
+		controller.DefaultPackageLimits.Entries,
+		"The most entries (files, folders, links) of a package archive. More are refused.")
+
 	controllerCmd.PersistentFlags().StringSliceVar(&controllerParams.featureGates, "featureGates", nil,
 		fmt.Sprintf("Comma separated list of EXPERIMENTAL features to activate, as '<name>=true|false'. Valid names: %s", strings.Join(knownFeatureGates, ", ")))
 	controllerCmd.Hidden = true
@@ -155,6 +165,10 @@ var controllerCmd = &cobra.Command{
 		controllerParams.gates, err = parseFeatureGates(controllerParams.featureGates)
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "Unable to parse feature gates: %v\n", err)
+			os.Exit(2)
+		}
+		if err := controllerParams.packageLimits.Validate(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Invalid package limits: %v\n", err)
 			os.Exit(2)
 		}
 	},
@@ -263,8 +277,8 @@ var controllerCmd = &cobra.Command{
 		}
 
 		fetchRetry := 9
-		archiveFetcher := fetch.New(fetch.WithRetries(fetchRetry), fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
-			fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)), fetch.WithHostnameOverwrite(controllerParams.sourceControllerOverride))
+		packageFetcher := controller.NewPackageFetcher(controllerParams.packageLimits, fetchRetry,
+			controllerParams.sourceControllerOverride)
 
 		serverRoot := path.Join(controllerParams.rootDataFolder, "server")
 
@@ -469,7 +483,7 @@ var controllerCmd = &cobra.Command{
 			Client:          mgr.GetClient(),
 			EventRecorder:   mgr.GetEventRecorderFor("release"),
 			Logger:          controllerRootLog.WithName("ReleaseReconciler"),
-			Fetcher:         archiveFetcher,
+			Fetcher:         packageFetcher,
 			ServerRoot:      serverRoot,
 			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
 			PackageCache:    cache.NewCache(time.Second*60, controllerRootLog.WithName("PackageCache")),
