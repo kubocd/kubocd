@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io/fs"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/cache"
 	"kubocd/internal/configstore"
@@ -607,14 +608,40 @@ var controllerCmd = &cobra.Command{
 
 func startFileServer(path string, address string, logger logr.Logger) {
 	logger.Info("starting helm repository file server", "bindAddress", address, "path", path)
-	fs := http.FileServer(http.Dir(path))
-	mux := http.NewServeMux()
-	//mux.Handle("/", fs)
-	mux.Handle("/", RequestDumpMiddleware(fs, logger.WithName("repoServer")))
-	err := http.ListenAndServe(address, mux)
+	err := http.ListenAndServe(address, helmRepositoryHandler(path, logger))
 	if err != nil {
 		logger.Error(err, "file server error")
 	}
+}
+
+// helmRepositoryHandler serves the files under root, and answers 404 for a
+// folder, as for a missing file.
+func helmRepositoryHandler(root string, logger logr.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", RequestDumpMiddleware(http.FileServer(filesOnly{http.Dir(root)}), logger.WithName("repoServer")))
+	return mux
+}
+
+// filesOnly opens the files of a file system, and none of its folders.
+type filesOnly struct {
+	fileSystem http.FileSystem
+}
+
+func (f filesOnly) Open(name string) (http.File, error) {
+	file, err := f.fileSystem.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if info.IsDir() {
+		_ = file.Close()
+		return nil, fs.ErrNotExist
+	}
+	return file, nil
 }
 
 // RequestDumpMiddleware logs the incoming request
