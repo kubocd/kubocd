@@ -91,6 +91,9 @@ func defaulterHandleNode(path string, node map[string]interface{}) (interface{},
 		t, ok = t.(string)
 		if ok && t == "array" {
 			// It is an array
+			if defaultVal, ok := node["default"]; ok {
+				return defaultVal, nil
+			}
 			return make([]interface{}, 0), nil
 		}
 	}

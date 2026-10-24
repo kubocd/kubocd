@@ -20,6 +20,7 @@ package kubopackage
 import (
 	"fmt"
 	"kubocd/internal/tmpl"
+	"reflect"
 	"testing"
 
 	"sigs.k8s.io/yaml"
@@ -153,5 +154,24 @@ func TestSchemaErrorIsTheSameAtEachLoad(t *testing.T) {
 		if want := "parameters schema validation error: (root): alpha is required"; err == nil || err.Error() != want {
 			t.Fatalf("got error %v, want %q", err, want)
 		}
+	}
+}
+
+func TestTheDefaultOfAnArrayParameterIsKept(t *testing.T) {
+	container := containerWithSchema(t, `
+  parameters:
+    $schema: http://json-schema.org/schema#
+    type: object
+    properties:
+      tags:
+        type: array
+        items:
+          type: string
+        default: [a, b]`)
+	if got, want := container.DefaultParameters["tags"], []interface{}{"a", "b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got the default %v of tags, want %v", got, want)
+	}
+	if err := container.ValidateParameters(container.DefaultParameters); err != nil {
+		t.Fatalf("the default parameters do not validate: %v", err)
 	}
 }
