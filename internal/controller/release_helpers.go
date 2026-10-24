@@ -33,6 +33,7 @@ import (
 
 	"github.com/go-logr/logr"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -134,6 +135,18 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		effectiveContextList = append(effectiveContextList, contextRef)
 	}
 	return resultContext, effectiveContextList, nil
+}
+
+// staleReady tells whether the Ready condition of a Flux object is about an
+// older spec: set for an older generation, or True while the object records an
+// older observed generation. The patch helper of Flux can give a condition the
+// generation of a newer object than the one it reconciled.
+func staleReady(conditions []metav1.Condition, observedGeneration int64, generation int64) bool {
+	ready := apimeta.FindStatusCondition(conditions, "Ready")
+	if ready == nil {
+		return false
+	}
+	return ready.ObservedGeneration < generation || ready.Status == metav1.ConditionTrue && observedGeneration < generation
 }
 
 func buildConditionStatusByType(conditions []metav1.Condition, repoKind string, repoName string, logger logr.Logger) map[string]metav1.ConditionStatus {

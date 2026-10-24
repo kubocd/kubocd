@@ -89,6 +89,9 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, revision 
 	}
 
 	statusByType := buildConditionStatusByType(helmRepository.Status.Conditions, "HelmRepository", op.helmRepositoryName, op.logger)
+	if staleReady(helmRepository.Status.Conditions, helmRepository.Status.ObservedGeneration, helmRepository.Generation) {
+		delete(statusByType, "Ready")
+	}
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]

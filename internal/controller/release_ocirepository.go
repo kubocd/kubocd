@@ -66,6 +66,9 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 		}
 	}
 	statusByType := buildConditionStatusByType(ociRepository.Status.Conditions, "OCIRepository", op.ociRepositoryName, op.logger)
+	if staleReady(ociRepository.Status.Conditions, ociRepository.Status.ObservedGeneration, ociRepository.Generation) {
+		delete(statusByType, "Ready")
+	}
 
 	if statusByType["Ready"] != metav1.ConditionTrue {
 		readyCondition, ok := statusByType["Ready"]

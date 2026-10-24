@@ -104,7 +104,13 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 	}
 }
 
+// computeHelmReleaseState returns the readiness of the HelmRelease and the
+// message of its last Helm action. A Ready condition of an older generation of
+// the HelmRelease gives Unknown and no message: it is about an older spec.
 func computeHelmReleaseState(helmRelease *fluxv2.HelmRelease) kv1alpha1.HelmReleaseState {
+	if staleReady(helmRelease.Status.Conditions, helmRelease.Status.ObservedGeneration, helmRelease.Generation) {
+		return kv1alpha1.HelmReleaseState{Ready: metav1.ConditionUnknown}
+	}
 	result := kv1alpha1.HelmReleaseState{}
 	for _, condition := range helmRelease.Status.Conditions {
 		if condition.Type == "Ready" {
