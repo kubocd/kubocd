@@ -480,7 +480,7 @@ var controllerCmd = &cobra.Command{
 		}
 
 		// ---------------------------------------------------------------------------------------------------- Release controller setup
-		if err := indexReleases(mgr.GetFieldIndexer(), theConfigStore); err != nil {
+		if err := indexReleases(mgr.GetFieldIndexer()); err != nil {
 			setupLog.Error(err, "Unable to index the Releases")
 			os.Exit(1)
 		}
@@ -516,7 +516,7 @@ var controllerCmd = &cobra.Command{
 			Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
 				findReleaseFromOutputClusterConnection(mgr.GetClient(), controllerRootLog))).
 			Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(
-				findReleaseFromContext(mgr.GetClient(), controllerRootLog))).
+				findReleaseFromContext(mgr.GetClient(), theConfigStore, controllerRootLog))).
 			Watches(&kubocdv1alpha1.Config{}, handler.EnqueueRequestsFromMapFunc(
 				findReleaseFromConfig(mgr.GetClient(), controllerRootLog))).
 			Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(

@@ -22,6 +22,7 @@ import (
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
+	"slices"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -44,8 +45,10 @@ const (
 )
 
 // indexReleases creates the indexes of the Releases that the map functions
-// below read, and returns the first error.
-func indexReleases(indexer client.FieldIndexer, configStore configstore.ConfigStore) error {
+// below read, and returns the first error. An index reads the Release only:
+// the cache removes the keys of an object with the keys that the function
+// gives at that time.
+func indexReleases(indexer client.FieldIndexer) error {
 	indexes := []struct {
 		name    string
 		extract client.IndexerFunc
@@ -83,7 +86,7 @@ func indexReleases(indexer client.FieldIndexer, configStore configstore.ConfigSt
 			}
 			return connections
 		}},
-		// Releases by Contexts, the default ones included
+		// Releases by the Contexts of their spec
 		{contextIndexOnRelease, func(rawObj client.Object) []string {
 			release := rawObj.(*kubocdv1alpha1.Release)
 			contexts := make([]string, 0, len(release.Spec.Contexts))
@@ -93,12 +96,6 @@ func indexReleases(indexer client.FieldIndexer, configStore configstore.ConfigSt
 					ns = release.Namespace
 				}
 				contexts = append(contexts, fmt.Sprintf("%s:%s", ns, context.Name))
-			}
-			for _, ctx := range configStore.GetDefaultContexts() {
-				contexts = append(contexts, fmt.Sprintf("%s:%s", ctx.Namespace, ctx.Name))
-			}
-			for _, context := range configStore.GetDefaultNamespaceContexts() {
-				contexts = append(contexts, fmt.Sprintf("%s:%s", release.Namespace, context))
 			}
 			return contexts
 		}},
@@ -206,13 +203,37 @@ func findReleaseFromWatchedInputClusterConnection(reader client.Reader, logger l
 	}
 }
 
-// findReleaseFromContext maps a Context to the Releases that use it.
-func findReleaseFromContext(reader client.Reader, logger logr.Logger) handler.MapFunc {
+// findReleaseFromContext maps a Context to the Releases that use it: those
+// that name it in their spec, and, when the configuration in effect makes it
+// a default Context, every Release, or every Release of its namespace.
+func findReleaseFromContext(reader client.Reader, configStore configstore.ConfigStore,
+	logger logr.Logger) handler.MapFunc {
+	const msg = "findReleaseFromContext(): Unable to find Context bindings"
 	return func(ctx context.Context, kcontext client.Object) []reconcile.Request {
-		return requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ReleaseList{},
-			"findReleaseFromContext(): Unable to find Context bindings",
+		requests := requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ReleaseList{}, msg,
 			selecting(contextIndexOnRelease, fmt.Sprintf("%s:%s", kcontext.GetNamespace(), kcontext.GetName())))
+		configuration := configStore.Current()
+		name := kubocdv1alpha1.NamespacedName{Namespace: kcontext.GetNamespace(), Name: kcontext.GetName()}
+		if slices.Contains(configuration.GetDefaultContexts(), name) {
+			requests = append(requests, requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ReleaseList{}, msg)...)
+		} else if slices.Contains(configuration.GetDefaultNamespaceContexts(), name.Name) {
+			requests = append(requests, requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ReleaseList{}, msg,
+				client.InNamespace(name.Namespace))...)
+		}
+		return uniqueRequests(requests)
 	}
+}
+
+func uniqueRequests(requests []reconcile.Request) []reconcile.Request {
+	seen := make(map[reconcile.Request]bool, len(requests))
+	unique := make([]reconcile.Request, 0, len(requests))
+	for _, request := range requests {
+		if !seen[request] {
+			seen[request] = true
+			unique = append(unique, request)
+		}
+	}
+	return unique
 }
 
 // findReleaseFromConfig maps a Config to every Release.

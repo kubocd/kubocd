@@ -84,7 +84,9 @@ func mapFunctions() map[string]mapFunction {
 			&kubocdv1alpha1.ClusterConnection{ObjectMeta: clusterNamed},
 			"findReleaseFromWatchedInputClusterConnection(): Unable to find ClusterConnection bindings",
 			watchedInputClusterConnectionIndexOnRelease + "=" + watchCanary},
-		"findReleaseFromContext": {findReleaseFromContext, &kubocdv1alpha1.Context{ObjectMeta: named},
+		"findReleaseFromContext": {func(r client.Reader, l logr.Logger) handler.MapFunc {
+			return findReleaseFromContext(r, configstore.New(), l)
+		}, &kubocdv1alpha1.Context{ObjectMeta: named},
 			"findReleaseFromContext(): Unable to find Context bindings", contextIndexOnRelease + "=apps:" + watchCanary},
 		"findReleaseFromConfig": {findReleaseFromConfig, &kubocdv1alpha1.Config{ObjectMeta: named},
 			"findReleaseFromConfig(): Unable to find releases", ""},
@@ -231,14 +233,14 @@ func TestAnIndexOfTheReleasesThatCannotBeCreatedIsReturned(t *testing.T) {
 	names := []string{outputClusterConnectionIndexOnRelease, watchedInputConnectionIndexOnRelease,
 		watchedInputClusterConnectionIndexOnRelease, contextIndexOnRelease}
 	for _, name := range names {
-		err := indexReleases(&failingIndexer{failing: name}, configstore.New())
+		err := indexReleases(&failingIndexer{failing: name})
 		want := "could not create the index " + name + " of the Releases: unable to get the informer"
 		if err == nil || err.Error() != want {
 			t.Errorf("got %v, want %q", err, want)
 		}
 	}
 	indexer := &failingIndexer{}
-	if err := indexReleases(indexer, configstore.New()); err != nil || !slices.Equal(indexer.created, names) {
+	if err := indexReleases(indexer); err != nil || !slices.Equal(indexer.created, names) {
 		t.Fatalf("got error %v and the indexes %q, want %q", err, indexer.created, names)
 	}
 }
