@@ -57,7 +57,10 @@ func newStatusTestbed(t *testing.T, releases ...*kv1alpha1.Release) *statusTestb
 		objects[i] = releases[i]
 	}
 	b := &statusTestbed{t: t, refused: map[types.NamespacedName]bool{}}
-	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithStatusSubresource(&kv1alpha1.Release{}).Build()
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithStatusSubresource(&kv1alpha1.Release{}).
+		WithIndex(&kv1alpha1.ClusterConnection{}, ReleaseIndexOnOutputClusterConnection, func(o client.Object) []string {
+			return OutputClusterConnectionReleaseKeys(o.(*kv1alpha1.ClusterConnection))
+		}).Build()
 	b.client = interceptor.NewClient(base, interceptor.Funcs{
 		SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 			if b.refused[client.ObjectKeyFromObject(obj)] {

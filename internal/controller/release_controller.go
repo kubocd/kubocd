@@ -226,19 +226,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			// Just log, without any other action
 			op.logger.Error(err, "Failed to remove helm repository folder", "folder", helmRepositoryFolder)
 		}
-		// Remove outputClusterConnection
-		clusterConnections, err := r.FindOutputClusterConnectionsFromRelease(ctx, types.NamespacedName{Namespace: release.Namespace, Name: release.Name})
-		if err != nil {
-			// Just log, without any other action
-			op.logger.Error(err, "Failed to list child output ClusterConnection")
-		} else {
-			for _, clusterConnection := range clusterConnections {
-				err := r.Delete(ctx, &clusterConnection)
-				if err != nil {
-					// Just log, without any other action
-					op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection", "clusterConnection", clusterConnection.Name)
-				}
-			}
+		// The ClusterConnections of the Release have no owner reference: the finalizer is what removes them
+		if err := r.deleteOutputClusterConnections(op); err != nil {
+			return ctrl.Result{}, err
 		}
 		// Deletion OK
 		controllerutil.RemoveFinalizer(release, global.FinalizerName)
@@ -736,6 +726,25 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// Final return
 	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)
+}
+
+// deleteOutputClusterConnections deletes the ClusterConnections that the
+// Release created, and returns the first error once each deletion is tried.
+func (r *ReleaseReconciler) deleteOutputClusterConnections(op *releaseOperation) error {
+	clusterConnections, listErr := r.FindOutputClusterConnectionsFromRelease(op.ctx, op.request.NamespacedName)
+	if listErr != nil {
+		return fmt.Errorf("could not list the ClusterConnections of the Release: %s", apiError(listErr.GetBaseError()))
+	}
+	var failed error
+	for i := range clusterConnections {
+		if err := client.IgnoreNotFound(r.Delete(op.ctx, &clusterConnections[i])); err != nil {
+			op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection", "clusterConnection", clusterConnections[i].Name)
+			if failed == nil {
+				failed = fmt.Errorf("could not delete the ClusterConnections of the Release: %s", apiError(err))
+			}
+		}
+	}
+	return failed
 }
 
 func computeReadyConnection(op *releaseOperation) (string, bool) {
