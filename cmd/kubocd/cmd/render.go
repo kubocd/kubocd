@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -387,51 +388,9 @@ var renderCmd = &cobra.Command{
 			}
 
 			// ---------------------------------------------------------------------- Generate stuff by module
-			helmReleaseNameByModuleName := make(map[string]string)
-			for _, module := range pkgContainer.Package.Modules {
-				helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
-			}
-			for _, module := range pkgContainer.Package.Modules {
-				enabled := rendered.ModuleRenderedByName[module.Name].Enabled
-				if enabled {
-					out := path.Join(output, "modules", module.Name)
-					err := misc.SafeEnsureEmpty(out)
-					if err != nil {
-						return fmt.Errorf("could not ensure empty manifests folder: %w", err)
-					}
-					// -------------------------------------------------------------- Generate helm releases
-					helmRelease := &fluxv2.HelmRelease{
-						TypeMeta: metav1.TypeMeta{
-							APIVersion: fluxv2.GroupVersion.String(),
-							Kind:       fluxv2.HelmReleaseKind,
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      controller.BuildHelmReleaseName(release.Name, module.Name),
-							Namespace: release.Namespace,
-						},
-					}
-					err = controller.PopulateHelmRelease(helmRelease, release, pkgContainer, rendered, helmRepositoryName, module, helmReleaseNameByModuleName, configStore)
-					if err != nil {
-						return fmt.Errorf("could not build helm release for module %s: %w", module.Name, err)
-					}
-					cmn.Dump(out, "helmRelease.yaml", helmRelease)
-					// -------------------------------------------------------------- Generate final manifests
-					cmn.Dump(out, "values.yaml", rendered.ModuleRenderedByName[module.Name].Values)
-
-					chartFolder, err := DigFolderForFile(path.Join(chartsDir, module.Name), "Chart.yaml")
-					if err != nil {
-						return fmt.Errorf("could not determine chart folder: %w", err)
-					}
-					cmd := exec.Command("helm", "template", "--debug", "-n", release.Spec.TargetNamespace, controller.BuildHelmReleaseName(release.Name, module.Name), chartFolder, "--values", path.Join(out, "values.yaml"))
-					// Run the command and capture output
-					result, err := cmd.CombinedOutput()
-					if err != nil {
-						fmt.Printf("\nexec: %s\n", cmd.String())
-						fmt.Printf("%s\n", string(result))
-						return fmt.Errorf("failed to generate manifest: %w", err)
-					}
-					cmn.DumpTxt(out, "manifests.yaml", string(result))
-				}
+			err = previewModules(output, chartsDir, release, pkgContainer, rendered, helmRepositoryName, configStore, runHelm)
+			if err != nil {
+				return err
 			}
 			// --------------------------------------------------------------------- Generate output connections
 			for idx, outputRendered := range rendered.Outputs {
@@ -495,6 +454,86 @@ var renderCmd = &cobra.Command{
 			os.Exit(1)
 		}
 	},
+}
+
+// helmCommand runs helm with args, and returns its combined output.
+type helmCommand func(args ...string) ([]byte, error)
+
+// runHelm runs the helm found on the PATH.
+func runHelm(args ...string) ([]byte, error) {
+	return exec.Command("helm", args...).CombinedOutput()
+}
+
+// fluxReleaseName returns the name under which helm-controller installs
+// helmRelease. Past 53 bytes, helm-controller keeps the first 40, then adds a
+// dash and the first 12 hexadecimal digits of the SHA-256 of the name.
+func fluxReleaseName(helmRelease *fluxv2.HelmRelease) string {
+	name := helmRelease.GetReleaseName()
+	if len(name) <= 53 {
+		return name
+	}
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
+	return name[:40] + "-" + sum[:12]
+}
+
+// previewModules writes, for each enabled module of the package, in
+// <output>/modules/<module>: the HelmRelease that the controller builds, the
+// values of its spec, and the manifests that helm renders from the chart with
+// these values, in the namespace and under the release name where Flux
+// installs that HelmRelease.
+func previewModules(output string, chartsDir string, release *kapi.Release, pkgContainer *kubopackage.PckContainer,
+	rendered *kubopackage.Rendered, helmRepositoryName string, configStore configstore.ConfigStore,
+	helm helmCommand) error {
+	helmReleaseNameByModuleName := make(map[string]string)
+	for _, module := range pkgContainer.Package.Modules {
+		helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
+	}
+	for _, module := range pkgContainer.Package.Modules {
+		if !rendered.ModuleRenderedByName[module.Name].Enabled {
+			continue
+		}
+		out := path.Join(output, "modules", module.Name)
+		err := misc.SafeEnsureEmpty(out)
+		if err != nil {
+			return fmt.Errorf("could not ensure empty manifests folder: %w", err)
+		}
+		helmRelease := &fluxv2.HelmRelease{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: fluxv2.GroupVersion.String(),
+				Kind:       fluxv2.HelmReleaseKind,
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      controller.BuildHelmReleaseName(release.Name, module.Name),
+				Namespace: release.Namespace,
+			},
+		}
+		err = controller.PopulateHelmRelease(helmRelease, release, pkgContainer, rendered, helmRepositoryName, module,
+			helmReleaseNameByModuleName, configStore)
+		if err != nil {
+			return fmt.Errorf("could not build helm release for module %s: %w", module.Name, err)
+		}
+		cmn.Dump(out, "helmRelease.yaml", helmRelease)
+		values := helmRelease.GetValues()
+		if values == nil {
+			values = map[string]interface{}{}
+		}
+		cmn.Dump(out, "values.yaml", values)
+
+		chartFolder, err := DigFolderForFile(path.Join(chartsDir, module.Name), "Chart.yaml")
+		if err != nil {
+			return fmt.Errorf("could not determine chart folder: %w", err)
+		}
+		args := []string{"template", "--debug", "-n", helmRelease.GetReleaseNamespace(), fluxReleaseName(helmRelease),
+			chartFolder, "--values", path.Join(out, "values.yaml")}
+		result, err := helm(args...)
+		if err != nil {
+			fmt.Printf("\nexec: helm %s\n", strings.Join(args, " "))
+			fmt.Printf("%s\n", string(result))
+			return fmt.Errorf("failed to generate manifest: %w", err)
+		}
+		cmn.DumpTxt(out, "manifests.yaml", string(result))
+	}
+	return nil
 }
 
 //type WalkDirFunc func(path string, d DirEntry, err error) error
