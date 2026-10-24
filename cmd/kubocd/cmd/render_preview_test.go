@@ -18,6 +18,9 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	kapi "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
@@ -92,9 +95,27 @@ func (c helmCall) target(t *testing.T) (namespace string, name string) {
 	return c.args[i+1], c.args[i+2]
 }
 
-// previewOf renders release with previewPackage as kubocd render does, then
-// returns, by module, what previewModules gave to helm.
-func previewOf(t *testing.T, release *kapi.Release) map[string]helmCall {
+// preview is a Release rendered with previewPackage, as kubocd render does
+// before it runs helm.
+type preview struct {
+	release      *kapi.Release
+	pckContainer *kubopackage.PckContainer
+	rendered     *kubopackage.Rendered
+	store        configstore.ConfigStore
+	output       string
+	chartsDir    string
+}
+
+// run previews the modules of the Release with the helm command given, and
+// writes what helm writes on its standard error to diagnostics.
+func (p preview) run(helm helmCommand, diagnostics io.Writer) error {
+	return previewModules(p.output, p.chartsDir, p.release, p.pckContainer, p.rendered, "kcd-web", p.store, helm,
+		diagnostics)
+}
+
+// renderForPreview renders release with previewPackage as kubocd render does,
+// and puts a chart folder for each module in the output.
+func renderForPreview(t *testing.T, release *kapi.Release) preview {
 	t.Helper()
 	pck := &kubopackage.Package{}
 	if err := yaml.UnmarshalStrict([]byte(previewPackage), pck); err != nil {
@@ -136,8 +157,17 @@ func previewOf(t *testing.T, release *kapi.Release) map[string]helmCall {
 			t.Fatal(err)
 		}
 	}
+	return preview{release: release, pckContainer: pckContainer, rendered: rendered, store: store, output: output,
+		chartsDir: chartsDir}
+}
+
+// previewOf renders release with previewPackage as kubocd render does, then
+// returns, by module, what previewModules gave to helm.
+func previewOf(t *testing.T, release *kapi.Release) map[string]helmCall {
+	t.Helper()
+	p := renderForPreview(t, release)
 	calls := map[string]helmCall{}
-	helm := func(args ...string) ([]byte, error) {
+	helm := func(args ...string) ([]byte, []byte, error) {
 		call := helmCall{args: args}
 		i := slices.Index(args, "--values")
 		if i < 0 || i+1 >= len(args) {
@@ -155,19 +185,31 @@ func previewOf(t *testing.T, release *kapi.Release) map[string]helmCall {
 			t.Fatalf("helm is called twice for the module %s", module)
 		}
 		calls[module] = call
-		return []byte("# manifests of " + module + "\n"), nil
+		return []byte("# manifests of " + module + "\n"), []byte(helmDebugLine), nil
 	}
-	if err := previewModules(output, chartsDir, release, pckContainer, rendered, "kcd-web", store, helm); err != nil {
+	diagnostics := &bytes.Buffer{}
+	if err := p.run(helm, diagnostics); err != nil {
 		t.Fatal(err)
 	}
+	if got := diagnostics.String(); got != strings.Repeat(helmDebugLine, len(calls)) {
+		t.Fatalf("got the diagnostics %q, want the standard error of each call of helm", got)
+	}
 	for module := range calls {
-		manifests, err := os.ReadFile(filepath.Join(output, "modules", module, "manifests.yaml"))
-		if err != nil || !strings.Contains(string(manifests), "# manifests of "+module+"\n") {
-			t.Fatalf("manifests.yaml of the module %s does not hold the output of helm: %v %q", module, err, manifests)
+		manifests, err := os.ReadFile(filepath.Join(p.output, "modules", module, "manifests.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The first line is the header that kubocd render writes in each file
+		if _, body, _ := strings.Cut(string(manifests), "\n"); body != "# manifests of "+module+"\n\n" {
+			t.Fatalf("manifests.yaml of the module %s holds %q, want the standard output of helm only", module, manifests)
 		}
 	}
 	return calls
 }
+
+// helmDebugLine is a line that helm template --debug writes on its standard
+// error.
+const helmDebugLine = "install.go:225: 2026-10-24 10:00:00.000000 +0200 CEST [debug] Original chart version: \"\"\n"
 
 // previewRelease is the Release web of the namespace apps, with the
 // parameters given, and patching the spec of the HelmRelease of the module
@@ -238,5 +280,43 @@ func TestTheReleaseNameIsShortenedPast53BytesAsFluxDoes(t *testing.T) {
 				t.Fatalf("got %s, want %s", got, c.want)
 			}
 		})
+	}
+}
+
+func TestRunHelmReturnsItsStandardOutputApartFromItsStandardError(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf 'debug line\\n' >&2\nprintf -- '---\\nkind: ConfigMap\\n'\n" +
+		"printf 'another debug line\\n' >&2\n"
+	if err := os.WriteFile(filepath.Join(bin, "helm"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stdout, stderr, err := runHelm("template", "--debug")
+	if err != nil || string(stdout) != "---\nkind: ConfigMap\n" || string(stderr) != "debug line\nanother debug line\n" {
+		t.Fatalf("got the output %q, the error output %q and the error %v, want them apart", stdout, stderr, err)
+	}
+}
+
+func TestAFailingHelmTemplateStopsThePreviewAndPrintsBothOutputs(t *testing.T) {
+	failing := func(args ...string) ([]byte, []byte, error) {
+		return []byte("---\nbroken: [\n"), []byte("Error: YAML parse error\n"), errors.New("exit status 1")
+	}
+	p := renderForPreview(t, previewRelease("web", ""))
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = write
+	err = p.run(failing, io.Discard)
+	os.Stdout = stdout
+	_ = write.Close()
+	printed, _ := io.ReadAll(read)
+	if err == nil || err.Error() != "failed to generate manifest: exit status 1" {
+		t.Fatalf("got the error %v, want the failure of helm", err)
+	}
+	text := string(printed)
+	if !strings.Contains(text, "---\nbroken: [\n") || !strings.Contains(text, "Error: YAML parse error\n") {
+		t.Fatalf("printed %q, want both outputs of helm", printed)
 	}
 }

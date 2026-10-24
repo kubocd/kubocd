@@ -17,10 +17,12 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	kapi "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/cmn"
@@ -391,7 +393,8 @@ var renderCmd = &cobra.Command{
 			}
 
 			// ---------------------------------------------------------------------- Generate stuff by module
-			err = previewModules(output, chartsDir, release, pkgContainer, rendered, helmRepositoryName, configStore, runHelm)
+			err = previewModules(output, chartsDir, release, pkgContainer, rendered, helmRepositoryName, configStore, runHelm,
+				os.Stderr)
 			if err != nil {
 				return err
 			}
@@ -459,12 +462,17 @@ var renderCmd = &cobra.Command{
 	},
 }
 
-// helmCommand runs helm with args, and returns its combined output.
-type helmCommand func(args ...string) ([]byte, error)
+// helmCommand runs helm with args, and returns its standard output and its
+// standard error.
+type helmCommand func(args ...string) (stdout []byte, stderr []byte, err error)
 
 // runHelm runs the helm found on the PATH.
-func runHelm(args ...string) ([]byte, error) {
-	return exec.Command("helm", args...).CombinedOutput()
+func runHelm(args ...string) ([]byte, []byte, error) {
+	var stdout, stderr bytes.Buffer
+	command := exec.Command("helm", args...)
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := command.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // fluxReleaseName returns the name under which helm-controller installs
@@ -483,10 +491,12 @@ func fluxReleaseName(helmRelease *fluxv2.HelmRelease) string {
 // <output>/modules/<module>: the HelmRelease that the controller builds, the
 // values of its spec, and the manifests that helm renders from the chart with
 // these values, in the namespace and under the release name where Flux
-// installs that HelmRelease.
+// installs that HelmRelease. When helm succeeds, what it writes on its
+// standard error goes to diagnostics. When it fails, both of its outputs are
+// printed with the command.
 func previewModules(output string, chartsDir string, release *kapi.Release, pkgContainer *kubopackage.PckContainer,
 	rendered *kubopackage.Rendered, helmRepositoryName string, configStore configstore.ConfigStore,
-	helm helmCommand) error {
+	helm helmCommand, diagnostics io.Writer) error {
 	helmReleaseNameByModuleName := make(map[string]string)
 	for _, module := range pkgContainer.Package.Modules {
 		helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
@@ -528,13 +538,14 @@ func previewModules(output string, chartsDir string, release *kapi.Release, pkgC
 		}
 		args := []string{"template", "--debug", "-n", helmRelease.GetReleaseNamespace(), fluxReleaseName(helmRelease),
 			chartFolder, "--values", path.Join(out, "values.yaml")}
-		result, err := helm(args...)
+		manifests, messages, err := helm(args...)
 		if err != nil {
 			fmt.Printf("\nexec: helm %s\n", strings.Join(args, " "))
-			fmt.Printf("%s\n", string(result))
+			fmt.Printf("%s\n%s\n", string(manifests), string(messages))
 			return fmt.Errorf("failed to generate manifest: %w", err)
 		}
-		cmn.DumpTxt(out, "manifests.yaml", string(result))
+		_, _ = diagnostics.Write(messages)
+		cmn.DumpTxt(out, "manifests.yaml", string(manifests))
 	}
 	return nil
 }
