@@ -38,20 +38,20 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		}
 		// Must create it
 		op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
-		err := r.createClusterConnection(op, outputRendered, clusterConnectionName)
+		created, err := r.createClusterConnection(op, outputRendered, clusterConnectionName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
 		op.logger.V(0).Info("Created clusterConnection", "name", clusterConnectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		r.Event(op.release, "Normal", "ClusterConnectionCreated", fmt.Sprintf("Created ClusterConnection %q", clusterConnectionName))
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-			Kind:      kv1alpha1.Kind(clusterConnection.Kind),
-			Name:      clusterConnection.Name,
+			Kind:      created.GetKind(),
+			Name:      created.Name,
 			Namespace: "",
 			Phase:     "",
 			Message:   "",
 		}
-		return clusterConnection, nil
+		return created, nil
 	}
 	// Connection exist. Update if needed
 	op.outputClusterConnectionK8sName[clusterConnectionName] = struct{}{} // Mark as non-orphan
@@ -65,7 +65,7 @@ func (r *ReleaseReconciler) handleOutputClusterConnection(op *releaseOperation, 
 		op.logger.V(1).Info("ClusterConnection unchanged", "name", clusterConnectionName, "output", outputRendered.Name)
 	}
 	op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-		Kind:      kv1alpha1.Kind(clusterConnection.Kind),
+		Kind:      clusterConnection.GetKind(),
 		Name:      clusterConnection.Name,
 		Namespace: "",
 		Phase:     clusterConnection.Status.Phase,
@@ -96,12 +96,12 @@ func patchClusterConnection(r *ReleaseReconciler, op *releaseOperation, clusterC
 	return originalGeneration != clusterConnection.Generation, nil
 }
 
-func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, clusterConnectionName string) error {
+func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, clusterConnectionName string) (*kv1alpha1.ClusterConnection, error) {
 	clusterConnection := &kv1alpha1.ClusterConnection{}
 	clusterConnection.SetName(clusterConnectionName)
 	err := PopulateClusterConnection(op, clusterConnection, outputRendered)
 	if err != nil {
-		return fmt.Errorf("failed to populate its ClusterConnection: %w", err)
+		return nil, fmt.Errorf("failed to populate its ClusterConnection: %w", err)
 	}
 	//err = ctrl.SetControllerReference(op.release, clusterConnection, r.Scheme())
 	//if err != nil {
@@ -112,7 +112,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 		Namespace: op.release.Namespace,
 	}
 	if err = r.Create(op.ctx, clusterConnection); err != nil {
-		return fmt.Errorf("error while creating its ClusterConnection: %s", apiError(err))
+		return nil, fmt.Errorf("error while creating its ClusterConnection: %s", apiError(err))
 	}
 	// This will be set by the ClusterConnection controller
 	//clusterConnection.Status.Parent = fmt.Sprintf("%s/%s", op.release.Namespace, op.release.Name)
@@ -120,7 +120,7 @@ func (r *ReleaseReconciler) createClusterConnection(op *releaseOperation, output
 	//if err != nil {
 	//	return fmt.Errorf("error while setting status on connection '%s': %w", clusterConnectionName, err)
 	//}
-	return nil
+	return clusterConnection, nil
 }
 
 func PopulateClusterConnection(op *releaseOperation, clusterConnection *kv1alpha1.ClusterConnection, outputRendered *kubopackage.OutputRendered) error {

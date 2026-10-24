@@ -39,20 +39,20 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		}
 		// Must create it
 		op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
-		err := r.createConnection(op, outputRendered, connectionName)
+		created, err := r.createConnection(op, outputRendered, connectionName)
 		if err != nil {
 			return nil, NewReconcileError(err, false, "ConnectionCreate")
 		}
 		op.logger.V(0).Info("Created connection", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 		r.Event(op.release, "Normal", "ConnectionCreated", fmt.Sprintf("Created Connection %q", connectionName))
 		op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-			Kind:      kv1alpha1.Kind(connection.Kind),
-			Name:      connection.Name,
-			Namespace: connection.Namespace,
+			Kind:      created.GetKind(),
+			Name:      created.Name,
+			Namespace: created.Namespace,
 			Phase:     "",
 			Message:   "",
 		}
-		return connection, nil
+		return created, nil
 	}
 	// Connection exist. Update if needed
 	op.outputConnectionK8sName[connectionName] = struct{}{} // Mark as non-orphan
@@ -66,7 +66,7 @@ func (r *ReleaseReconciler) handleOutputConnection(op *releaseOperation, connect
 		op.logger.V(1).Info("Connection unchanged", "name", connectionName, "namespace", op.release.Namespace, "output", outputRendered.Name)
 	}
 	op.outputConnectionByName[outputRendered.Name] = kv1alpha1.ReleaseOutputConnection{
-		Kind:      kv1alpha1.Kind(connection.Kind),
+		Kind:      connection.GetKind(),
 		Name:      connection.Name,
 		Namespace: connection.Namespace,
 		Phase:     connection.Status.Phase,
@@ -124,20 +124,20 @@ func patchConnection(r *ReleaseReconciler, op *releaseOperation, connection *kv1
 	return originalGeneration != connection.Generation, nil
 }
 
-func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, connectionName string) error {
+func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendered *kubopackage.OutputRendered, connectionName string) (*kv1alpha1.Connection, error) {
 	connection := &kv1alpha1.Connection{}
 	connection.SetName(connectionName)
 	connection.SetNamespace(op.release.Namespace)
 	err := PopulateConnection(connection, outputRendered)
 	if err != nil {
-		return fmt.Errorf("failed to populate its Connection: %w", err)
+		return nil, fmt.Errorf("failed to populate its Connection: %w", err)
 	}
 	err = ctrl.SetControllerReference(op.release, connection, r.Scheme())
 	if err != nil {
-		return fmt.Errorf("unable to set the owner reference of its Connection: %w", err)
+		return nil, fmt.Errorf("unable to set the owner reference of its Connection: %w", err)
 	}
 	if err = r.Create(op.ctx, connection); err != nil {
-		return fmt.Errorf("error while creating its Connection: %s", apiError(err))
+		return nil, fmt.Errorf("error while creating its Connection: %s", apiError(err))
 	}
 	// This will be set by the connection controller
 	//connection.Status.Parent = op.release.Name
@@ -145,7 +145,7 @@ func (r *ReleaseReconciler) createConnection(op *releaseOperation, outputRendere
 	//if err != nil {
 	//	return fmt.Errorf("error while setting status on connection '%s': %w", connectionName, err)
 	//}
-	return nil
+	return connection, nil
 }
 
 func PopulateConnection(connection *kv1alpha1.Connection, outputRendered *kubopackage.OutputRendered) error {
