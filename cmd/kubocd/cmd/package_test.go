@@ -38,3 +38,22 @@ func TestAPushWithoutManifestJSONNamesIt(t *testing.T) {
 		t.Fatalf("got %v, want an error that starts with %q", err, want)
 	}
 }
+
+func TestKubocdPackageTakesOneManifest(t *testing.T) {
+	cases := map[string]struct {
+		args []string
+		ok   bool
+	}{
+		"one manifest":  {[]string{"podinfo-p01.yaml"}, true},
+		"no manifest":   {[]string{}, false},
+		"two manifests": {[]string{"podinfo-p01.yaml", "redis-p01.yaml"}, false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := packageCmd.Args(packageCmd, c.args)
+			if (err == nil) != c.ok {
+				t.Fatalf("got error %v for the arguments %q, want accepted: %v", err, c.args, c.ok)
+			}
+		})
+	}
+}

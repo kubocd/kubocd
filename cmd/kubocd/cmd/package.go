@@ -74,7 +74,7 @@ func init() {
 var packageCmd = &cobra.Command{
 	Use:     "package <Package manifest>",
 	Short:   "Assemble a KuboCd Package from a manifest to an OCI image",
-	Args:    cobra.MinimumNArgs(1),
+	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"pack", "build"},
 	Example: `	Build and push a package:
 	$ kubocd package podinfo-p01.yaml --ociRepoPrefix quay.io/kubodoc/packages
@@ -107,16 +107,6 @@ var packageCmd = &cobra.Command{
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
 			os.Exit(1)
 		}
-		// We can't loop as the https://github.com/mittwald/go-helm-client library we used does not support to be
-		// called twice with the same repo name (see helmrepo.SetupHelmRepo)
-		// Need to fix this (patch the lib ?) to allow this loop.
-		//for _, pck := range args {
-		//	err := pack(pck)
-		//	if err != nil {
-		//		_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err.Error())
-		//		os.Exit(1)
-		//	}
-		//}
 	},
 }
 
