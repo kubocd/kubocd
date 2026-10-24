@@ -48,11 +48,14 @@ type ConfigStore interface {
 	GetDefaultHelmInterval() time.Duration
 	GetSpecPatch() *apiextensionsv1.JSON
 	GetDefaultPackageInterval() time.Duration
+	// Version grows with each configuration that AddConfigs publishes.
+	Version() uint64
 }
 
 // configuration holds what the Configs set. Once published, it is never
 // modified: the readers return copies of its slices, maps and pointers.
 type configuration struct {
+	version                  uint64
 	clusterRoles             map[string]bool
 	packageRedirects         []*v1alpha1.PackageRedirectSpec
 	imageRedirects           []*v1alpha1.ImageRedirectSpec
@@ -128,6 +131,7 @@ func (c *configStore) AddConfigs(configList *v1alpha1.ConfigList, defaultNamespa
 	if err != nil {
 		return err
 	}
+	cfg.version = c.current.Load().version + 1
 	c.current.Store(cfg)
 	return nil
 }
@@ -278,4 +282,8 @@ func (c *configStore) GetDefaultPackageInterval() time.Duration {
 
 func (c *configStore) GetSpecPatch() *apiextensionsv1.JSON {
 	return c.current.Load().specPatch.DeepCopy()
+}
+
+func (c *configStore) Version() uint64 {
+	return c.current.Load().version
 }

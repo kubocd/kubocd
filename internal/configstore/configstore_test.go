@@ -333,3 +333,23 @@ func TestTheLastConfigThatSetsASpecPatchGivesIt(t *testing.T) {
 		})
 	}
 }
+
+func TestTheVersionGrowsWithEachPublishedConfiguration(t *testing.T) {
+	store := configstore.New()
+	for i, configs := range []*v1alpha1.ConfigList{configsA(), configsB()} {
+		if err := store.AddConfigs(configs, defaultNamespace); err != nil {
+			t.Fatal(err)
+		}
+		if got := store.Version(); got != uint64(i+1) {
+			t.Fatalf("after %d configurations, got the version %d", i+1, got)
+		}
+	}
+	broken := configsB()
+	broken.Items[1].Spec.DefaultOnFailureStrategy = "missing"
+	if err := store.AddConfigs(broken, defaultNamespace); err == nil {
+		t.Fatal("AddConfigs accepted an undefined default strategy")
+	}
+	if got := store.Version(); got != 2 {
+		t.Fatalf("after a failed AddConfigs, got the version %d, want 2", got)
+	}
+}

@@ -337,7 +337,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// ---------------------------------------------------------- Retrieve package from cache, or load it
-	pckObj := r.PackageCache.Get(revision)
+	// The loaded package holds defaults of the Configs, so its key holds the
+	// version of the configuration.
+	configVersion := r.ConfigStore.Version()
+	packageKey := fmt.Sprintf("%s#%d", revision, configVersion)
+	pckObj := r.PackageCache.Get(packageKey)
 	if pckObj != nil {
 		// Use value in cache
 		var ok bool
@@ -363,7 +367,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while loading package from image: %w", err), true, "OCIImage"), false)
 		}
-		r.PackageCache.Set(revision, op.pckContainer)
+		// A package loaded while the Configs changed can hold two configurations
+		if r.ConfigStore.Version() == configVersion {
+			r.PackageCache.Set(packageKey, op.pckContainer)
+		}
 	}
 
 	forceUpdate := false
