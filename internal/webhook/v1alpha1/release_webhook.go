@@ -57,11 +57,17 @@ func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, rel
 	return nil, nil
 }
 
-// ValidateDelete implements admission.Validator so a webhook will be registered for the type Release.
+// ValidateDelete refuses the deletion of a protected Release: by
+// spec.protected when set, by the protection in its status otherwise. The
+// controller writes that status once it has loaded the package.
 func (v *ReleaseCustomValidator) ValidateDelete(ctx context.Context, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
 	v.logger.Info("Validation for Release upon deletion", "name", release.GetName())
 
-	if release.Status.Protected {
+	protected := release.Status.Protected
+	if release.Spec.Protected != nil {
+		protected = *release.Spec.Protected
+	}
+	if protected {
 		return nil, fmt.Errorf("release %s is protected", release.GetName())
 	}
 	return nil, nil

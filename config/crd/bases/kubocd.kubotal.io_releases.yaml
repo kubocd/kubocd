@@ -458,7 +458,7 @@ spec:
               protected:
                 description: |-
                   Protected result of Release.spec.protected defaulted to package.spec.protected
-                  It is the value checked by the webhook
+                  The webhook checks it when Release.spec.protected is not set
                 type: boolean
               readyOutputConnections:
                 description: |-

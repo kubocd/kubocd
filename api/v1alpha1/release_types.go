@@ -218,7 +218,7 @@ type ReleaseStatus struct {
 	Usage map[string]string `json:"usage"`
 
 	// Protected result of Release.spec.protected defaulted to package.spec.protected
-	// It is the value checked by the webhook
+	// The webhook checks it when Release.spec.protected is not set
 	Protected bool `json:"protected"`
 
 	// PrintProtected is a copy of Protected, with a Y/n flag. To be used in display
