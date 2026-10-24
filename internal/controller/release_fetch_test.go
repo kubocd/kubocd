@@ -25,11 +25,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/kubopackage"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -799,11 +802,12 @@ func TestARefusedPackageArchiveIsReportedAndNotRetried(t *testing.T) {
 
 func TestPackageLimitsMustBePositive(t *testing.T) {
 	for name, limits := range map[string]PackageLimits{
-		"artifact":           {ArtifactSize: 0, ContentSize: 1, Entries: 1},
-		"content":            {ArtifactSize: 1, ContentSize: -1, Entries: 1},
-		"entries":            {ArtifactSize: 1, ContentSize: 1, Entries: 0},
-		"entries too many":   {ArtifactSize: 1, ContentSize: 1, Entries: maxPackageEntries + 1},
-		"artifact too large": {ArtifactSize: 1 << 62, ContentSize: 1, Entries: 1},
+		"artifact":           {ArtifactSize: 0, ContentSize: 1, Entries: 1, ManifestSize: 1},
+		"content":            {ArtifactSize: 1, ContentSize: -1, Entries: 1, ManifestSize: 1},
+		"entries":            {ArtifactSize: 1, ContentSize: 1, Entries: 0, ManifestSize: 1},
+		"entries too many":   {ArtifactSize: 1, ContentSize: 1, Entries: maxPackageEntries + 1, ManifestSize: 1},
+		"artifact too large": {ArtifactSize: 1 << 62, ContentSize: 1, Entries: 1, ManifestSize: 1},
+		"manifest":           {ArtifactSize: 1, ContentSize: 1, Entries: 1, ManifestSize: 0},
 	} {
 		if err := limits.Validate(); err == nil {
 			t.Errorf("%s: got no error, want the limits refused", name)
@@ -811,5 +815,85 @@ func TestPackageLimitsMustBePositive(t *testing.T) {
 	}
 	if err := DefaultPackageLimits.Validate(); err != nil {
 		t.Errorf("got %v on the default limits", err)
+	}
+}
+
+// manifestOf pads manifest with a YAML comment to size bytes.
+func manifestOf(t *testing.T, manifest string, size int) string {
+	t.Helper()
+	padding := size - len(manifest) - len("#\n")
+	if padding < 0 {
+		t.Fatalf("the manifest is longer than %d bytes", size)
+	}
+	return manifest + "#" + strings.Repeat("x", padding) + "\n"
+}
+
+func TestAPackageManifestLoadsUpToTheLimitAndNoMore(t *testing.T) {
+	limits := DefaultPackageLimits
+	limits.ManifestSize = 4096
+	fetcher := NewPackageFetcher(limits, 0, "")
+	cases := map[string]struct {
+		manifest string
+		target   func() interface{}
+	}{
+		"original.yaml": {"apiVersion: v1alpha1\nname: demo\ntag: 0.1.0\n", func() interface{} { return &kubopackage.Package{} }},
+		"status.yaml":   {"apiVersion: v1alpha1\nchartByModule:\n  main: {name: demo, version: 1.0.0}\n", func() interface{} { return &kubopackage.Status{} }},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			folder := t.TempDir()
+			write := func(content string) {
+				if err := os.WriteFile(filepath.Join(folder, name), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(manifestOf(t, c.manifest, 4096))
+			target := c.target()
+			if size, err := fetcher.LoadFile(folder, name, target); err != nil || size != 4096 {
+				t.Fatalf("got %d bytes and the error %v, want the manifest of the limit loaded", size, err)
+			}
+			if reflect.ValueOf(target).Elem().IsZero() {
+				t.Fatalf("got nothing decoded from %s", name)
+			}
+			for _, oversized := range []string{manifestOf(t, c.manifest, 4097), strings.Repeat("\x00", 4097)} {
+				write(oversized)
+				target = c.target()
+				_, err := fetcher.LoadFile(folder, name, target)
+				mustRefuse(t, err, "the file is more than the limit of 4096 bytes")
+				if !reflect.ValueOf(target).Elem().IsZero() {
+					t.Fatalf("got %s decoded past the limit", name)
+				}
+			}
+		})
+	}
+}
+
+func TestAPackageManifestPastTheLimitIsReported(t *testing.T) {
+	manifest := manifestOf(t, fmt.Sprintf(afterRenderPackage, "", ""), int(DefaultPackageLimits.ManifestSize)+1)
+	got := reconcileRelease(t, manifest, "", afterRenderContext)
+	want := "error while parsing package original.yaml file: the file is more than the limit of 1048576 bytes"
+	if got.status != want || got.err != nil || !got.result.IsZero() {
+		t.Fatalf("got the status %q, the error %v and the result %+v, want the status %q, no error and no requeue", got.status,
+			got.err, got.result, want)
+	}
+}
+
+type countedReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (r *countedReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read += int64(n)
+	return n, err
+}
+
+func TestAManifestPastTheLimitIsNotReadWhole(t *testing.T) {
+	counted := &countedReader{reader: strings.NewReader(manifestOf(t, "name: demo\n", 1<<20))}
+	_, err := decodeManifest(counted, 4096, &kubopackage.Package{})
+	mustRefuse(t, err, "the file is more than the limit of 4096 bytes")
+	if counted.read > 4097 {
+		t.Fatalf("got %d bytes read, want the read stopped one byte past the limit", counted.read)
 	}
 }

@@ -341,13 +341,13 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	} else {
 		// Fetch Package from the image
 		pck := &kubopackage.Package{}
-		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "original.yaml"), pck)
+		_, err = r.Fetcher.LoadFile(helmRepositoryFolder, "original.yaml", pck)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing package original.yaml file: %w", err), true, "OCIImage"), false)
 		}
 		// -------- And fetch status
 		status := &kubopackage.Status{}
-		err = misc.LoadYaml(path.Join(helmRepositoryFolder, "status.yaml"), status)
+		_, err = r.Fetcher.LoadFile(helmRepositoryFolder, "status.yaml", status)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("error while parsing status.yaml file: %w", err), true, "OCIImage"), false)
 		}

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"kubocd/internal/misc"
 	"math"
 	"net/http"
 	"net/url"
@@ -51,10 +52,12 @@ type PackageLimits struct {
 	ContentSize int64
 	// Entries is the most entries of the archive.
 	Entries int
+	// ManifestSize is the most bytes of original.yaml, and of status.yaml.
+	ManifestSize int64
 }
 
 // DefaultPackageLimits are the defaults of the flags of the controller.
-var DefaultPackageLimits = PackageLimits{ArtifactSize: 20 << 20, ContentSize: 40 << 20, Entries: 1000}
+var DefaultPackageLimits = PackageLimits{ArtifactSize: 20 << 20, ContentSize: 40 << 20, Entries: 1000, ManifestSize: 1 << 20}
 
 // Validate refuses a limit that is not positive, or too large to be counted.
 func (l PackageLimits) Validate() error {
@@ -66,6 +69,9 @@ func (l PackageLimits) Validate() error {
 	}
 	if l.Entries <= 0 || l.Entries > maxPackageEntries {
 		return fmt.Errorf("the entry limit must be a positive number, up to %d", maxPackageEntries)
+	}
+	if l.ManifestSize <= 0 || l.ManifestSize > math.MaxInt64/2 {
+		return fmt.Errorf("the manifest limit must be a positive number of bytes, up to %d", int64(math.MaxInt64/2))
 	}
 	return nil
 }
@@ -348,6 +354,31 @@ func writePackageFile(root *os.Root, name string, perm os.FileMode, content io.R
 		err = closeErr
 	}
 	return err
+}
+
+// LoadFile decodes the YAML file name of folder into target, as
+// misc.LoadYaml does, once its size is checked against the manifest limit. It
+// returns the bytes it read.
+func (f *PackageFetcher) LoadFile(folder string, name string, target interface{}) (int64, error) {
+	file, err := os.Open(filepath.Join(folder, name))
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = file.Close() }()
+	return decodeManifest(file, f.limits.ManifestSize, target)
+}
+
+// decodeManifest reads a manifest, one byte past limit at most, and decodes it
+// into target.
+func decodeManifest(manifest io.Reader, limit int64, target interface{}) (int64, error) {
+	content, err := io.ReadAll(io.LimitReader(manifest, limit+1))
+	if err != nil {
+		return 0, err
+	}
+	if int64(len(content)) > limit {
+		return 0, packageLimitf("the file is more than the limit of %d bytes", limit)
+	}
+	return int64(len(content)), misc.YamlDecode(string(content), target)
 }
 
 // limitedStream reads from reader up to left bytes, then fails with

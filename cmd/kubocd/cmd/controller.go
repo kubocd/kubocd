@@ -145,6 +145,9 @@ func init() {
 	controllerCmd.PersistentFlags().IntVar(&controllerParams.packageLimits.Entries, "maxPackageEntries",
 		controller.DefaultPackageLimits.Entries,
 		"The most entries (files, folders, links) of a package archive. More are refused.")
+	controllerCmd.PersistentFlags().Int64Var(&controllerParams.packageLimits.ManifestSize, "maxPackageManifestSize",
+		controller.DefaultPackageLimits.ManifestSize,
+		"The most bytes of the original.yaml of a package, and of its status.yaml. A larger one is refused.")
 
 	controllerCmd.PersistentFlags().StringSliceVar(&controllerParams.featureGates, "featureGates", nil,
 		fmt.Sprintf("Comma separated list of EXPERIMENTAL features to activate, as '<name>=true|false'. Valid names: %s", strings.Join(knownFeatureGates, ", ")))
