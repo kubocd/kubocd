@@ -97,14 +97,17 @@ func Map2Json(data interface{}) []byte {
 	return b.Bytes()
 }
 
-func ObjectToMap(obj interface{}) map[string]interface{} {
-	ba := Any2Yaml(obj)
-	result := make(map[string]interface{})
-	err := yaml.Unmarshal(ba, &result)
+// ObjectToMap returns obj as a map, through its YAML form.
+func ObjectToMap(obj interface{}) (map[string]interface{}, error) {
+	ba, err := yaml.Marshal(obj)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return result
+	result := make(map[string]interface{})
+	if err := yaml.Unmarshal(ba, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func RemoveDuplicates(elements []string) []string {

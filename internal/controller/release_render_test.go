@@ -150,7 +150,10 @@ func renderRelease(helper BuildInputModelHelper, store configstore.ConfigStore, 
 	if err != nil {
 		return nil, nil, err
 	}
-	model := BuildModel(theContext, parameters, release, store)
+	model, err := BuildModel(theContext, parameters, release, store)
+	if err != nil {
+		return nil, nil, err
+	}
 	inputs, err := pckContainer.Package.RenderInputs(model, release.Namespace)
 	if err != nil {
 		return nil, nil, err

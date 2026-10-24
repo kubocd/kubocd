@@ -22,6 +22,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -67,7 +68,10 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	if err != nil {
 		return nil, fmt.Errorf("could not create template from parameters: %w", err)
 	}
-	pModel := BuildModel(kcontext, nil, release, configStore)
+	pModel, err := BuildModel(kcontext, nil, release, configStore)
+	if err != nil {
+		return nil, err
+	}
 
 	releaseParameters, err := parametersTmpl.RenderToMap(pModel)
 	if err != nil {
@@ -203,14 +207,23 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, configStore co
 	}
 }
 
+// errReleaseModel is the error of a Release that does not convert to YAML,
+// without the message of the converter.
+var errReleaseModel = errors.New("could not build the model of the templates: the Release does not convert to YAML")
+
 // BuildModel builds the data given to the templates of a Release and of its
 // package, without the inputs.
-func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release, store configstore.ConfigStore) map[string]interface{} {
+func BuildModel(context map[string]interface{}, parameters map[string]interface{}, release *kv1alpha1.Release,
+	store configstore.ConfigStore) (map[string]interface{}, error) {
+	releaseMap, err := misc.ObjectToMap(release)
+	if err != nil {
+		return nil, errReleaseModel
+	}
 	model := map[string]interface{}{
 		"Context":              context,
 		"Parameters":           parameters,
-		"Release":              misc.ObjectToMap(release),
+		"Release":              releaseMap,
 		tmpl.ImageRedirectsKey: tmpl.ImageRedirectTable(store.GetImageRedirects()),
 	}
-	return model
+	return model, nil
 }

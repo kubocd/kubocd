@@ -437,7 +437,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		}
 	}
 	// -------------------------------------------------------------------- Build model without input
-	model := BuildModel(theContext, parameters, release, r.ConfigStore)
+	model, err := BuildModel(theContext, parameters, release, r.ConfigStore)
+	if err != nil {
+		return r.reportError(op, NewReconcileError(err, true, "Model"), forceUpdate)
+	}
 
 	// -------------------------------------------------------------------- Render inputs
 	inputs, err := op.pckContainer.Package.RenderInputs(model, release.Namespace)

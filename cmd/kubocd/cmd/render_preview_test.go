@@ -115,7 +115,10 @@ func previewOf(t *testing.T, release *kapi.Release) map[string]helmCall {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := controller.BuildModel(map[string]interface{}{}, parameters, release, store)
+	model, err := controller.BuildModel(map[string]interface{}{}, parameters, release, store)
+	if err != nil {
+		t.Fatal(err)
+	}
 	model["Inputs"] = map[string]interface{}{}
 	model["InputLists"] = map[string]interface{}{}
 	rendered, err := pckContainer.Package.Render(model, release)

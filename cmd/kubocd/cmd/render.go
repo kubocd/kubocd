@@ -297,7 +297,10 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "parameters.yaml", parameters)
 
 			// -------------------------------------------------------------------- Build model without input
-			model := controller.BuildModel(kcontext, parameters, release, configStore)
+			model, err := controller.BuildModel(kcontext, parameters, release, configStore)
+			if err != nil {
+				return err
+			}
 
 			// -------------------------------------------------------------------- Render inputs
 			inputsRendered, err := pkgContainer.Package.RenderInputs(model, release.Namespace)
