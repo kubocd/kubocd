@@ -32,27 +32,35 @@ func protection(protected bool) *bool {
 	return &protected
 }
 
+const (
+	protectedDemo   = "release demo is protected"
+	notComputedDemo = "release demo may be protected by its package, and the controller has not computed its protection " +
+		"yet: set spec.protected to false to delete it anyway"
+)
+
 var _ = Describe("Release webhook", func() {
-	DescribeTable("checks spec.protected before the status of a deleted Release",
-		func(spec *bool, status bool, refused bool) {
+	DescribeTable("checks spec.protected, then the protection that the status of a deleted Release holds",
+		func(spec *bool, printProtected string, refusal string) {
 			release := &kubocdv1alpha1.Release{
 				ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "apps"},
 				Spec:       kubocdv1alpha1.ReleaseSpec{Protected: spec},
-				Status:     kubocdv1alpha1.ReleaseStatus{Protected: status},
+				Status:     kubocdv1alpha1.ReleaseStatus{Protected: printProtected == "X", PrintProtected: printProtected},
 			}
 			_, err := (&ReleaseCustomValidator{logger: logr.Discard()}).ValidateDelete(ctx, release)
-			if refused {
-				Expect(err).To(MatchError("release demo is protected"))
+			if refusal != "" {
+				Expect(err).To(MatchError(refusal), "the deletion is not refused with %q", refusal)
 			} else {
 				Expect(err).NotTo(HaveOccurred())
 			}
 		},
-		Entry("spec true, status not computed yet", protection(true), false, true),
-		Entry("spec true, status true (control)", protection(true), true, true),
-		Entry("spec false, status not computed again since spec was true", protection(false), true, false),
-		Entry("spec false, status false (control)", protection(false), false, false),
-		Entry("spec unset, status true (control)", nil, true, true),
-		Entry("spec unset, status false (control)", nil, false, false),
+		Entry("spec true, protection not computed yet", protection(true), "", protectedDemo),
+		Entry("spec true, status protected (control)", protection(true), "X", protectedDemo),
+		Entry("spec false, protection not computed yet", protection(false), "", ""),
+		Entry("spec false, status not computed again since spec was true", protection(false), "X", ""),
+		Entry("spec false, status unprotected (control)", protection(false), "-", ""),
+		Entry("spec unset, protection not computed yet", nil, "", notComputedDemo),
+		Entry("spec unset, status protected", nil, "X", protectedDemo),
+		Entry("spec unset, status unprotected", nil, "-", ""),
 	)
 
 	// The suite installs the webhook configurations of config/webhook, and runs
@@ -68,6 +76,26 @@ var _ = Describe("Release webhook", func() {
 		Expect(k8sClient.Create(ctx, release)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, release)).To(MatchError(ContainSubstring("release protected is protected")))
 		key := types.NamespacedName{Namespace: "default", Name: "protected"}
+		Expect(k8sClient.Get(ctx, key, release)).To(Succeed())
+
+		release.Spec.Protected = protection(false)
+		Expect(k8sClient.Update(ctx, release)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, release)).To(Succeed())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, release))).To(BeTrue())
+	})
+
+	It("refuses the deletion of a Release whose protection is not computed, until spec.protected is false", func() {
+		release := &kubocdv1alpha1.Release{
+			ObjectMeta: metav1.ObjectMeta{Name: "unknown", Namespace: "default"},
+			Spec: kubocdv1alpha1.ReleaseSpec{
+				Package: kubocdv1alpha1.PackageSourceSpec{Repository: "registry.example/packages/missing", Tag: "0.0.0"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, release)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, release)).To(MatchError(ContainSubstring("release unknown may be protected by its "+
+			"package, and the controller has not computed its protection yet: set spec.protected to false to delete it anyway")),
+			"the deletion of a Release whose protection is not computed is not refused")
+		key := types.NamespacedName{Namespace: "default", Name: "unknown"}
 		Expect(k8sClient.Get(ctx, key, release)).To(Succeed())
 
 		release.Spec.Protected = protection(false)

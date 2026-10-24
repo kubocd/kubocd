@@ -453,8 +453,10 @@ spec:
                   Copy of the release description, or, if empty the (templated) package one
                 type: string
               printProtected:
-                description: PrintProtected is a copy of Protected, with a Y/n flag.
-                  To be used in display
+                description: |-
+                  PrintProtected is a copy of Protected, X or -, to be used in display. It is empty until a status written after
+                  the controller computed the protection holds it, and the webhook refuses the deletion of a Release without
+                  spec.protected while it is empty
                 type: string
               protected:
                 description: |-

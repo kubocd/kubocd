@@ -368,6 +368,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if op.release.Spec.Protected != nil {
 		protected = *op.release.Spec.Protected
 	}
+	// The deletion webhook reads an empty printProtected as a protection not computed yet
 	printProtected := misc.Ternary(protected, "X", "-")
 	if protected != op.release.Status.Protected || printProtected != op.release.Status.PrintProtected {
 		op.release.Status.Protected = protected

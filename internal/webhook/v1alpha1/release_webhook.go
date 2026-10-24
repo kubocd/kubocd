@@ -59,15 +59,24 @@ func (v *ReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, rel
 
 // ValidateDelete refuses the deletion of a protected Release: by
 // spec.protected when set, by the protection in its status otherwise. The
-// controller writes that status once it has loaded the package.
+// controller writes that status once it has loaded the package. While no
+// status written since holds it, status.printProtected is empty: the
+// protection is not known, so the deletion is refused unless spec.protected
+// is set.
 func (v *ReleaseCustomValidator) ValidateDelete(ctx context.Context, release *kubocdv1alpha1.Release) (admission.Warnings, error) {
 	v.logger.Info("Validation for Release upon deletion", "name", release.GetName())
 
-	protected := release.Status.Protected
 	if release.Spec.Protected != nil {
-		protected = *release.Spec.Protected
+		if *release.Spec.Protected {
+			return nil, fmt.Errorf("release %s is protected", release.GetName())
+		}
+		return nil, nil
 	}
-	if protected {
+	if release.Status.PrintProtected == "" {
+		return nil, fmt.Errorf("release %s may be protected by its package, and the controller has not computed its "+
+			"protection yet: set spec.protected to false to delete it anyway", release.GetName())
+	}
+	if release.Status.Protected {
 		return nil, fmt.Errorf("release %s is protected", release.GetName())
 	}
 	return nil, nil

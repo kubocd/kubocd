@@ -222,7 +222,9 @@ type ReleaseStatus struct {
 	// The webhook checks it when Release.spec.protected is not set
 	Protected bool `json:"protected"`
 
-	// PrintProtected is a copy of Protected, with a Y/n flag. To be used in display
+	// PrintProtected is a copy of Protected, X or -, to be used in display. It is empty until a status written after
+	// the controller computed the protection holds it, and the webhook refuses the deletion of a Release without
+	// spec.protected while it is empty
 	PrintProtected string `json:"printProtected"`
 
 	// HelmReleaseStates describe the observed state of child HelmReleases by name
