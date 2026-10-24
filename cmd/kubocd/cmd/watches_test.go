@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"slices"
 	"strings"
@@ -208,5 +209,36 @@ func TestAWatchRequestsTheObjectsItLists(t *testing.T) {
 				t.Fatalf("got requests %v from the lists %q, want %v from %q", got, selectors, want, m.selector)
 			}
 		})
+	}
+}
+
+// failingIndexer records the indexes it creates, and fails to create the one
+// named failing.
+type failingIndexer struct {
+	failing string
+	created []string
+}
+
+func (f *failingIndexer) IndexField(_ context.Context, _ client.Object, field string, _ client.IndexerFunc) error {
+	if field == f.failing {
+		return errors.New("unable to get the informer")
+	}
+	f.created = append(f.created, field)
+	return nil
+}
+
+func TestAnIndexOfTheReleasesThatCannotBeCreatedIsReturned(t *testing.T) {
+	names := []string{outputClusterConnectionIndexOnRelease, watchedInputConnectionIndexOnRelease,
+		watchedInputClusterConnectionIndexOnRelease, contextIndexOnRelease}
+	for _, name := range names {
+		err := indexReleases(&failingIndexer{failing: name}, configstore.New())
+		want := "could not create the index " + name + " of the Releases: unable to get the informer"
+		if err == nil || err.Error() != want {
+			t.Errorf("got %v, want %q", err, want)
+		}
+	}
+	indexer := &failingIndexer{}
+	if err := indexReleases(indexer, configstore.New()); err != nil || !slices.Equal(indexer.created, names) {
+		t.Fatalf("got error %v and the indexes %q, want %q", err, indexer.created, names)
 	}
 }

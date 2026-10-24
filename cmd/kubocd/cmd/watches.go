@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	kubocdv1alpha1 "kubocd/api/v1alpha1"
+	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 
 	"github.com/go-logr/logr"
@@ -41,6 +42,74 @@ const (
 	contextIndexOnRelease                       = "contextIndexOnRelease"
 	parentIndexOnChild                          = "parentIndexOnChild"
 )
+
+// indexReleases creates the indexes of the Releases that the map functions
+// below read, and returns the first error.
+func indexReleases(indexer client.FieldIndexer, configStore configstore.ConfigStore) error {
+	indexes := []struct {
+		name    string
+		extract client.IndexerFunc
+	}{
+		// Releases by output ClusterConnections
+		{outputClusterConnectionIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			clusterConnections := make([]string, 0, len(release.Status.OutputConnectionByName))
+			for _, clusterConnection := range release.Status.OutputConnectionByName {
+				if clusterConnection.Kind == kubocdv1alpha1.KindClusterConnection {
+					clusterConnections = append(clusterConnections, clusterConnection.Name)
+				}
+			}
+			return clusterConnections
+		}},
+		// Releases by input Connections
+		{watchedInputConnectionIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			connections := make([]string, len(release.Status.WatchedInputConnections))
+			for idx, connection := range release.Status.WatchedInputConnections {
+				if connection.Kind == kubocdv1alpha1.KindConnection {
+					connections[idx] = fmt.Sprintf("%s:%s", connection.Namespace, connection.Name)
+				}
+			}
+			return connections
+		}},
+		// Releases by input ClusterConnections
+		{watchedInputClusterConnectionIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			connections := make([]string, len(release.Status.WatchedInputConnections))
+			for idx, connection := range release.Status.WatchedInputConnections {
+				if connection.Kind == kubocdv1alpha1.KindClusterConnection {
+					connections[idx] = connection.Name
+				}
+			}
+			return connections
+		}},
+		// Releases by Contexts, the default ones included
+		{contextIndexOnRelease, func(rawObj client.Object) []string {
+			release := rawObj.(*kubocdv1alpha1.Release)
+			contexts := make([]string, 0, len(release.Spec.Contexts))
+			for _, context := range release.Spec.Contexts {
+				ns := context.Namespace
+				if ns == "" {
+					ns = release.Namespace
+				}
+				contexts = append(contexts, fmt.Sprintf("%s:%s", ns, context.Name))
+			}
+			for _, ctx := range configStore.GetDefaultContexts() {
+				contexts = append(contexts, fmt.Sprintf("%s:%s", ctx.Namespace, ctx.Name))
+			}
+			for _, context := range configStore.GetDefaultNamespaceContexts() {
+				contexts = append(contexts, fmt.Sprintf("%s:%s", release.Namespace, context))
+			}
+			return contexts
+		}},
+	}
+	for _, index := range indexes {
+		if err := indexer.IndexField(context.Background(), &kubocdv1alpha1.Release{}, index.name, index.extract); err != nil {
+			return fmt.Errorf("could not create the index %s of the Releases: %w", index.name, err)
+		}
+	}
+	return nil
+}
 
 // requestsFromList requests the reconciliation of each object that reader
 // lists in list with options. A failed list is logged with msg, without its
