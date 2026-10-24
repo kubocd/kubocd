@@ -245,9 +245,9 @@ func refusingCanaryStatus(r *ReleaseReconciler) {
 }
 
 // afterAFailedStatusUpdate stands for a reconciler whose previous status
-// update failed: the next failure is returned.
+// update of the Release demo failed: the next failure is returned.
 func afterAFailedStatusUpdate(r *ReleaseReconciler) {
-	r.statusErrorCount = 1
+	r.statusFailures.fail(types.NamespacedName{Namespace: "apps", Name: "demo"})
 }
 
 // deletingTheRelease deletes the Release demo, which a second finalizer keeps

@@ -34,6 +34,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fluxcd/pkg/http/fetch"
@@ -59,16 +60,41 @@ const HelmReleaseNameFormat = "%s-%s"     // parameters: releaseName, moduleName
 type ReleaseReconciler struct {
 	client.Client
 	record.EventRecorder
-	Logger           logr.Logger
-	Fetcher          *fetch.ArchiveFetcher
-	ServerRoot       string
-	HelmRepoAdvAddr  string
-	PackageCache     cache.Cache
-	ConfigStore      configstore.ConfigStore
-	RoleStore        rolestore.RoleStore
-	AllowDNSLookups  bool
-	ConnectionsGate  bool // On when the controllers that check connections run
-	statusErrorCount int
+	Logger          logr.Logger
+	Fetcher         *fetch.ArchiveFetcher
+	ServerRoot      string
+	HelmRepoAdvAddr string
+	PackageCache    cache.Cache
+	ConfigStore     configstore.ConfigStore
+	RoleStore       rolestore.RoleStore
+	AllowDNSLookups bool
+	ConnectionsGate bool // On when the controllers that check connections run
+	statusFailures  statusFailures
+}
+
+// statusFailures holds the Releases whose last status update failed.
+type statusFailures struct {
+	mutex    sync.Mutex
+	releases map[types.NamespacedName]bool
+}
+
+// fail records a failed status update of the Release, and tells whether its
+// previous one failed too.
+func (s *statusFailures) fail(release types.NamespacedName) bool {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.releases == nil {
+		s.releases = make(map[types.NamespacedName]bool)
+	}
+	again := s.releases[release]
+	s.releases[release] = true
+	return again
+}
+
+func (s *statusFailures) clear(release types.NamespacedName) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	delete(s.releases, release)
 }
 
 var _ reconcile.Reconciler = &ReleaseReconciler{}
@@ -188,6 +214,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Deletion is requested
 		r.RoleStore.UnRegisterRelease(req.NamespacedName)
+		r.statusFailures.clear(req.NamespacedName)
 		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
 			// No finalizer at all. Nothing to do anymore
 			return ctrl.Result{}, nil
@@ -739,15 +766,14 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	err := r.Status().Update(op.ctx, op.release)
 	if err != nil {
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
-		if r.statusErrorCount > 0 {
+		if r.statusFailures.fail(op.request.NamespacedName) {
 			return ctrl.Result{}, fmt.Errorf("could not update the Release status: %s", apiError(err))
 		}
-		r.statusErrorCount++
 		op.logger.V(1).Info("Error updating status. Hidden as first one", "phase", phase)
 		return ctrl.Result{RequeueAfter: time.Millisecond * 200}, nil
 	}
 	//fmt.Printf("-----------------------: %s\n", phase)
-	r.statusErrorCount = 0
+	r.statusFailures.clear(op.request.NamespacedName)
 	return ctrl.Result{}, err
 }
 
