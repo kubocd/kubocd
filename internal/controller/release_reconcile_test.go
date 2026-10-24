@@ -114,8 +114,9 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 			Status:     sourcev1.OCIRepositoryStatus{Conditions: ready, Artifact: artifact},
 		},
 		&sourcev1.HelmRepository{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(HelmRepositoryNameFormat, "demo"), Namespace: "apps"},
-			Status:     sourcev1.HelmRepositoryStatus{Conditions: ready, Artifact: artifact},
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(HelmRepositoryNameFormat, "demo"), Namespace: "apps",
+				Annotations: map[string]string{packageRevisionAnnotation: reconcileRevision}},
+			Status: sourcev1.HelmRepositoryStatus{Conditions: ready, Artifact: artifact},
 		},
 	}
 	if contextValues != "" {

@@ -31,9 +31,15 @@ import (
 // waitHelmRepository is the message of a Release that waits for its HelmRepository.
 const waitHelmRepository = "Wait Helm Repository"
 
+// packageRevisionAnnotation holds, on a HelmRepository, the revision of the
+// package whose charts it serves.
+const packageRevisionAnnotation = "kubocd.kubotal.io/package-revision"
+
 // handleHelmRepository returns the HelmRepository of the Release once ready,
-// or otherwise the message of the wait.
-func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidate bool, repoUrl string) (*sourcev1.HelmRepository, string, ReconcileError) {
+// or otherwise the message of the wait. A HelmRepository that serves another
+// revision of the package is deleted, and created again by a later pass, so
+// that Flux reads the new index at once.
+func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, revision string, repoUrl string) (*sourcev1.HelmRepository, string, ReconcileError) {
 	// Fetch associated HelmRepository
 	helmRepository := &sourcev1.HelmRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.helmRepositoryName, Namespace: op.release.Namespace}, helmRepository)
@@ -43,7 +49,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidat
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create associated HelmRepository", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
-		err := r.createHelmRepository(op, repoUrl)
+		err := r.createHelmRepository(op, revision, repoUrl)
 		if err != nil {
 			return nil, "", NewReconcileError(err, false, "HelmRepositoryCreateFailed")
 		}
@@ -52,9 +58,17 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, invalidat
 		return nil, waitHelmRepository, nil
 	}
 	// Helm repo exists
-	if invalidate {
+	if !helmRepository.DeletionTimestamp.IsZero() {
+		// Its deletion, once Flux removes its finalizer, reconciles the Release again
+		return nil, waitHelmRepository, nil
+	}
+	if helmRepository.GetAnnotations()[packageRevisionAnnotation] != revision {
 		op.logger.V(0).Info("Will delete associated HelmRepository as content have changed", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
 		err := r.Delete(op.ctx, helmRepository)
+		if apierrors.IsNotFound(err) {
+			// Deleted by an earlier pass, which the cache does not show yet
+			return nil, waitHelmRepository, nil
+		}
 		if err != nil {
 			return nil, "", NewReconcileError(err, false, "HelmRepositoryDeleteFailed")
 		}
@@ -103,10 +117,11 @@ func PopulateHelmRepository(helmRepository *sourcev1.HelmRepository, release *kv
 	helmRepository.Spec.URL = repoUrl
 }
 
-func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, repoUrl string) error {
+func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, revision string, repoUrl string) error {
 	helmRepository := &sourcev1.HelmRepository{}
 	helmRepository.SetName(op.helmRepositoryName)
 	helmRepository.SetNamespace(op.release.Namespace)
+	helmRepository.SetAnnotations(map[string]string{packageRevisionAnnotation: revision})
 	PopulateHelmRepository(helmRepository, op.release, repoUrl)
 	err := ctrl.SetControllerReference(op.release, helmRepository, r.Scheme())
 	if err != nil {
