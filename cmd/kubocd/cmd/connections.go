@@ -52,15 +52,6 @@ used by no release (Such one is only displayed on request, with --unused). In bo
 corresponding side of the Link is empty.
 */
 
-/*
-- Implement cmd.kubocd.cmd.connections.go following instructions in comments
-- For connection with no consumer, do list list them by default, but add a flag to list them
-- Add namespace on release in all cases (even if scope is namespaced)
-- Add an option --contract (-i) which will filter on contract
-- On table view only, condition the CONNECTION column displaying to a flag
-- Refactor to allow multiple namespaces option
-*/
-
 var connectionsParams struct {
 	namespaces     []string
 	allNamespaces  bool

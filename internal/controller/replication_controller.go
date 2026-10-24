@@ -149,14 +149,6 @@ func (r *ReplicationReconciler) reconcile2(ctx context.Context, req ctrl.Request
 	   - Update Destination only if missing or different.
 	   - Be idempotent
 	*/
-	/*
-		- Implement internal.controller.replication_controller.go following instruction in comments (Line 54)
-		- add the watch on secrets and configmaps
-		- If a replication update generate a different destination, the previous one remains. Same if replication is deleted. Could you fix this
-		- Also, if source object is deleted, then delete destination
-		- Add a status.destinationName, always set, internded to be displayed in kubebuilder.printcolumn
-
-	*/
 
 	// Always exposed, even if the replication fails, as this is the name the destination would have.
 	replication.Status.DestinationName = replicationDestination(replication).Name
