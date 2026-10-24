@@ -64,6 +64,16 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			return nil, nil
 		}
 	} else {
+		if !metav1.IsControlledBy(helmRelease, op.release) {
+			if enabled {
+				return nil, NewReconcileError(fmt.Errorf("HelmRelease '%s' exists and is not controlled by this Release", helmReleaseName),
+					false, "HelmReleaseOwner")
+			}
+			op.logger.V(0).Info("HelmRelease of a disabled module left in place, as the Release does not control it", "name",
+				helmReleaseName, "module", module.Name)
+			delete(op.helmReleaseStates, module.Name)
+			return nil, nil
+		}
 		if enabled {
 			changed, err := patchHelmRelease(r, op, helmRelease, rendered, module)
 			if err != nil {
@@ -78,7 +88,7 @@ func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *ku
 			return helmRelease, nil
 		} else {
 			// Must delete
-			err := r.Delete(op.ctx, helmRelease)
+			err := r.Delete(op.ctx, helmRelease, client.Preconditions{UID: &helmRelease.UID})
 			if err != nil {
 				return nil, NewReconcileError(fmt.Errorf("error while deleting HelmRelease '%s': %s", helmReleaseName, apiError(err)), false, "HelmReleaseDelete")
 			}
@@ -324,7 +334,7 @@ func patchHelmRelease(r *ReleaseReconciler, op *releaseOperation, helmRelease *f
 	originalGeneration := helmRelease.Generation
 
 	// Create a deep copy for the patch operation
-	patch := client.MergeFrom(helmRelease.DeepCopy())
+	patch := mergeFromWithUID(helmRelease)
 
 	// Populate the HelmRelease with updated configuration
 	err := PopulateHelmRelease(helmRelease, op.release, op.pckContainer, rendered, op.helmRepositoryName, module, op.helmReleaseNameByModuleName, r.ConfigStore)

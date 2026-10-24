@@ -313,14 +313,17 @@ func withObjects(t *testing.T, objects ...client.Object) func(*ReleaseReconciler
 	}
 }
 
-// readyHelmRelease is the HelmRelease of the module main, deployed.
+// readyHelmRelease is the HelmRelease of the module main, deployed by the
+// Release demo.
 func readyHelmRelease() *fluxv2.HelmRelease {
-	return &fluxv2.HelmRelease{
+	helmRelease := &fluxv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{Name: "demo-main", Namespace: "apps"},
 		Status: fluxv2.HelmReleaseStatus{Conditions: []metav1.Condition{
 			{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Succeeded", LastTransitionTime: metav1.Now()},
 		}},
 	}
+	ownedByDemo(helmRelease)
+	return helmRelease
 }
 
 // contextCondition is a condition on the Context of the Release.

@@ -106,6 +106,7 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 	ready := []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Succeeded", LastTransitionTime: metav1.Now()}}
 	artifact := &meta.Artifact{Revision: reconcileRevision, Digest: "sha256:0123", Path: "demo.tgz", URL: "http://source/demo.tgz", LastUpdateTime: metav1.Now()}
 	release := newTestRelease("demo", parameters)
+	release.UID = "demo"
 	release.Finalizers = []string{global.FinalizerName}
 	objects := []client.Object{
 		&sourcev1.OCIRepository{
