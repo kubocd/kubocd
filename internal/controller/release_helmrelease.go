@@ -133,6 +133,8 @@ func PopulateHelmRelease(
 	helmReleaseNameByModuleName map[string]string,
 	configStore configstore.ConfigStore,
 ) error {
+	// One configuration for the spec, and for the check of its specPatch
+	configuration := configStore.Current()
 	// Get chart reference for the module
 	chartRef, ok := pckContainer.Status.ChartByModule[module.Name]
 	if !ok {
@@ -158,7 +160,7 @@ func PopulateHelmRelease(
 		})
 	}
 
-	spec, err := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName, module, configStore,
+	spec, err := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName, module, configuration,
 		moduleRendered.SpecPatch)
 	if err != nil {
 		return err
@@ -167,7 +169,7 @@ func PopulateHelmRelease(
 	if err := decodeHelmReleaseSpec(spec, current); err != nil {
 		// Checked on failure only, as a later patch can replace what specPatch sets
 		withoutSpecPatch, buildErr := helmReleaseSpec(helmRelease, release, chartRef, moduleRendered, dependsOn, helmRepositoryName,
-			module, configStore, nil)
+			module, configuration, nil)
 		if buildErr == nil && decodeHelmReleaseSpec(withoutSpecPatch, &fluxv2.HelmReleaseSpec{}) == nil {
 			return fmt.Errorf("specPatch of module '%s' has %w", module.Name, err)
 		}
@@ -190,7 +192,7 @@ func helmReleaseSpec(
 	dependsOn []map[string]string,
 	helmRepositoryName string,
 	module *kubopackage.Module,
-	configStore configstore.ConfigStore,
+	configuration configstore.Configuration,
 	specPatch map[string]interface{},
 ) (map[string]interface{}, error) {
 	// Build the spec configuration
@@ -216,13 +218,13 @@ func helmReleaseSpec(
 	}
 
 	// --------------- Apply DefaultOnFailureStrategy if any
-	defaultStrategy := configStore.GetDefaultOnFailureStrategy()
+	defaultStrategy := configuration.GetDefaultOnFailureStrategy()
 	if defaultStrategy != nil {
 		spec = misc.MergeMaps(spec, defaultStrategy)
 	}
 	// ------------------------- Patch helmRelease OnFailureStrategy from the package
 	if moduleRendered.OnFailureStrategy != "" {
-		strategy := configStore.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
+		strategy := configuration.GetOnFailureStrategy(moduleRendered.OnFailureStrategy)
 		if strategy == nil {
 			return nil, fmt.Errorf("onFailureStrategy of module '%s' is not a known strategy", module.Name)
 		}
@@ -231,7 +233,7 @@ func helmReleaseSpec(
 	}
 	// ------------------------------------------------ Apply global and from package patch
 	var err error
-	spec, err = Merge(spec, configStore.GetSpecPatch())
+	spec, err = Merge(spec, configuration.GetSpecPatch())
 	if err != nil {
 		return nil, fmt.Errorf("unable to merge config.specPatch on module '%s': %w", module.Name, err)
 	}
@@ -252,7 +254,7 @@ func helmReleaseSpec(
 	}
 	if override != nil {
 		if override.OnFailureStrategy != "" {
-			onFailureStrategy := configStore.GetOnFailureStrategy(override.OnFailureStrategy)
+			onFailureStrategy := configuration.GetOnFailureStrategy(override.OnFailureStrategy)
 			if onFailureStrategy == nil {
 				return nil, fmt.Errorf("onFailureStrategyByModule: '%s' not found for module '%s'", override.OnFailureStrategy, module.Name)
 			}
