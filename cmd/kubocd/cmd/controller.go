@@ -123,6 +123,10 @@ func init() {
 		"allowRedirectVerifyDrop", false,
 		"Allow a matching packageRedirect without verify to remove Release signature verification.")
 
+	controllerCmd.PersistentFlags().BoolVar(&controllerParams.ociRepositoryOptions.AllowReleaseInsecureSource,
+		"allowReleaseInsecureSource", false,
+		"Allow Release package sources to use insecure HTTP without a matching packageRedirect.")
+
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
 

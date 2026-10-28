@@ -18,6 +18,14 @@
   compatible signature stops reconciling. `--allowRedirectVerifyDrop=true` restores the previous behavior, where such
   a redirect removed verification, without changing its other addons. The controller and `kubocd render` accept the
   flag. Set it in `controller.additionalArgs` when using the `kubocd-ctrl` chart.
+- A Release with `spec.package.insecure: true` and no matching `packageRedirect` fails with
+  `Release.spec.package.insecure is not allowed without a matching packageRedirect`, with no retry in the controller.
+  A matching redirect keeps its own `insecure` setting, even when the Release also sets it. Use TLS, an administrator
+  redirect, or `--allowReleaseInsecureSource=true` to restore direct insecure sources. The controller and
+  `kubocd render` accept the flag. Set it in `controller.additionalArgs` when using the `kubocd-ctrl` chart.
+- Before refusing a direct insecure source, the controller sets `spec.insecure: false` on an existing OCIRepository
+  controlled by the Release, retaining its other settings. A failed patch is retried with
+  `could not disable insecure transport on associated OCIRepository`. The fatal refusal follows a successful patch.
 
 # v0.4.1
 

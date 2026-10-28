@@ -71,6 +71,10 @@ func init() {
 		"allowRedirectVerifyDrop", false,
 		"Allow a matching packageRedirect without verify to remove Release signature verification.")
 
+	renderCmd.PersistentFlags().BoolVar(&renderParams.ociRepositoryOptions.AllowReleaseInsecureSource,
+		"allowReleaseInsecureSource", false,
+		"Allow Release package sources to use insecure HTTP without a matching packageRedirect.")
+
 	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render", "Output directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")

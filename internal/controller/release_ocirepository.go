@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"errors"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -34,6 +35,17 @@ import (
 // waitOciRepository is the message of a Release that waits for its OCIRepository.
 const waitOciRepository = "Wait OCI repository"
 
+// releaseInsecureSourceError identifies a Release source rejected by transport policy.
+type releaseInsecureSourceError struct{}
+
+// Error returns the fixed API-field diagnostic without package data.
+func (*releaseInsecureSourceError) Error() string {
+	return "Release.spec.package.insecure is not allowed without a matching packageRedirect"
+}
+
+// errReleaseInsecureSource is the sentinel for Release-controlled HTTP transport without a redirect.
+var errReleaseInsecureSource = &releaseInsecureSourceError{}
+
 // handleOciRepository returns the OCIRepository of the Release once ready, or
 // otherwise the message of the wait.
 func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, string, ReconcileError) {
@@ -49,6 +61,9 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 		op.logger.V(0).Info("Will create associated OCIRepository", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
 		err := r.createOciRepository(op, mediaType, ociOperation)
 		if err != nil {
+			if errors.Is(err, errReleaseInsecureSource) {
+				return nil, "", NewReconcileError(errReleaseInsecureSource, true, "ReleaseInsecureSource")
+			}
 			return nil, "", NewReconcileError(err, false, "OCIRepositoryCreateFailed")
 		}
 		r.Event(op.release, "Normal", "OCIRepositoryCreated", fmt.Sprintf("Created OCIRepository %q", op.ociRepositoryName))
@@ -57,6 +72,9 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 	} else {
 		changed, err := r.patchOciRepository(op, ociRepository, mediaType, ociOperation)
 		if err != nil {
+			if errors.Is(err, errReleaseInsecureSource) {
+				return nil, "", NewReconcileError(errReleaseInsecureSource, true, "ReleaseInsecureSource")
+			}
 			return nil, "", NewReconcileError(err, false, "OCIRepositoryPatchFailed")
 		}
 		if changed {
@@ -102,10 +120,12 @@ func notReadySource(kind string, name string, conditions []metav1.Condition) str
 }
 
 // OCIRepositoryOptions controls how package sources populate OCIRepository specifications.
-// Its zero value preserves Release verification through package redirects.
+// Its zero value preserves Release verification through redirects and refuses direct insecure Release sources.
 type OCIRepositoryOptions struct {
 	// AllowRedirectVerifyDrop lets a matching redirect without verify remove Release verification.
 	AllowRedirectVerifyDrop bool
+	// AllowReleaseInsecureSource permits Release-controlled HTTP transport without a matching redirect.
+	AllowReleaseInsecureSource bool
 }
 
 // PopulateOciRepository fills the source specification using a matching redirect or the Release package.
@@ -141,6 +161,9 @@ func PopulateOciRepository(
 		ociRepository.Spec.Insecure = packageRedirectSpec.Insecure
 		ociRepository.Spec.Suspend = packageRedirectSpec.Suspend
 	} else {
+		if release.Spec.Package.Insecure && !options.AllowReleaseInsecureSource {
+			return errReleaseInsecureSource
+		}
 		ociRepository.Spec.URL = fmt.Sprintf("oci://%s", release.Spec.Package.Repository)
 		ociRepository.Spec.Reference = &sourcev1.OCIRepositoryRef{
 			Tag: release.Spec.Package.Tag,
@@ -188,6 +211,15 @@ func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociReposito
 	patch := client.MergeFrom(ociRepository.DeepCopy())
 	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore, r.OCIRepositoryOptions)
 	if err != nil {
+		if errors.Is(err, errReleaseInsecureSource) && ociRepository.Spec.Insecure && metav1.IsControlledBy(ociRepository, op.release) {
+			base := ociRepository.DeepCopy()
+			base.UID = ""
+			secured := ociRepository.DeepCopy()
+			secured.Spec.Insecure = false
+			if patchErr := r.Patch(op.ctx, secured, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); patchErr != nil {
+				return false, errors.New("could not disable insecure transport on associated OCIRepository")
+			}
+		}
 		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
 	}
 	err = r.Patch(op.ctx, ociRepository, patch)
