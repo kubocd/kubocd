@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 	"text/template"
+	"unicode/utf8"
 
 	"github.com/Masterminds/sprig/v3"
 	"sigs.k8s.io/yaml"
@@ -37,7 +38,7 @@ import (
 // network, environment, cluster, clock or randomness.
 var sprigFunctions = []string{
 	// Strings
-	"indent", "lower", "nindent", "nospace", "quote", "regexReplaceAll", "replace",
+	"lower", "nospace", "quote", "regexReplaceAll",
 	"split", "splitList", "title", "trim", "trimAll", "trimPrefix", "trimSuffix",
 	"trunc", "upper",
 	// Lists
@@ -59,7 +60,10 @@ var kubocdFunctions = template.FuncMap{
 	"fromJson":      fromJSON,
 	"fromYaml":      fromYAML,
 	"imageRedirect": imageRedirect,
+	"indent":        indent,
 	"keys":          keys,
+	"nindent":       nindent,
+	"replace":       replace,
 	"required":      required,
 	"toJson":        toJSON,
 	"toYaml":        toYAML,
@@ -187,6 +191,66 @@ func printf(format string, args ...interface{}) (string, error) {
 		return "", shownf("printf: the %%p verb is not allowed")
 	}
 	return fmt.Sprintf(format, args...), nil
+}
+
+var (
+	sprigIndent  = sprig.TxtFuncMap()["indent"].(func(int, string) string)
+	sprigNindent = sprig.TxtFuncMap()["nindent"].(func(int, string) string)
+	sprigReplace = sprig.TxtFuncMap()["replace"].(func(string, string, string) string)
+)
+
+// textResultLimit reports an oversized function result without template data.
+func textResultLimit(name string) error {
+	return &limitError{msg: fmt.Sprintf("%s: the result is larger than %d bytes", name, maxRenderedText)}
+}
+
+// checkIndentation checks whether indentation is valid within maxRenderedText.
+func checkIndentation(name string, width int, value string, leadingNewline int) error {
+	if width < 0 {
+		return &limitError{msg: name + ": the indentation must not be negative"}
+	}
+	remaining := maxRenderedText - leadingNewline
+	if len(value) > remaining || width > (remaining-len(value))/(strings.Count(value, "\n")+1) {
+		return textResultLimit(name)
+	}
+	return nil
+}
+
+// indent is the sprig function, except that it refuses negative widths and results beyond maxRenderedText.
+func indent(width int, value string) (string, error) {
+	if err := checkIndentation("indent", width, value, 0); err != nil {
+		return "", err
+	}
+	return sprigIndent(width, value), nil
+}
+
+// nindent is the sprig function, except that it refuses negative widths and results beyond maxRenderedText.
+func nindent(width int, value string) (string, error) {
+	if err := checkIndentation("nindent", width, value, 1); err != nil {
+		return "", err
+	}
+	return sprigNindent(width, value), nil
+}
+
+// replace is the sprig function, except that it refuses results beyond maxRenderedText.
+func replace(old, replacement, source string) (string, error) {
+	remainingSource := len(source)
+	var count int
+	if old == "" {
+		if remainingSource > maxRenderedText {
+			return "", textResultLimit("replace")
+		}
+		// An empty search inserts at UTF-8 boundaries, including both ends.
+		count = utf8.RuneCountInString(source) + 1
+	} else {
+		count = strings.Count(source, old)
+		// Nonoverlapping matches occupy at most len(source) bytes.
+		remainingSource -= count * len(old)
+	}
+	if remainingSource > maxRenderedText || count > 0 && len(replacement) > (maxRenderedText-remainingSource)/count {
+		return "", textResultLimit("replace")
+	}
+	return sprigReplace(old, replacement, source), nil
 }
 
 // maxUntil is the most items that until builds, either way.

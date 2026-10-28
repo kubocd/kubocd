@@ -1,3 +1,12 @@
+# v0.4.2
+
+- `indent`, `nindent` and `replace` refuse an intermediate result larger than 4 MiB, even when the final rendered text
+  is small, with `indent: the result is larger than 4194304 bytes`, `nindent: the result is larger than 4194304 bytes`
+  or `replace: the result is larger than 4194304 bytes`. This applies to the controller and `kubocd render`, with no
+  retry on the refusal in the controller.
+- A negative indentation fails with `indent: the indentation must not be negative` or
+  `nindent: the indentation must not be negative`, with no retry in the controller.
+
 # v0.4.1
 
 - A refused update of the finalizer of a Release no longer quotes the answer of the API server.
