@@ -69,6 +69,9 @@ type ReleaseReconciler struct {
 	AllowDNSLookups bool
 	ConnectionsGate bool // On when the controllers that check connections run
 	statusFailures  statusFailures
+
+	// OCIRepositoryOptions controls the package source policy for creation and updates.
+	OCIRepositoryOptions OCIRepositoryOptions
 }
 
 // statusFailures holds the Releases whose last status update failed.

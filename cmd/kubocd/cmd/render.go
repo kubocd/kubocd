@@ -60,11 +60,17 @@ var renderParams struct {
 	trace           bool
 	skipConditions  bool
 	allowDNSLookups bool
+
+	ociRepositoryOptions controller.OCIRepositoryOptions
 }
 
 var renderLog logr.Logger
 
 func init() {
+	renderCmd.PersistentFlags().BoolVar(&renderParams.ociRepositoryOptions.AllowRedirectVerifyDrop,
+		"allowRedirectVerifyDrop", false,
+		"Allow a matching packageRedirect without verify to remove Release signature verification.")
+
 	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render", "Output directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
@@ -351,7 +357,8 @@ var renderCmd = &cobra.Command{
 					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
 				},
 			}
-			err = controller.PopulateOciRepository(ociRepository, release, global.PackageContentMediaType, "extract", configStore)
+			err = controller.PopulateOciRepository(ociRepository, release, global.PackageContentMediaType, "extract",
+				configStore, renderParams.ociRepositoryOptions)
 			if err != nil {
 				return fmt.Errorf("could not populate OCI repository: %w", err)
 			}

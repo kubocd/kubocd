@@ -101,7 +101,21 @@ func notReadySource(kind string, name string, conditions []metav1.Condition) str
 	return message
 }
 
-func PopulateOciRepository(ociRepository *sourcev1.OCIRepository, release *kv1alpha1.Release, mediaType string, ociOperation string, configStore configstore.ConfigStore) error {
+// OCIRepositoryOptions controls how package sources populate OCIRepository specifications.
+// Its zero value preserves Release verification through package redirects.
+type OCIRepositoryOptions struct {
+	// AllowRedirectVerifyDrop lets a matching redirect without verify remove Release verification.
+	AllowRedirectVerifyDrop bool
+}
+
+// PopulateOciRepository fills the source specification using a matching redirect or the Release package.
+func PopulateOciRepository(
+	ociRepository *sourcev1.OCIRepository,
+	release *kv1alpha1.Release,
+	mediaType, ociOperation string,
+	configStore configstore.ConfigStore,
+	options OCIRepositoryOptions,
+) error {
 	packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
 	if packageRedirectSpec != nil {
 		repo, tag, err := misc.DecodeImageUrl(newUrl)
@@ -115,6 +129,9 @@ func PopulateOciRepository(ociRepository *sourcev1.OCIRepository, release *kv1al
 		ociRepository.Spec.Provider = packageRedirectSpec.Provider
 		ociRepository.Spec.SecretRef = packageRedirectSpec.SecretRef
 		ociRepository.Spec.Verify = packageRedirectSpec.Verify
+		if ociRepository.Spec.Verify == nil && !options.AllowRedirectVerifyDrop {
+			ociRepository.Spec.Verify = release.Spec.Package.Verify
+		}
 		ociRepository.Spec.ServiceAccountName = packageRedirectSpec.ServiceAccountName
 		ociRepository.Spec.CertSecretRef = packageRedirectSpec.CertSecretRef
 		ociRepository.Spec.ProxySecretRef = packageRedirectSpec.ProxySecretRef
@@ -152,7 +169,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 	ociRepository := &sourcev1.OCIRepository{}
 	ociRepository.SetName(op.ociRepositoryName)
 	ociRepository.SetNamespace(op.release.Namespace)
-	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)
+	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore, r.OCIRepositoryOptions)
 	if err != nil {
 		return fmt.Errorf("error while creating associated OCIRepository '%s': %w", op.ociRepositoryName, err)
 	}
@@ -169,7 +186,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
 	patch := client.MergeFrom(ociRepository.DeepCopy())
-	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore)
+	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore, r.OCIRepositoryOptions)
 	if err != nil {
 		return false, fmt.Errorf("error while patching OCIRepository '%s': %w", ociRepository.Name, err)
 	}

@@ -83,6 +83,8 @@ var controllerParams struct {
 	featureGates []string
 	// Resolved from featureGates by PersistentPreRun. Always hold an entry for each known gate.
 	gates map[string]bool
+
+	ociRepositoryOptions controller.OCIRepositoryOptions
 }
 
 // WARNING: All features behind a gate are EXPERIMENTAL. Their resources, fields and behavior may change, or be
@@ -117,6 +119,10 @@ func parseFeatureGates(entries []string) (map[string]bool, error) {
 }
 
 func init() {
+	controllerCmd.PersistentFlags().BoolVar(&controllerParams.ociRepositoryOptions.AllowRedirectVerifyDrop,
+		"allowRedirectVerifyDrop", false,
+		"Allow a matching packageRedirect without verify to remove Release signature verification.")
+
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.logConfig.Mode, "logMode", "dev", "Log mode: 'dev' or 'json'")
 
@@ -498,10 +504,11 @@ var controllerCmd = &cobra.Command{
 			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
 			PackageCache: cache.NewCache(time.Second*60, controllerParams.maxCachedPackages,
 				controllerParams.maxCachedPackagesSize, controllerRootLog.WithName("PackageCache")),
-			ConfigStore:     theConfigStore,
-			RoleStore:       roleStore,
-			AllowDNSLookups: controllerParams.allowDNSLookups,
-			ConnectionsGate: controllerParams.gates[featureGateConnections],
+			ConfigStore:          theConfigStore,
+			RoleStore:            roleStore,
+			AllowDNSLookups:      controllerParams.allowDNSLookups,
+			ConnectionsGate:      controllerParams.gates[featureGateConnections],
+			OCIRepositoryOptions: controllerParams.ociRepositoryOptions,
 		}
 
 		err = releaseController(mgr, releaseReconciler, theConfigStore, configPublished, controllerRootLog)
