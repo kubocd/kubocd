@@ -6,6 +6,14 @@
   retry on the refusal in the controller.
 - A negative indentation fails with `indent: the indentation must not be negative` or
   `nindent: the indentation must not be negative`, with no retry in the controller.
+- `join`, `printf` and `regexReplaceAll` refuse an intermediate result when its size bound says it can exceed 4 MiB,
+  even when the final rendered text is small, with `join: the result can exceed 4194304 bytes`,
+  `printf: the result can exceed 4194304 bytes` or `regexReplaceAll: the result can exceed 4194304 bytes`.
+  Conservative bounds can also refuse a smaller result: non-string join items and regex capture replacements can be
+  over-counted. For `printf`, bounds can over-count quoted or hexadecimal strings (`%q`, `%x`, `%X`, and quoted strings
+  in `%#v`), containers, numeric formatting (including precision) and invalid-format diagnostics. Plain `%s` and `%v`
+  strings are counted exactly.
+  The controller and `kubocd render` use the same bound, with no retry on the refusal in the controller.
 
 # v0.4.1
 

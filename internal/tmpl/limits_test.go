@@ -287,3 +287,205 @@ func TestTemplateAmplifierOverflow(t *testing.T) {
 		})
 	}
 }
+
+const (
+	joinFunctionName   = "join"
+	printfFunctionName = "printf"
+	regexFunctionName  = "regexReplaceAll"
+	formatModelKey     = "format"
+	regexPatternKey    = "pattern"
+)
+
+// checkConservativeTemplate checks the result and the refusal of a bounded function in every function set.
+func checkConservativeTemplate(t *testing.T, name, call string, model map[string]interface{}, want string, refused bool) {
+	t.Helper()
+	forms := []struct{ text, want string }{
+		{"{{ " + call + " | len }}", strconv.Itoa(len(want))},
+		{"{{ $unused := " + call + " }}ok", "ok"},
+	}
+	if !refused {
+		forms = append(forms, struct{ text, want string }{"{{ " + call + " }}", want})
+	}
+	for set, functions := range amplifierFunctionSets {
+		t.Run(set, func(t *testing.T) {
+			for i, form := range forms {
+				t.Run(strconv.Itoa(i), func(t *testing.T) {
+					tt, err := New("", form.text, "", functions)
+					if err != nil {
+						t.Fatal(err)
+					}
+					got, err := tt.RenderToText(model)
+					if !refused {
+						if err != nil || got != form.want {
+							t.Fatalf("%s: got %d bytes (%v), want %d bytes equal to the original function", name, len(got), err, len(form.want))
+						}
+						return
+					}
+					if err == nil {
+						if len(want) > maxRenderedText {
+							t.Fatalf("%s accepted an intermediate larger than 4194304 bytes", name)
+						}
+						t.Fatalf("%s accepted a result whose size bound exceeds 4194304 bytes", name)
+					}
+					message := fmt.Sprintf("line 1, column %d: error calling %s: %s: the result can exceed 4194304 bytes",
+						strings.Index(form.text, name)+1, name, name)
+					if err.Error() != message || !errors.Is(err, ErrLimit) {
+						t.Fatalf("got %v, want %q and ErrLimit", err, message)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestTemplateJoinLimit covers exact string bounds and conservative stringification bounds.
+func TestTemplateJoinLimit(t *testing.T) {
+	original := sprig.TxtFuncMap()[joinFunctionName].(func(string, interface{}) string)
+	check := func(t *testing.T, separator string, items interface{}, refused bool) {
+		t.Helper()
+		checkConservativeTemplate(t, joinFunctionName, "join .sep .items",
+			map[string]interface{}{"sep": separator, "items": items}, original(separator, items), refused)
+	}
+	for _, extra := range []int{-1, 0, 1} {
+		t.Run(fmt.Sprintf("items/%d", extra), func(t *testing.T) {
+			check(t, "", []string{strings.Repeat("a", maxRenderedText/2), strings.Repeat("b", maxRenderedText/2+extra)}, extra > 0)
+		})
+		t.Run(fmt.Sprintf("separator/%d", extra), func(t *testing.T) {
+			check(t, strings.Repeat("s", maxRenderedText+extra), []string{"", ""}, extra > 0)
+		})
+		t.Run(fmt.Sprintf("repeated separator/%d", extra), func(t *testing.T) {
+			check(t, strings.Repeat("s", maxRenderedText/2-1), []string{"", "", strings.Repeat("a", 2+extra)}, extra > 0)
+		})
+	}
+	for label, items := range map[string]interface{}{
+		"nil": nil, "empty list": []string{}, "singleton": []string{"x"}, "nil elements": []interface{}{nil, "x", nil, "y"},
+		"mixed": []interface{}{1, true, "é", nil}, "nested": []interface{}{[]interface{}{nil, "x"}, map[string]interface{}{"key": 2}},
+		"scalar": 12,
+	} {
+		t.Run(label, func(t *testing.T) { check(t, ",", items, false) })
+	}
+	t.Run("unused separator", func(t *testing.T) { check(t, strings.Repeat("s", maxRenderedText+1), []string{"x"}, false) })
+	t.Run("non-string over-count", func(t *testing.T) {
+		check(t, "", []interface{}{[]string{strings.Repeat("a", maxRenderedText/4)}}, true)
+	})
+}
+
+// checkPrintfTemplate compares a template printf call with fmt without needing new implementation helpers.
+func checkPrintfTemplate(t *testing.T, format string, args []interface{}, refused bool) {
+	t.Helper()
+	call := "printf .format"
+	model := map[string]interface{}{formatModelKey: format}
+	for i, arg := range args {
+		key := fmt.Sprintf("arg%d", i)
+		model[key] = arg
+		call += " ." + key
+	}
+	checkConservativeTemplate(t, printfFunctionName, call, model, fmt.Sprintf(format, args...), refused)
+}
+
+// TestTemplatePrintfLimit covers formatting amplification without rejecting ordinary large strings.
+func TestTemplatePrintfLimit(t *testing.T) {
+	for _, extra := range []int{-1, 0, 1} {
+		for _, verb := range []string{"%s", "%v"} {
+			t.Run(fmt.Sprintf("plain/%s/%d", verb, extra), func(t *testing.T) {
+				checkPrintfTemplate(t, verb, []interface{}{strings.Repeat("a", maxRenderedText+extra)}, extra > 0)
+			})
+		}
+		t.Run(fmt.Sprintf("two strings/%d", extra), func(t *testing.T) {
+			checkPrintfTemplate(t, "%s%s", []interface{}{strings.Repeat("a", maxRenderedText/2), strings.Repeat("b", maxRenderedText/2+extra)}, extra > 0)
+		})
+	}
+	for label, c := range map[string]struct {
+		format  string
+		args    []interface{}
+		refused bool
+	}{
+		"nil type ignores precision":   {"%s%.0T", []interface{}{strings.Repeat("a", maxRenderedText), nil}, true},
+		"nil type at limit":            {"%s%.0T", []interface{}{strings.Repeat("a", maxRenderedText-5), nil}, false},
+		"boolean at limit":             {"%s%t", []interface{}{strings.Repeat("a", maxRenderedText-4), true}, false},
+		"repeated boolean":             {strings.Repeat("%[1]t", 4097), []interface{}{true}, false},
+		"padded boolean diagnostic":    {"%s%400d", []interface{}{strings.Repeat("a", maxRenderedText-410), false}, false},
+		"nil diagnostic ignores width": {"%s%1000000s", []interface{}{strings.Repeat("a", maxRenderedText-10), nil}, false},
+		"repeated binary integer":      {strings.Repeat("%[1]b", 4097), []interface{}{int64(-1 << 63)}, false},
+		"quoted nil elements":          {"%#v", []interface{}{make([]interface{}, 250000)}, true},
+		"five fields":                  {strings.Repeat("%1000000s", 5), []interface{}{"", "", "", "", ""}, true},
+		"dynamic fields":               {strings.Repeat("%*s", 5), []interface{}{1000000, "", 1000000, "", 1000000, "", 1000000, "", 1000000, ""}, true},
+		"indexed widths":               {strings.Repeat("%[1]*[2]s", 5), []interface{}{1000000, ""}, true},
+		"repeated argument":            {strings.Repeat("%[1]s", 65), []interface{}{strings.Repeat("a", 64<<10)}, true},
+		"long list":                    {"%10v", []interface{}{make([]string, 420000)}, true},
+		"padded leaves":                {"%1000000v", []interface{}{[]string{"", "", "", "", ""}}, true},
+		"literal width":                {"%4194305s", []interface{}{""}, true},
+		"numeric precision":            {"%.4194305d", []interface{}{1}, true},
+		"quoted over-count":            {"%q", []interface{}{strings.Repeat("a", maxRenderedText-2)}, true},
+		"hex over-count":               {"%x", []interface{}{strings.Repeat("a", maxRenderedText/2)}, true},
+		"large short precision":        {"%.9999999s", []interface{}{"short"}, false},
+		"450 KiB string":               {"%s", []interface{}{strings.Repeat("a", 450<<10)}, false},
+		"indexed unused argument":      {"%[1]s", []interface{}{"short", strings.Repeat("a", maxRenderedText+1)}, false},
+		"extra argument":               {"", []interface{}{strings.Repeat("a", maxRenderedText+1)}, true},
+		"type only":                    {"%T", []interface{}{strings.Repeat("a", maxRenderedText+1)}, false},
+	} {
+		t.Run(label, func(t *testing.T) { checkPrintfTemplate(t, c.format, c.args, c.refused) })
+	}
+	t.Run("complex literal", func(t *testing.T) {
+		checkConservativeTemplate(t, printfFunctionName, `printf "%v" 1i`, nil, fmt.Sprintf("%v", 1i), false)
+	})
+	t.Run("pointer priority", func(t *testing.T) {
+		_, err := printf("%4194305s%p", "", map[string]interface{}{})
+		if err == nil || err.Error() != "printf: the %p verb is not allowed" || errors.Is(err, ErrLimit) {
+			t.Fatalf("got %v, want the pointer prohibition before the size refusal", err)
+		}
+	})
+}
+
+// TestTemplateRegexReplaceAllLimit checks Go's match walk and the conservative replacement bound.
+func TestTemplateRegexReplaceAllLimit(t *testing.T) {
+	original := sprig.TxtFuncMap()[regexFunctionName].(func(string, string, string) string)
+	check := func(t *testing.T, pattern, source, replacement string, refused bool) {
+		t.Helper()
+		checkConservativeTemplate(t, regexFunctionName, "regexReplaceAll .pattern .source .repl",
+			map[string]interface{}{regexPatternKey: pattern, amplifierSourceKey: source, "repl": replacement}, original(pattern, source, replacement), refused)
+	}
+	for _, extra := range []int{-1, 0, 1} {
+		t.Run(fmt.Sprintf("literal boundary/%d", extra), func(t *testing.T) {
+			check(t, "x", "x", strings.Repeat("r", maxRenderedText+extra), extra > 0)
+		})
+		t.Run(fmt.Sprintf("capture bound/%d", extra), func(t *testing.T) {
+			check(t, "(?s)^.*$", strings.Repeat("a", maxRenderedText-2+extra), "$0", extra > 0)
+		})
+	}
+	for label, c := range map[string]struct {
+		pattern, source, replacement string
+		refused                      bool
+	}{
+		"oversized capture":      {"(?s)^(.*)$", strings.Repeat("a", maxRenderedText+1), "$1", true},
+		"short group over-count": {"(?s)^(a).*$", strings.Repeat("a", maxRenderedText-1), "$1", true},
+		"empty dollar escape":    {"", "", "$$", false},
+		"empty Unicode matches":  {"", invalidUnicodeString, "$$", false},
+		"many empty matches":     {"()()()()()()()()()()", strings.Repeat("a", 1<<16), "", false},
+		"anchors":                {"(?m)^a|b$", "aab\naab", "-", false},
+		"word boundaries":        {`\b(a)\b`, "a ba a", "${1}x", false},
+		"capture syntax":         {"(?P<first>a)(b)?", "ab a", "${first}:$0:$1x:${1}x:$2:$missing:$$:${", false},
+		"duplicate names":        {"(?P<part>a)|(?P<part>b)", "ab", "${part}", false},
+		"empty after match":      {"a*", "aab", "-", false},
+		"no matches":             {"z", shortFormatText, strings.Repeat("r", maxRenderedText+1), false},
+		"shrinking source":       {"a+", strings.Repeat("a", maxRenderedText+1), "", false},
+		"unchanged source":       {"z", strings.Repeat("a", maxRenderedText+1), "", true},
+	} {
+		t.Run(label, func(t *testing.T) { check(t, c.pattern, c.source, c.replacement, c.refused) })
+	}
+	t.Run("invalid pattern withheld", func(t *testing.T) {
+		for set, functions := range amplifierFunctionSets {
+			t.Run(set, func(t *testing.T) {
+				tt, err := New("", "{{ regexReplaceAll .pattern .source .repl }}", "", functions)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = tt.RenderToText(map[string]interface{}{regexPatternKey: "[pattern-canary", amplifierSourceKey: amplifierSourceCanary, "repl": "replacement-canary"})
+				want := "line 1, column 4: error calling regexReplaceAll, " + withheld
+				if err == nil || err.Error() != want || errors.Is(err, ErrLimit) {
+					t.Fatalf("got %v, want %q", err, want)
+				}
+			})
+		}
+	})
+}

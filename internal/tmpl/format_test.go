@@ -14,13 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:goconst // test inputs read better inline
 package tmpl
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+)
+
+const (
+	shortFormatText      = "text"
+	invalidUnicodeString = "é\xff界"
+	dynamicStringWidth   = "%*s"
 )
 
 var rejectedFormats = []string{
@@ -35,14 +42,14 @@ var acceptedFormats = []string{
 
 func TestPrintfRejectsThePointerVerb(t *testing.T) {
 	for _, format := range rejectedFormats {
-		if _, err := printf(format, map[string]interface{}{"a": 1}); err == nil {
+		if _, err := printf(format, map[string]interface{}{"a": 1}); err == nil || !hasPointerVerb(format) {
 			t.Errorf("%q: the %%p verb should be rejected", format)
 		}
 	}
 	for _, format := range acceptedFormats {
 		args := []interface{}{"x", 1.5}
 		got, err := printf(format, args...)
-		if err != nil {
+		if err != nil || hasPointerVerb(format) {
 			t.Errorf("%q: unexpected error %v", format, err)
 			continue
 		}
@@ -104,8 +111,52 @@ func FuzzPrintfGuard(f *testing.F) {
 			}
 			return
 		}
+		if errors.Is(err, ErrLimit) {
+			return
+		}
 		if !printsAddress(want) && !strings.Contains(want, "%!p(") {
 			t.Fatalf("%q: rejected, but fmt.Sprintf prints no pointer verb: %q", format, want)
 		}
 	})
+}
+
+// TestPrintfFormattingCompatibility keeps fmt as the producer for ordinary and malformed formats.
+func TestPrintfFormattingCompatibility(t *testing.T) {
+	cases := []struct {
+		format string
+		args   []interface{}
+	}{
+		{"%.0T %.0v %100s", []interface{}{nil, nil, nil}},
+		{"%.0t %#v %20d", []interface{}{true, false, false}},
+		{"%v %v", []interface{}{complex64(1i), complex128(1i)}},
+		{"%#.10f %20.4x %q", []interface{}{complex(math.MaxFloat64, -math.MaxFloat64), complex64(1 + 2i), complex128(1 - 2i)}},
+		{"%s-main", []interface{}{"demo"}}, {"%s.%s", []interface{}{"a", "b"}}, {"%s-%03d", []interface{}{"a", 7}},
+		{"%v %+v %#v", []interface{}{[]interface{}{nil, "é"}, map[string]interface{}{"x": 1}, map[string]interface{}{"x": "é"}}},
+		{"%T %t", []interface{}{map[string]interface{}{}, true}},
+		{"%d %+08d %#x", []interface{}{int64(math.MinInt64), 42, uint64(math.MaxUint64)}},
+		{"%x % X %# x", []interface{}{"é", "ab", "ab"}},
+		{"%q %+q %#q", []interface{}{"é\xff", "é\xff", "plain"}},
+		{"%-8s|%.2s", []interface{}{"界", invalidUnicodeString}},
+		{"%5.2f %g %#g %e %x", []interface{}{1.5, math.MaxFloat64, 1.5, 1.5, 1.5}},
+		{"%% %9999999%", nil}, {"%[2]s %[1]s", []interface{}{"a", "b"}},
+		{dynamicStringWidth, []interface{}{-8, "é"}}, {"%.*s", []interface{}{2, invalidUnicodeString}},
+		{"%*.*f", []interface{}{8, 2, 1.5}}, {"%[3]*.[2]*[1]f", []interface{}{1.5, 2, 8}},
+		{"%9999999999s", []interface{}{"x"}}, {"%1000001s", []interface{}{"x"}},
+		{dynamicStringWidth, []interface{}{int(^uint(0) >> 1), "x"}}, {dynamicStringWidth, []interface{}{-int(^uint(0)>>1) - 1, "x"}},
+		{"%.*s", []interface{}{-2, shortFormatText}}, {"%.*s", []interface{}{1000001, shortFormatText}},
+		{dynamicStringWidth, []interface{}{"bad width", "x"}}, {"%.*s", []interface{}{"bad precision", "x"}},
+		{"%[9]s", []interface{}{"x"}}, {"%s", nil}, {"%s", []interface{}{"x", "extra"}},
+		{"%d", []interface{}{"wrong verb"}}, {"%w", []interface{}{"wrong verb"}},
+		{"%*.*s", []interface{}{4, 2, "é界x"}}, {"%[1]s", []interface{}{"x", "unused"}},
+		{"%.9999999t", []interface{}{true}}, {"%.9999999v", []interface{}{nil}},
+	}
+	for i, c := range cases {
+		t.Run(fmt.Sprintf("%d/%s", i, c.format), func(t *testing.T) {
+			got, err := printf(c.format, c.args...)
+			want := fmt.Sprintf(c.format, c.args...)
+			if err != nil || got != want {
+				t.Fatalf("got %d bytes (%v), want %d bytes equal to fmt", len(got), err, len(want))
+			}
+		})
+	}
 }

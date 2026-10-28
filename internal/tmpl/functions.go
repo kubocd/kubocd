@@ -24,6 +24,7 @@ import (
 	"kubocd/internal/misc"
 	"net"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"text/template"
@@ -38,11 +39,11 @@ import (
 // network, environment, cluster, clock or randomness.
 var sprigFunctions = []string{
 	// Strings
-	"lower", "nospace", "quote", "regexReplaceAll",
+	"lower", "nospace", "quote",
 	"split", "splitList", "title", "trim", "trimAll", "trimPrefix", "trimSuffix",
 	"trunc", "upper",
 	// Lists
-	"append", "compact", "concat", "first", "has", "join", "last", "list",
+	"append", "compact", "concat", "first", "has", "last", "list",
 	"prepend", "sortAlpha", "uniq",
 	// Dictionaries
 	"dict", "dig", "get", "hasKey", "omit", "set",
@@ -56,19 +57,21 @@ var sprigFunctions = []string{
 
 // kubocdFunctions lists the functions KuboCD defines for templates.
 var kubocdFunctions = template.FuncMap{
-	"fail":          fail,
-	"fromJson":      fromJSON,
-	"fromYaml":      fromYAML,
-	"imageRedirect": imageRedirect,
-	"indent":        indent,
-	"keys":          keys,
-	"nindent":       nindent,
-	"replace":       replace,
-	"required":      required,
-	"toJson":        toJSON,
-	"toYaml":        toYAML,
-	"until":         until,
-	"urlParse":      urlParse,
+	"fail":            fail,
+	"fromJson":        fromJSON,
+	"fromYaml":        fromYAML,
+	"imageRedirect":   imageRedirect,
+	"indent":          indent,
+	"join":            join,
+	"keys":            keys,
+	"nindent":         nindent,
+	"regexReplaceAll": regexReplaceAll,
+	"replace":         replace,
+	"required":        required,
+	"toJson":          toJSON,
+	"toYaml":          toYAML,
+	"until":           until,
+	"urlParse":        urlParse,
 }
 
 // builtinOverrides replace the text/template builtins of the same name.
@@ -184,20 +187,60 @@ func required(msg string, val interface{}) (interface{}, error) {
 }
 
 // printf is fmt.Sprintf, like the text/template builtin, except that it
-// rejects the %p verb: the memory address it prints changes from one render
-// to the next.
+// refuses the %p verb and results whose bound exceeds maxRenderedText.
 func printf(format string, args ...interface{}) (string, error) {
-	if hasPointerVerb(format) {
+	size, pointer := printfSize(format, args)
+	if pointer {
 		return "", shownf("printf: the %%p verb is not allowed")
+	}
+	if size > maxRenderedText {
+		return "", textBoundLimit("printf")
 	}
 	return fmt.Sprintf(format, args...), nil
 }
 
 var (
-	sprigIndent  = sprig.TxtFuncMap()["indent"].(func(int, string) string)
-	sprigNindent = sprig.TxtFuncMap()["nindent"].(func(int, string) string)
-	sprigReplace = sprig.TxtFuncMap()["replace"].(func(string, string, string) string)
+	sprigJoin            = sprig.TxtFuncMap()["join"].(func(string, interface{}) string)
+	sprigRegexReplaceAll = sprig.TxtFuncMap()["regexReplaceAll"].(func(string, string, string) string)
+	sprigIndent          = sprig.TxtFuncMap()["indent"].(func(int, string) string)
+	sprigNindent         = sprig.TxtFuncMap()["nindent"].(func(int, string) string)
+	sprigReplace         = sprig.TxtFuncMap()["replace"].(func(string, string, string) string)
 )
+
+// textBoundLimit reports a potentially oversized result without template data.
+func textBoundLimit(name string) error {
+	return &limitError{msg: fmt.Sprintf("%s: the result can exceed %d bytes", name, maxRenderedText)}
+}
+
+// join is the sprig function, except that it refuses results whose bound exceeds maxRenderedText.
+func join(separator string, value interface{}) (string, error) {
+	if joinSize(separator, value) > maxRenderedText {
+		return "", textBoundLimit("join")
+	}
+	return sprigJoin(separator, value), nil
+}
+
+// regexReplaceAll is the sprig function, except that it refuses results whose bound exceeds maxRenderedText.
+func regexReplaceAll(pattern, source, replacement string) (string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", err
+	}
+	dollars := strings.Count(replacement, "$")
+	expansion, matched := 0, 0
+	re.ReplaceAllStringFunc(source, func(match string) string {
+		if expansion <= maxRenderedText {
+			expansion = boundAdd(expansion, boundAdd(len(replacement), boundMultiply(dollars, len(match))))
+			matched += len(match)
+		}
+		return ""
+	})
+	// Literal replacement bytes already cover $$, even for an empty match.
+	if boundAdd(expansion, len(source)-matched) > maxRenderedText {
+		return "", textBoundLimit("regexReplaceAll")
+	}
+	return sprigRegexReplaceAll(pattern, source, replacement), nil
+}
 
 // textResultLimit reports an oversized function result without template data.
 func textResultLimit(name string) error {
