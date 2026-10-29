@@ -139,7 +139,7 @@ func ComputeContext(ctx context.Context, k8sClient client.Client, release *kv1al
 		if ctx == nil {
 			ctx = contextObj.Spec.Context
 		}
-		resultContext, err = Merge(resultContext, ctx)
+		resultContext, err = mergeContext(resultContext, ctx)
 		if err != nil {
 			return nil, nil, NewReconcileError(fmt.Errorf("unable to merge context: %w", err), true, "ContextMerge")
 		}

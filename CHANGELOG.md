@@ -106,6 +106,11 @@
 - The chart server allows 5 seconds to read request headers and 60 seconds between requests on an idle keep-alive
   connection. `--helmRepoReadHeaderTimeout` and `--helmRepoIdleTimeout` of the controller change these durations, and
   0 disables a limit. A chart download has no time limit. GET, HEAD and byte-range requests are unchanged.
+- Context decoding failures report `context decoding error, message withheld, as it can quote the data` instead of
+  the decoder's message. This also applies when a child Context, a Release, `kubocd render` or `kubocd dump` merges
+  Context values.
+  Events, errors, logs and Release status withhold these decoder diagnostics. Reasons, phases and retry behavior
+  are unchanged. Inspect the Context values directly when diagnosing malformed data.
 
 # v0.4.1
 

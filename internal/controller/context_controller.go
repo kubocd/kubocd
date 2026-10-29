@@ -131,13 +131,13 @@ func (r *ContextReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 			if ctx == nil {
 				ctx = parentContext.Spec.Context
 			}
-			base, err = Merge(base, ctx)
+			base, err = mergeContext(base, ctx)
 			if err != nil {
 				return r.reportError(op, NewReconcileError(fmt.Errorf("unable to merge context from '%s': %w", parent.String(), err), true, "ContextError")) // Should not occurs
 			}
 		}
 		// And merge out own content
-		base, err = Merge(base, kcontext.Spec.Context)
+		base, err = mergeContext(base, kcontext.Spec.Context)
 		if err != nil {
 			return r.reportError(op, NewReconcileError(fmt.Errorf("unable to merge our own context values: %w", err), true, "ContextError")) // Should not occurs
 		}
@@ -210,7 +210,7 @@ func groomContext(kcontext *kv1alpha1.Context, logger logr.Logger) ReconcileErro
 	kuboContext := make(map[string]interface{})
 	err := yaml.UnmarshalStrict(kcontext.Spec.Context.Raw, &kuboContext)
 	if err != nil {
-		return NewReconcileError(fmt.Errorf("unable to unmarshal kubo context: %w", err), false, "InvalidContext")
+		return NewReconcileError(fmt.Errorf("unable to unmarshal kubo context: %w", contextDecodeError()), false, "InvalidContext")
 	}
 	return nil
 }
