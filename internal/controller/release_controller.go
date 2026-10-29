@@ -66,6 +66,7 @@ type ReleaseReconciler struct {
 	PackageCache    cache.Cache
 	ConfigStore     configstore.ConfigStore
 	RoleStore       rolestore.RoleStore
+	ConditionLimits *ConditionLimits
 	AllowDNSLookups bool
 	ConnectionsGate bool // On when the controllers that check connections run
 	statusFailures  statusFailures
@@ -556,8 +557,12 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 
 	// ---------------------------------------------------- Check our conditions in green state
+	limits := DefaultConditionLimits
+	if r.ConditionLimits != nil {
+		limits = *r.ConditionLimits
+	}
 	for idx, condition := range rendered.Conditions {
-		ok, message, reconcileError := CheckCondition(op.ctx, r, condition)
+		ok, message, reconcileError := CheckConditionWithLimits(op.ctx, r, condition, limits)
 		if reconcileError != nil {
 			return r.reportError(op, atPlace(fmt.Sprintf("condition[%d]", idx), reconcileError), forceUpdate)
 		}

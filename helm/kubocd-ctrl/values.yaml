@@ -164,6 +164,8 @@ controller:
 
   # -- Hooks for specific configuration. Leave as is for standard usage
   extraEnv:
+  # CEL limits per condition evaluation; 0 disables that limit, negative values are refused.
+  # additionalArgs: ["--conditionCelCostLimit=1000000", "--conditionCelTimeout=1s"]
   additionalArgs: []
   disableProbes: false
   extraVolumes: []

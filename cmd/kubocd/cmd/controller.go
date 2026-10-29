@@ -76,6 +76,7 @@ var controllerParams struct {
 
 	allowDNSLookups bool
 
+	conditionLimits       controller.ConditionLimits
 	packageLimits         controller.PackageLimits
 	maxCachedPackages     int
 	maxCachedPackagesSize int64
@@ -85,6 +86,27 @@ var controllerParams struct {
 	gates map[string]bool
 
 	ociRepositoryOptions controller.OCIRepositoryOptions
+}
+
+func newReleaseReconciler(mgr ctrl.Manager, packageFetcher *controller.PackageFetcher, serverRoot string,
+	theConfigStore configstore.ConfigStore, roleStore rolestore.RoleStore) *controller.ReleaseReconciler {
+	return &controller.ReleaseReconciler{
+		Client: mgr.GetClient(),
+		//nolint:staticcheck // ReleaseReconciler uses record.EventRecorder for core/v1 events.
+		EventRecorder:   mgr.GetEventRecorderFor("release"),
+		Logger:          controllerRootLog.WithName("ReleaseReconciler"),
+		Fetcher:         packageFetcher,
+		ServerRoot:      serverRoot,
+		HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
+		PackageCache: cache.NewCache(time.Second*60, controllerParams.maxCachedPackages,
+			controllerParams.maxCachedPackagesSize, controllerRootLog.WithName("PackageCache")),
+		ConfigStore:          theConfigStore,
+		RoleStore:            roleStore,
+		AllowDNSLookups:      controllerParams.allowDNSLookups,
+		ConditionLimits:      &controllerParams.conditionLimits,
+		ConnectionsGate:      controllerParams.gates[featureGateConnections],
+		OCIRepositoryOptions: controllerParams.ociRepositoryOptions,
+	}
 }
 
 // WARNING: All features behind a gate are EXPERIMENTAL. Their resources, fields and behavior may change, or be
@@ -119,6 +141,7 @@ func parseFeatureGates(entries []string) (map[string]bool, error) {
 }
 
 func init() {
+	registerConditionFlags(controllerCmd, &controllerParams.conditionLimits)
 	controllerCmd.PersistentFlags().BoolVar(&controllerParams.ociRepositoryOptions.AllowRedirectVerifyDrop,
 		"allowRedirectVerifyDrop", false,
 		"Allow a matching packageRedirect without verify to remove Release signature verification.")
@@ -175,6 +198,10 @@ var controllerCmd = &cobra.Command{
 	Short: "Run controller",
 	Args:  cobra.NoArgs,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if err := controllerParams.conditionLimits.Validate(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		var err error
 		controllerRootLog, err = misc.HandleLog(&controllerParams.logConfig)
 		if err != nil {
@@ -499,21 +526,7 @@ var controllerCmd = &cobra.Command{
 		if controllerParams.allowDNSLookups {
 			controllerRootLog.Info("Package templates may resolve host names with resolveDNS")
 		}
-		releaseReconciler := &controller.ReleaseReconciler{
-			Client:          mgr.GetClient(),
-			EventRecorder:   mgr.GetEventRecorderFor("release"),
-			Logger:          controllerRootLog.WithName("ReleaseReconciler"),
-			Fetcher:         packageFetcher,
-			ServerRoot:      serverRoot,
-			HelmRepoAdvAddr: controllerParams.helmRepoAdvAddr,
-			PackageCache: cache.NewCache(time.Second*60, controllerParams.maxCachedPackages,
-				controllerParams.maxCachedPackagesSize, controllerRootLog.WithName("PackageCache")),
-			ConfigStore:          theConfigStore,
-			RoleStore:            roleStore,
-			AllowDNSLookups:      controllerParams.allowDNSLookups,
-			ConnectionsGate:      controllerParams.gates[featureGateConnections],
-			OCIRepositoryOptions: controllerParams.ociRepositoryOptions,
-		}
+		releaseReconciler := newReleaseReconciler(mgr, packageFetcher, serverRoot, theConfigStore, roleStore)
 
 		err = releaseController(mgr, releaseReconciler, theConfigStore, configPublished, controllerRootLog)
 		if err != nil {

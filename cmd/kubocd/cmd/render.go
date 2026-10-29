@@ -58,6 +58,7 @@ var renderParams struct {
 	namespace       string
 	debug           bool
 	trace           bool
+	conditionLimits controller.ConditionLimits
 	skipConditions  bool
 	allowDNSLookups bool
 
@@ -67,6 +68,7 @@ var renderParams struct {
 var renderLog logr.Logger
 
 func init() {
+	registerConditionFlags(renderCmd, &renderParams.conditionLimits)
 	renderCmd.PersistentFlags().BoolVar(&renderParams.sourceOptions.AllowInsecureCredentials,
 		"allowInsecureCredentials", false, oci.CredentialHelp)
 	renderParams.sourceOptions.ArchiveLimits = registerArchiveFlags(renderCmd)
@@ -113,6 +115,10 @@ var renderCmd = &cobra.Command{
 	Preview a Release using an alternate package manifest.
 	$ kubocd render releases/podinfo1.yaml packages/podinfo-p01.yaml`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if err := renderParams.conditionLimits.Validate(); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		// ------------------------------------------- Setup working folder
 		if renderParams.workDir == "" {
 			dir, err := os.UserHomeDir()
@@ -365,7 +371,8 @@ var renderCmd = &cobra.Command{
 			if !renderParams.skipConditions {
 				for idx, condition := range rendered.Conditions {
 					fmt.Printf("Check condition %d\n", idx)
-					ok, message, reconcileError := controller.CheckCondition(context.Background(), k8sClient, condition)
+					ok, message, reconcileError := controller.CheckConditionWithLimits(context.Background(), k8sClient, condition,
+						renderParams.conditionLimits)
 					if reconcileError != nil {
 						return fmt.Errorf("condition#%d: error: %w", idx, reconcileError)
 					}

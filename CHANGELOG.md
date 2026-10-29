@@ -89,6 +89,14 @@
   Forbidden reads give the retryable error
   `condition read forbidden: grant get access to the condition kind in the Release target namespace`.
   `kubocd render` uses its caller's permissions.
+- Condition CEL evaluation defaults to 1000000 cost units and 1s in the controller and `kubocd render`.
+  Set `--conditionCelCostLimit` and `--conditionCelTimeout` (chart: `controller.additionalArgs`).
+  0 disables the corresponding limit while retaining caller cancellation/deadlines. Negative values fail startup
+  with `conditionCelCostLimit must not be negative` or `conditionCelTimeout must not be negative`.
+- Budget exhaustion fails with `condition CEL cost limit exceeded` or `condition CEL evaluation deadline exceeded`,
+  with no scheduled condition retry. Shutdown returns `condition evaluation canceled` without a warning event.
+  Parsing and type-checking get no new budget. Existing rendering and cel-go limits remain. The evaluation
+  deadline is cooperative, not a hard time or memory ceiling, and excludes API reads and compilation.
 
 # v0.4.1
 
