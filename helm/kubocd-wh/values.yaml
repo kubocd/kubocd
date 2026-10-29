@@ -34,13 +34,50 @@ webhook:
 
   metrics:
     enabled: false
-    secured: false  # Set both TLS and client auth (see https://book.kubebuilder.io/reference/metrics)
-    # This will be used to validate communication with the metrics endpoint
-    # By default, will use a self signed certificate issuer. But, you can provide your own ClusterIssuer
+    # TLS and bearer authentication. Existing HTTP/anonymous scrapers must
+    # migrate, or set secured: false for unauthenticated HTTP without a token.
+    # The Service port stays named https in either mode.
+    # --reuse-values keeps the old secured: false default. Set metrics.secured: true or use --reset-then-reuse-values.
+    secured: true
+    # The certificate Secret must contain ca.crt for server verification.
+    # Empty uses the chart's self-signed issuer, otherwise name a ClusterIssuer.
     certificateClusterIssuer:
     serviceMonitor:
       enabled: false
-      name:  # -- Will default to {{ include "kubocd.webhook.baseName" . }}
+      name:  # -- Defaults to {{ include "kubocd.webhook.baseName" . }}
+      # Bind the token's SA to metrics-reader. Set both fields or neither.
+      # A half-filled pair fails even when disabled. Empty leaves RBAC external.
+      # Some installs grant get /metrics already (e.g. kube-prometheus-stack), needing no binding.
+      # Requires enabled, secured metrics, independently of serviceMonitor.enabled.
+      # This creates neither the SA nor Prometheus discovery/pod configuration.
+      prometheusServiceAccount:
+        name: ""
+        namespace: ""
+      # Default: read /var/run/secrets/kubernetes.io/serviceaccount/token inside
+      # Prometheus. Its identity must match the SA above or an external grant.
+      # For arbitraryFSAccessThroughSMs.deny: true, use Secret-backed Bearer auth.
+      # The Secret must be in the release/ServiceMonitor namespace and readable
+      # by Prometheus Operator. Set both name and key or neither, even if disabled.
+      # Complete credentials are used only by an enabled, secured ServiceMonitor.
+      # Example in release namespace kubocd (replace with yours):
+      # kubectl -n kubocd create serviceaccount kubocd-metrics-scraper
+      # Apply this Secret, then wait for the control plane to fill data.token:
+      # apiVersion: v1
+      # kind: Secret
+      # metadata:
+      #   name: kubocd-metrics-scraper-token
+      #   namespace: kubocd
+      #   annotations:
+      #     kubernetes.io/service-account.name: kubocd-metrics-scraper
+      # type: kubernetes.io/service-account-token
+      # Set prometheusServiceAccount: {name: kubocd-metrics-scraper, namespace: kubocd}
+      # and authorization.credentials: {name: kubocd-metrics-scraper-token, key: token}.
+      # This token is long-lived. Arrange rotation and revocation.
+      # Keep the metrics CA, the token Secret's ca.crt is not the server CA.
+      authorization:
+        credentials:
+          name: ""
+          key: ""
 
     # -- Will default to {{ include "kubocd.webhook.baseName" . }}-metrics
     serviceName:

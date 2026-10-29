@@ -36,7 +36,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/yaml"
 )
@@ -55,6 +57,16 @@ func renderChart(t *testing.T, name string, setValues func(values map[string]int
 // Deployment/kubocd-ctrl-controller.
 func renderRelease(t *testing.T, name string, release string, namespace string,
 	setValues func(values map[string]interface{})) map[string]string {
+	t.Helper()
+	documents, err := renderReleaseResult(t, name, release, namespace, setValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return documents
+}
+
+func renderReleaseResult(t *testing.T, name, release, namespace string,
+	setValues func(values map[string]interface{})) (map[string]string, error) {
 	t.Helper()
 	dir := filepath.Join("..", "..", "..", "helm", name)
 	raw, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
@@ -89,7 +101,7 @@ func renderRelease(t *testing.T, name string, release string, namespace string,
 	}
 	rendered, err := engine.Render(ch, renderValues)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	documents := map[string]string{}
 	for file, content := range rendered {
@@ -113,7 +125,7 @@ func renderRelease(t *testing.T, name string, release string, namespace string,
 			documents[key] = document
 		}
 	}
-	return documents
+	return documents, nil
 }
 
 // decodeStrict decodes the rendered document of kind and name into object,
@@ -523,5 +535,444 @@ func TestTheWebhookChartValidatesDeletionsOnly(t *testing.T) {
 	if got := validatingWebhooks(configuration); !slices.Equal(got, want) {
 		t.Errorf("config/webhook/manifests.yaml validates\n%s\nwant\n%s", strings.Join(got, "\n"),
 			strings.Join(want, "\n"))
+	}
+}
+
+const metricsHTTPS = "https"
+
+var metricsCharts = []struct{ chart, component string }{
+	{"kubocd-ctrl", "controller"},
+	{"kubocd-wh", "webhook"},
+}
+
+type renderedServiceMonitor struct {
+	metav1.TypeMeta `json:",inline"`
+	Metadata        metav1.ObjectMeta `json:"metadata"`
+	Spec            struct {
+		Endpoints []map[string]interface{} `json:"endpoints"`
+		Selector  metav1.LabelSelector     `json:"selector"`
+	} `json:"spec"`
+}
+
+func serviceMonitorOf(t *testing.T, documents map[string]string, name string) renderedServiceMonitor {
+	t.Helper()
+	var monitor renderedServiceMonitor
+	decodeStrict(t, documents, "ServiceMonitor", name, &monitor)
+	if len(monitor.Spec.Endpoints) != 1 {
+		t.Fatalf("ServiceMonitor has %d endpoints, want one", len(monitor.Spec.Endpoints))
+	}
+	return monitor
+}
+
+func enableMetricsMonitor(values map[string]interface{},
+	component string) (map[string]interface{}, map[string]interface{}) {
+	metrics := values[component].(map[string]interface{})["metrics"].(map[string]interface{})
+	monitor := metrics["serviceMonitor"].(map[string]interface{})
+	metrics["enabled"], monitor["enabled"] = true, true
+	return metrics, monitor
+}
+
+func assertMetricsTLS(t *testing.T, documents map[string]string, endpoint map[string]interface{},
+	service, secret, certificate, namespace string) {
+	t.Helper()
+	serverName := service + "." + namespace + ".svc"
+	want := map[string]interface{}{
+		"ca":                 map[string]interface{}{"secret": map[string]interface{}{"name": secret, "key": "ca.crt"}},
+		"insecureSkipVerify": false,
+		"serverName":         serverName,
+	}
+	if !reflect.DeepEqual(endpoint["tlsConfig"], want) {
+		t.Errorf("tlsConfig = %#v, want CA-only verified TLS %#v", endpoint["tlsConfig"], want)
+	}
+	if endpoint["scheme"] != metricsHTTPS || endpoint["port"] != metricsHTTPS {
+		t.Errorf("endpoint scheme/port = %v/%v, want https/https", endpoint["scheme"], endpoint["port"])
+	}
+	var cert struct {
+		metav1.TypeMeta `json:",inline"`
+		Metadata        metav1.ObjectMeta `json:"metadata"`
+		Spec            struct {
+			DNSNames   []string          `json:"dnsNames"`
+			SecretName string            `json:"secretName"`
+			IssuerRef  map[string]string `json:"issuerRef"`
+		} `json:"spec"`
+	}
+	decodeStrict(t, documents, "Certificate", certificate, &cert)
+	if !slices.Contains(cert.Spec.DNSNames, serverName) || cert.Spec.SecretName != secret {
+		t.Errorf("Certificate DNS names/Secret = %v/%s, want %s/%s",
+			cert.Spec.DNSNames, cert.Spec.SecretName, serverName, secret)
+	}
+	var svc corev1.Service
+	decodeStrict(t, documents, "Service", service, &svc)
+	if svc.Namespace != namespace || !slices.ContainsFunc(svc.Spec.Ports, func(port corev1.ServicePort) bool {
+		return port.Name == metricsHTTPS && port.Port == 8443 && port.TargetPort == intstr.FromInt32(8443)
+	}) {
+		t.Errorf("metrics Service namespace/ports = %s/%v, want %s and https:8443->8443",
+			svc.Namespace, svc.Spec.Ports, namespace)
+	}
+}
+
+func assertMetricsRoles(t *testing.T, documents map[string]string, role, serverSA, namespace string) {
+	t.Helper()
+	var auth, reader rbacv1.ClusterRole
+	decodeStrict(t, documents, "ClusterRole", role+"-metrics-auth", &auth)
+	want := []rbacv1.PolicyRule{
+		{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"tokenreviews"}, Verbs: []string{"create"}},
+		{APIGroups: []string{"authorization.k8s.io"}, Resources: []string{"subjectaccessreviews"}, Verbs: []string{"create"}},
+	}
+	if !reflect.DeepEqual(auth.Rules, want) {
+		t.Errorf("metrics-auth rules = %v, want %v", auth.Rules, want)
+	}
+	decodeStrict(t, documents, "ClusterRole", role+"-metrics-reader", &reader)
+	want = []rbacv1.PolicyRule{{NonResourceURLs: []string{"/metrics"}, Verbs: []string{"get"}}}
+	if !reflect.DeepEqual(reader.Rules, want) {
+		t.Errorf("metrics-reader rules = %v, want %v", reader.Rules, want)
+	}
+	assertMetricsBinding(t, documents, serverSA+"-"+role+"-metrics-auth", role+"-metrics-auth", serverSA, namespace)
+}
+
+func assertMetricsBinding(t *testing.T, documents map[string]string, name, role, sa, namespace string) {
+	t.Helper()
+	var binding rbacv1.ClusterRoleBinding
+	decodeStrict(t, documents, "ClusterRoleBinding", name, &binding)
+	wantRef := rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: role}
+	wantSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: sa, Namespace: namespace}}
+	if binding.Name != name || binding.Namespace != "" || binding.RoleRef != wantRef ||
+		!reflect.DeepEqual(binding.Subjects, wantSubjects) {
+		t.Errorf("binding = %+v, want cluster-scoped %s, roleRef %v, subjects %v", binding, name, wantRef, wantSubjects)
+	}
+	var raw map[string]interface{}
+	decodeStrict(t, documents, "ClusterRoleBinding", name, &raw)
+	metadata, ok := raw["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("binding has no metadata map")
+	}
+	if _, exists := metadata["namespace"]; exists {
+		t.Error("ClusterRoleBinding metadata must omit namespace")
+	}
+}
+
+func assertNoMetricsGrants(t *testing.T, documents map[string]string) {
+	t.Helper()
+	for key := range documents {
+		if (strings.HasPrefix(key, "ClusterRole/") || strings.HasPrefix(key, "ClusterRoleBinding/")) &&
+			(strings.HasSuffix(key, "-metrics-reader") || strings.HasSuffix(key, "-metrics-auth")) {
+			t.Errorf("unexpected metrics grant %s", key)
+		}
+	}
+}
+
+func TestChartsDisabledControllerWithNullMetrics(t *testing.T) {
+	documents := renderChart(t, "kubocd-ctrl", func(values map[string]interface{}) {
+		controller := values["controller"].(map[string]interface{})
+		controller["enabled"] = false
+		controller["metrics"] = nil
+	})
+	assertNoMetricsGrants(t, documents)
+}
+
+func TestChartsSecureMetricsByDefault(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, empty := range []string{"defaults", "missing", "null", "empty maps"} {
+			t.Run(chart.chart+"/"+empty, func(t *testing.T) {
+				base := "kubocd-" + chart.component
+				defaults := renderRelease(t, chart.chart, "kubocd", "kubocd", noChange)
+				assertNoMetricsGrants(t, defaults)
+				for _, key := range []string{
+					"ServiceMonitor/" + base, "Service/" + base + "-metrics", "Certificate/" + base + "-metrics",
+				} {
+					if _, exists := defaults[key]; exists {
+						t.Errorf("metrics disabled by default, got %s", key)
+					}
+				}
+				documents := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+					_, monitor := enableMetricsMonitor(values, chart.component)
+					for _, key := range []string{"prometheusServiceAccount", "authorization"} {
+						switch empty {
+						case "missing":
+							delete(monitor, key)
+						case "null":
+							monitor[key] = nil
+						case "empty maps":
+							monitor[key] = map[string]interface{}{}
+						}
+					}
+				})
+				monitor := serviceMonitorOf(t, documents, base)
+				endpoint := monitor.Spec.Endpoints[0]
+				assertMetricsTLS(t, documents, endpoint, base+"-metrics", base+"-metrics", base+"-metrics", "kubocd")
+				if endpoint["bearerTokenFile"] != "/var/run/secrets/kubernetes.io/serviceaccount/token" || len(endpoint) != 4 {
+					t.Errorf("endpoint = %v, want port, scheme, TLS and the Prometheus SA token file only", endpoint)
+				}
+				if _, exists := documents["ClusterRoleBinding/"+base+"-metrics-reader"]; exists {
+					t.Error("empty scraper identity must not create a reader binding")
+				}
+				args := deploymentOf(t, documents).Spec.Template.Spec.Containers[0].Args
+				for _, arg := range []string{
+					"--metricsBindAddress=:8443", "--metricsSecure=true",
+					"--metricsCertPath=/tmp/k8s-metrics-server/metrics-certs",
+				} {
+					if !slices.Contains(args, arg) {
+						t.Errorf("Deployment args lack %s: %v", arg, args)
+					}
+				}
+				assertMetricsRoles(t, documents, base, base, "kubocd")
+			})
+		}
+	}
+}
+
+func TestChartsBindMetricsReaderIndependentlyOfServiceMonitor(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, enabled := range []bool{true, false} {
+			for _, namespace := range []string{"monitoring", "kubocd"} {
+				t.Run(fmt.Sprintf("%s/monitor=%t/SA=%s", chart.chart, enabled, namespace), func(t *testing.T) {
+					base := "kubocd-" + chart.component
+					documents := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+						_, monitor := enableMetricsMonitor(values, chart.component)
+						monitor["enabled"] = enabled
+						monitor["prometheusServiceAccount"] = map[string]interface{}{"name": "prometheus", "namespace": namespace}
+						if !enabled {
+							monitor["authorization"] = map[string]interface{}{
+								"credentials": map[string]interface{}{"name": "scraper-token", "key": "token"},
+							}
+						}
+					})
+					assertMetricsBinding(t, documents, base+"-metrics-reader", base+"-metrics-reader", "prometheus", namespace)
+					assertMetricsRoles(t, documents, base, base, "kubocd")
+					if _, exists := documents["ServiceMonitor/"+base]; exists != enabled {
+						t.Errorf("ServiceMonitor exists = %t, want %t", exists, enabled)
+					}
+					for _, disabled := range []string{"metrics", "component"} {
+						if disabled == "component" && chart.component != "controller" {
+							continue
+						}
+						inactive := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+							metrics, monitor := enableMetricsMonitor(values, chart.component)
+							monitor["prometheusServiceAccount"] = map[string]interface{}{"name": "prometheus", "namespace": namespace}
+							monitor["authorization"] = map[string]interface{}{
+								"credentials": map[string]interface{}{"name": "scraper-token", "key": "token"},
+							}
+							if disabled == "metrics" {
+								metrics["enabled"] = false
+							} else {
+								values[chart.component].(map[string]interface{})["enabled"] = false
+							}
+						})
+						assertNoMetricsGrants(t, inactive)
+						for _, key := range []string{
+							"ServiceMonitor/" + base, "Service/" + base + "-metrics", "Certificate/" + base + "-metrics",
+						} {
+							if _, exists := inactive[key]; exists {
+								t.Errorf("%s disabled, got %s", disabled, key)
+							}
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestChartsRejectIncompleteMetricsIdentityAndCredentials(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, pair := range []struct {
+			name, message string
+			fields        []string
+		}{
+			{"prometheusServiceAccount", "requires both name and namespace, or neither", []string{"name", "namespace"}},
+			{"authorization.credentials", "requires both name and key, or neither", []string{"name", "key"}},
+		} {
+			for _, field := range pair.fields {
+				for _, gate := range []string{
+					"enabled", "metrics disabled", "monitor disabled", "unsecured", "component disabled",
+				} {
+					if gate == "component disabled" && chart.component != "controller" {
+						continue
+					}
+					t.Run(chart.chart+"/"+pair.name+"/"+field+"/"+gate, func(t *testing.T) {
+						_, err := renderReleaseResult(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+							metrics, monitor := enableMetricsMonitor(values, chart.component)
+							switch gate {
+							case "metrics disabled":
+								metrics["enabled"] = false
+							case "monitor disabled":
+								monitor["enabled"] = false
+							case "unsecured":
+								metrics["secured"] = false
+							case "component disabled":
+								values[chart.component].(map[string]interface{})["enabled"] = false
+							}
+							partial := map[string]interface{}{field: "scraper"}
+							if pair.name == "authorization.credentials" {
+								monitor["authorization"] = map[string]interface{}{"credentials": partial}
+							} else {
+								monitor[pair.name] = partial
+							}
+						})
+						want := chart.component + ".metrics.serviceMonitor." + pair.name + " " + pair.message
+						if err == nil {
+							t.Fatalf("render succeeded, want error %q", want)
+						}
+						_, got, found := strings.Cut(err.Error(), "): ")
+						if !found || got != want {
+							t.Errorf("render error = %q, want exact diagnostic %q", err, want)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestChartsUnsecuredMetricsOmitTLSCredentialsAndGrants(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, configured := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/credentials=%t", chart.chart, configured), func(t *testing.T) {
+				base := "kubocd-" + chart.component
+				documents := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+					metrics, monitor := enableMetricsMonitor(values, chart.component)
+					metrics["secured"] = false
+					if configured {
+						monitor["prometheusServiceAccount"] = map[string]interface{}{"name": "prometheus", "namespace": "monitoring"}
+						monitor["authorization"] = map[string]interface{}{
+							"credentials": map[string]interface{}{"name": "scraper-token", "key": "token"},
+						}
+					}
+				})
+				endpoint := serviceMonitorOf(t, documents, base).Spec.Endpoints[0]
+				want := map[string]interface{}{"port": metricsHTTPS, "scheme": "http"}
+				if !reflect.DeepEqual(endpoint, want) {
+					t.Errorf("HTTP endpoint = %v, want exactly %v", endpoint, want)
+				}
+				args := deploymentOf(t, documents).Spec.Template.Spec.Containers[0].Args
+				if !slices.Contains(args, "--metricsSecure=false") || slices.Contains(args, "--metricsSecure=true") ||
+					slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "--metricsCertPath=") }) {
+					t.Errorf("unsecured Deployment args = %v", args)
+				}
+				assertNoMetricsGrants(t, documents)
+			})
+		}
+	}
+}
+
+func TestChartsServiceMonitorUsesSecretBearerCredentials(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, bind := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/binding=%t", chart.chart, bind), func(t *testing.T) {
+				base := "kubocd-" + chart.component
+				documents := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+					_, monitor := enableMetricsMonitor(values, chart.component)
+					monitor["authorization"] = map[string]interface{}{
+						"credentials": map[string]interface{}{"name": "scraper-token", "key": "token"},
+					}
+					if bind {
+						monitor["prometheusServiceAccount"] = map[string]interface{}{"name": "scraper", "namespace": "kubocd"}
+					}
+				})
+				endpoint := serviceMonitorOf(t, documents, base).Spec.Endpoints[0]
+				want := map[string]interface{}{
+					"type":        "Bearer",
+					"credentials": map[string]interface{}{"name": "scraper-token", "key": "token"},
+				}
+				if !reflect.DeepEqual(endpoint["authorization"], want) || len(endpoint) != 4 {
+					t.Errorf("endpoint = %v, want port, scheme, TLS and authorization %v only", endpoint, want)
+				}
+				if _, exists := endpoint["bearerTokenFile"]; exists {
+					t.Error("Secret authorization must replace bearerTokenFile")
+				}
+				assertMetricsTLS(t, documents, endpoint, base+"-metrics", base+"-metrics", base+"-metrics", "kubocd")
+				assertMetricsRoles(t, documents, base, base, "kubocd")
+				if bind {
+					assertMetricsBinding(t, documents, base+"-metrics-reader", base+"-metrics-reader", "scraper", "kubocd")
+				} else if _, exists := documents["ClusterRoleBinding/"+base+"-metrics-reader"]; exists {
+					t.Error("credentials alone must not create a reader binding")
+				}
+				for _, key := range []string{"ServiceAccount/scraper", "Secret/scraper-token"} {
+					if _, exists := documents[key]; exists {
+						t.Errorf("chart must not create %s", key)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestChartsServiceMonitorSelectsOnlyMetricsService(t *testing.T) {
+	for _, chart := range metricsCharts {
+		t.Run(chart.chart, func(t *testing.T) {
+			base := "kubocd-" + chart.component
+			documents := renderRelease(t, chart.chart, "kubocd", "kubocd", func(values map[string]interface{}) {
+				enableMetricsMonitor(values, chart.component)
+			})
+			monitor := serviceMonitorOf(t, documents, base)
+			selector, err := metav1.LabelSelectorAsSelector(&monitor.Spec.Selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var matched []string
+			services := 0
+			for key := range documents {
+				if kind, name, _ := strings.Cut(key, "/"); kind == "Service" {
+					services++
+					var service corev1.Service
+					decodeStrict(t, documents, kind, name, &service)
+					if selector.Matches(labels.Set(service.Labels)) {
+						matched = append(matched, service.Name)
+					}
+				}
+			}
+			if services < 2 || !slices.Equal(matched, []string{base + "-metrics"}) {
+				t.Errorf("selector matches %v among %d Services, want only %s-metrics", matched, services, base)
+			}
+		})
+	}
+}
+
+func TestChartsMetricsHonorNameAndNamespaceOverrides(t *testing.T) {
+	for _, chart := range metricsCharts {
+		for _, override := range []string{"global base", "component base", "explicit names"} {
+			t.Run(chart.chart+"/"+override, func(t *testing.T) {
+				base := "custom-" + chart.component
+				if override != "global base" {
+					base = "custom"
+				}
+				service, secret, role, serverSA, monitorName := base+"-metrics", base+"-metrics", base, base, base
+				if override == "explicit names" {
+					service, secret, role, serverSA, monitorName =
+						"custom-service", "custom-secret", "custom-role", "custom-server", "custom-monitor"
+				}
+				documents := renderRelease(t, chart.chart, "renamed", "other-release", func(values map[string]interface{}) {
+					values["baseNameOverride"] = "custom"
+					component := values[chart.component].(map[string]interface{})
+					component["commonAnnotations"] = map[string]interface{}{"review": "preserved"}
+					if override != "global base" {
+						component["baseNameOverride"] = "custom"
+					}
+					metrics, monitor := enableMetricsMonitor(values, chart.component)
+					monitor["prometheusServiceAccount"] = map[string]interface{}{"name": "prometheus", "namespace": "monitoring"}
+					if override == "explicit names" {
+						metrics["serviceName"], metrics["secretName"] = service, secret
+						component["clusterRoleName"], component["serviceAccountName"] = role, serverSA
+						monitor["name"] = monitorName
+					}
+				})
+				monitor := serviceMonitorOf(t, documents, monitorName)
+				assertMetricsTLS(t, documents, monitor.Spec.Endpoints[0], service, secret, base+"-metrics", "other-release")
+				assertMetricsBinding(t, documents, role+"-metrics-reader", role+"-metrics-reader", "prometheus", "monitoring")
+				assertMetricsRoles(t, documents, role, serverSA, "other-release")
+				if monitor.Metadata.Namespace != "other-release" || monitor.Metadata.Annotations["review"] != "preserved" {
+					t.Errorf("ServiceMonitor metadata = %+v", monitor.Metadata)
+				}
+				wantLabels := map[string]string{"app.kubernetes.io/name": base, "app.kubernetes.io/instance": "renamed"}
+				if !reflect.DeepEqual(monitor.Spec.Selector.MatchLabels, wantLabels) {
+					t.Errorf("selector = %v, want %v", monitor.Spec.Selector.MatchLabels, wantLabels)
+				}
+				var binding rbacv1.ClusterRoleBinding
+				decodeStrict(t, documents, "ClusterRoleBinding", role+"-metrics-reader", &binding)
+				if binding.Annotations["review"] != "preserved" {
+					t.Errorf("reader binding lost annotations: %v", binding.Annotations)
+				}
+			})
+		}
 	}
 }

@@ -30,6 +30,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kubocd.webhook.labels" . | nindent 4 }}
+    {{- include "kubocd.webhook.selectorLabels" . | nindent 4 }}
   {{- with .Values.webhook.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

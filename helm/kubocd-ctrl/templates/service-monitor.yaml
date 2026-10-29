@@ -1,4 +1,14 @@
-
+{{- $metrics := .Values.controller.metrics | default dict }}
+{{- $monitor := $metrics.serviceMonitor | default dict }}
+{{- $sa := $monitor.prometheusServiceAccount | default dict }}
+{{- $authorization := $monitor.authorization | default dict }}
+{{- $credentials := $authorization.credentials | default dict }}
+{{- if ne (empty $sa.name) (empty $sa.namespace) }}
+{{- fail "controller.metrics.serviceMonitor.prometheusServiceAccount requires both name and namespace, or neither" }}
+{{- end }}
+{{- if ne (empty $credentials.name) (empty $credentials.key) }}
+{{- fail "controller.metrics.serviceMonitor.authorization.credentials requires both name and key, or neither" }}
+{{- end }}
 {{- if and .Values.controller.enabled .Values.controller.metrics.enabled .Values.controller.metrics.serviceMonitor.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
@@ -14,19 +24,28 @@ metadata:
   {{- end }}
 spec:
   endpoints:
-    - tlsConfig:
+    - port: https
+      {{- if .Values.controller.metrics.secured }}
+      scheme: https
+      tlsConfig:
         ca:
           secret:
             key: ca.crt
             name: {{ include "kubocd.controller.metrics.secretName" . }}
-        cert:
-          secret:
-            key: tls.crt
-            name: {{ include "kubocd.controller.metrics.secretName" . }}
         insecureSkipVerify: false
-        keySecret:
-          key: tls.key
-          name: {{ include "kubocd.controller.metrics.secretName" . }}
+        serverName: {{ include "kubocd.controller.metrics.serviceName" . }}.{{ .Release.Namespace }}.svc
+      {{- if $credentials.name }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ $credentials.name | quote }}
+          key: {{ $credentials.key | quote }}
+      {{- else }}
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      {{- end }}
+      {{- else }}
+      scheme: http
+      {{- end }}
   selector:
     matchLabels:
       {{- include "kubocd.controller.selectorLabels" . | nindent 6 }}

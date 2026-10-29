@@ -268,6 +268,28 @@ rules:
       - /metrics
     verbs:
       - get
+{{- $scraper := .Values.controller.metrics.serviceMonitor.prometheusServiceAccount | default dict }}
+{{- if and $scraper.name $scraper.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubocd.controller.clusterRoleName" . }}-metrics-reader
+  labels:
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubocd.controller.clusterRoleName" . }}-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $scraper.name | quote }}
+    namespace: {{ $scraper.namespace | quote }}
+{{- end }}
 {{ end }}
 
 {{ end }}

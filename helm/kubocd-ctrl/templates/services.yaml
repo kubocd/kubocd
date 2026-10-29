@@ -29,6 +29,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kubocd.controller.labels" . | nindent 4 }}
+    {{- include "kubocd.controller.selectorLabels" . | nindent 4 }}
   {{- with .Values.controller.commonAnnotations }}
   annotations:
     {{- toYaml . | nindent 4 }}

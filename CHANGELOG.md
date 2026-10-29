@@ -125,6 +125,18 @@
 - Build workflows pin GitHub actions to commit SHAs and production base images to multi-architecture index digests.
   CI checks these pins, and Dependabot proposes weekly updates. Review update PRs by checking the action tags and
   image indexes and building for both linux/amd64 and linux/arm64 before merging.
+- Both charts default `metrics.secured` to true. Metrics remain disabled by default. When enabled,
+  migrate HTTP/anonymous scrapers to HTTPS with an authorized bearer token, or set `metrics.secured: false`
+  under `controller` or `webhook` to restore unauthenticated HTTP. See the upgrade notes below for value reuse.
+- ServiceMonitors now select only the metrics Service, verify its DNS name with `ca.crt`, and omit client
+  certificate/key references. By default, secured scrapes read
+  `/var/run/secrets/kubernetes.io/serviceaccount/token` inside Prometheus.
+- Set `metrics.serviceMonitor.prometheusServiceAccount.name` and `.namespace` to grant the token's identity
+  `get /metrics`. Empty values leave authorization external. The binding also works without a ServiceMonitor.
+  Half-filled identity or credential pairs fail rendering even when metrics are disabled.
+- For `arbitraryFSAccessThroughSMs.deny: true`, set `metrics.serviceMonitor.authorization.credentials.name`
+  and `.key` to use a token Secret in the release namespace. See values.yaml for the SA/Secret recipe and
+  rotation caveat. Complete identity and credential settings are ignored with `secured: false`.
 
 # v0.4.1
 
