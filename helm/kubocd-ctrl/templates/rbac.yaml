@@ -28,15 +28,22 @@ rules:
       - kubocd.kubotal.io
     resources:
       - releases
-      - contexts
-      - contracts
-      - clustercontracts
     verbs:
       - get
       - list
       - watch
-      - patch
       - update
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
+      - contexts
+      - contracts
+      - clustercontracts
+      - configs
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - kubocd.kubotal.io
     resources:
@@ -46,18 +53,9 @@ rules:
       - get
       - list
       - watch
-      - patch
-      - update
       - create
+      - patch
       - delete
-  - apiGroups:
-      - kubocd.kubotal.io
-    resources:
-      - configs
-    verbs:
-      - get
-      - list
-      - watch
   {{- if .Values.controller.featureGates.replications }}
   # The rules below are granted only when the 'replications' feature gate is on, as the replication
   # controller needs them. The Secret/ConfigMap one is the only rule on these kinds: it also lets the
@@ -70,22 +68,13 @@ rules:
       - get
       - list
       - watch
-      - patch
-      - update
-  - apiGroups:
-      - kubocd.kubotal.io
-    resources:
-      - replications/finalizers
-    verbs:
       - update
   - apiGroups:
       - kubocd.kubotal.io
     resources:
       - replications/status
     verbs:
-      - get
       - patch
-      - update
   # To duplicate Secret/ConfigMap across namespaces
   - apiGroups:
       - ""
@@ -97,7 +86,6 @@ rules:
       - list
       - watch
       - create
-      - patch
       - update
       - delete
   {{- end }}
@@ -112,29 +100,39 @@ rules:
     resources:
       - releases/status
       - contexts/status
+    verbs:
+      - update
+  - apiGroups:
+      - kubocd.kubotal.io
+    resources:
       - connections/status
       - clusterconnections/status
       - contracts/status
       - clustercontracts/status
     verbs:
-      - get
       - patch
-      - update
   - apiGroups:
       - source.toolkit.fluxcd.io
     resources:
-      - helmrepositories
       - ocirepositories
     verbs:
       - get
       - list
       - watch
       - create
-      - delete
       - patch
-      - update
   - apiGroups:
-      - helm.toolkit.fluxcd.io
+      - source.toolkit.fluxcd.io
+    resources:
+      - helmrepositories
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - delete
+  - apiGroups:
       - helm.toolkit.fluxcd.io
     resources:
       - helmreleases
@@ -143,19 +141,6 @@ rules:
       - list
       - watch
       - create
-      - delete
-      - patch
-      - update
-  - apiGroups:
-      - coordination.k8s.io
-    resources:
-      - leases
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
       - patch
       - delete
   - apiGroups:
@@ -165,6 +150,49 @@ rules:
     verbs:
       - create
       - patch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubocd.controller.clusterRoleName" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubocd.controller.clusterRoleName" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubocd.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubocd.controller.clusterRoleName" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubocd.controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

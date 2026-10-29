@@ -38,6 +38,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases,verbs=get;list;watch;create;patch;delete
+
 func (r *ReleaseReconciler) handleHelmRelease(op *releaseOperation, rendered *kubopackage.Rendered, helmReleaseName string, module *kubopackage.Module) (*fluxv2.HelmRelease, ReconcileError) {
 	enabled := rendered.ModuleRenderedByName[module.Name].Enabled
 

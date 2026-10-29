@@ -172,9 +172,10 @@ func atPlace(place string, rErr ReconcileError) ReconcileError {
 	return NewReconcileError(fmt.Errorf("%s: %w", place, rErr.GetBaseError()), rErr.IsFatal(), rErr.GetEventReason())
 }
 
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases/status,verbs=update
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=releases/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

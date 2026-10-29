@@ -35,6 +35,8 @@ const waitHelmRepository = "Wait Helm Repository"
 // package whose charts it serves.
 const packageRevisionAnnotation = "kubocd.kubotal.io/package-revision"
 
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;patch;delete
+
 // handleHelmRepository returns the HelmRepository of the Release once ready,
 // or otherwise the message of the wait. A HelmRepository that serves another
 // revision of the package is deleted, and created again by a later pass, so

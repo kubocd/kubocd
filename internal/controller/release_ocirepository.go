@@ -46,6 +46,8 @@ func (*releaseInsecureSourceError) Error() string {
 // errReleaseInsecureSource is the sentinel for Release-controlled HTTP transport without a redirect.
 var errReleaseInsecureSource = &releaseInsecureSourceError{}
 
+// +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=ocirepositories,verbs=get;list;watch;create;patch
+
 // handleOciRepository returns the OCIRepository of the Release once ready, or
 // otherwise the message of the wait.
 func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, string, ReconcileError) {

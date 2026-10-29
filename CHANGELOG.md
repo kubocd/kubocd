@@ -97,6 +97,12 @@
   with no scheduled condition retry. Shutdown returns `condition evaluation canceled` without a warning event.
   Parsing and type-checking get no new budget. Existing rendering and cel-go limits remain. The evaluation
   deadline is cooperative, not a hard time or memory ceiling, and excludes API reads and compilation.
+- Leader election uses a Role/RoleBinding named `<clusterRoleName>-leader-election` in the installation
+  namespace, with Lease get/create/update only. Cluster-wide Lease access is removed.
+  Custom `controller.clusterRoleName` values remain supported.
+- Controller RBAC drops unused patch/update permissions, OCIRepository delete, status get and unused finalizer
+  permissions. Generated controller and leader election rules match the chart with all feature gates enabled.
+  Chart gate defaults stay unchanged.
 
 # v0.4.1
 

@@ -183,6 +183,8 @@ controller:
   # -- Will default to {{ include "kubocd.controller.baseName" . }}
   serviceAccountName:
   # -- Will default to {{ include "kubocd.controller.baseName" . }}
+  # Also names the Lease Role/RoleBinding: <clusterRoleName>-leader-election, in the installation namespace.
+  # The ClusterRole has no Lease access; the Role grants get/create/update only.
   clusterRoleName:
 
   enabled: true   # Set to false for controller running outside kubernetes, for dev

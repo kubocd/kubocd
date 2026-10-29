@@ -193,6 +193,9 @@ func init() {
 	controllerCmd.Hidden = true
 }
 
+//nolint:lll // RBAC markers must be on one line.
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=kubocd,roleName=leader-election-role
+
 var controllerCmd = &cobra.Command{
 	Use:   "controller",
 	Short: "Run controller",

@@ -14,53 +14,110 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
-  - kubocd.kubotal.io
+  - ""
   resources:
-  - clusterconnections
-  - clustercontracts
-  - configs
-  - connections
-  - contexts
-  - contracts
-  - releases
-  - replications
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - helm.toolkit.fluxcd.io
+  resources:
+  - helmreleases
   verbs:
   - create
   - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - kubocd.kubotal.io
   resources:
-  - clusterconnections/finalizers
-  - clustercontracts/finalizers
-  - configs/finalizers
-  - connections/finalizers
-  - contexts/finalizers
-  - contracts/finalizers
-  - releases/finalizers
-  - replications/finalizers
+  - clusterconnections
+  - connections
   verbs:
-  - update
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
 - apiGroups:
   - kubocd.kubotal.io
   resources:
   - clusterconnections/status
   - clustercontracts/status
-  - configs/status
   - connections/status
-  - contexts/status
   - contracts/status
-  - releases/status
   - replications/status
   verbs:
-  - get
   - patch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - clustercontracts
+  - configs
+  - contexts
+  - contracts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - contexts/status
+  - releases/finalizers
+  - releases/status
+  verbs:
+  - update
+- apiGroups:
+  - kubocd.kubotal.io
+  resources:
+  - releases
+  - replications
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - helmrepositories
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - source.toolkit.fluxcd.io
+  resources:
+  - ocirepositories
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-election-role
+  namespace: kubocd
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
   - update

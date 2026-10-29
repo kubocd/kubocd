@@ -50,9 +50,8 @@ type contextOperation struct {
 	kcontext *kv1alpha1.Context
 }
 
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contexts/status,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

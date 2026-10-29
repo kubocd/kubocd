@@ -23,9 +23,8 @@ type ContractReconciler struct {
 	Logger logr.Logger
 }
 
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=contracts/status,verbs=patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
