@@ -37,7 +37,7 @@ builds:
       - -X kubocd/internal/global.BuildTs={{ .Env.BUILD_TS }}
 
 release:
-  prerelease: "true"
+  prerelease: "false"
   # `mode` applies to the release notes only. A run again on a release that
   # exists finds its assets in place, and fails to upload them unless
   # replace_existing_artifacts is set.
