@@ -78,6 +78,17 @@
 - OCI redirects to another origin never carry the initial request's Authorization header, including later hops
   within that other origin. Redirects with userinfo at another origin are refused.
   Empty credential-helper secrets keep anonymous authentication and the default ORAS User-Agent.
+- Conditions accept only core Secret/ConfigMap objects (case-insensitive kinds) in the Release's
+  `spec.targetNamespace`, defaulted to `metadata.namespace`. Other targets fail at render time with
+  `condition[0]: only core Secret and ConfigMap conditions in the Release target namespace are allowed`
+  (zero-based index), with no scheduled condition retry. This also applies to `kubocd render --skipConditions`.
+  The Release status and the controller's `Warning ConditionError` event include the rendering prefix:
+  `error on rendering: condition[0]: only core Secret and ConfigMap conditions in the Release target namespace are allowed`.
+- Conditions need `get` access in the target namespace. Chart permissions remain gated by
+  `controller.featureGates.replications` (default false). Administrators can instead grant scoped read access.
+  Forbidden reads give the retryable error
+  `condition read forbidden: grant get access to the condition kind in the Release target namespace`.
+  `kubocd render` uses its caller's permissions.
 
 # v0.4.1
 

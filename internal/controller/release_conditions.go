@@ -9,69 +9,36 @@ import (
 
 	"github.com/google/cel-go/cel"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 /*
-	A condition if fulfill if:
-	- The referenced object (group, kind and namespace:name) exists
- 	- If CEL is defined, this Common Expression must be true, applied on the main object
-
-	If !ok, the message must contains a human-readable explanation of the error
-
-	The controller reads the object live, with its own rights: it needs get on the kind. With the RBAC of the chart, it
-	can read Secrets and ConfigMaps only when the 'replications' feature gate is on. kubocd render reads the object with
-	the rights of its user.
-
-	Some examples:
-	- kind: Secret
-      name: myapp-secret
-	- kind: Secret
-      name: myapp-secret2
-	  cel: "'password' in data"		# data.password exists
-	- group: kubocd.kubotal.io
-      kind: Connection
-      name: cnpg-db
-      namespace: app1
-      cel: "status.phase == 'READY'"
-      # No namespace, as resources is cluster scoped.
-	- group: kubocd.kubotal.io
-      kind: ClusterConnection
-      name: cert-manager
-      cel: "status.phase == 'READY'"
+Conditions read only core Secrets or ConfigMaps (case-insensitive kinds) in the Release target namespace,
+which defaults to its metadata namespace. Package rendering validates every condition's scope.
+An object must exist and its optional CEL expression must be true. Reads need get permission:
+the chart grants Secret/ConfigMap access only with the replications gate; render uses its caller's rights.
 */
 
 // CheckCondition This function is intended to be called both the Release controller and the 'render' CLI subcommand
 func CheckCondition(ctx context.Context, k8sClient client.Client, condition *kubopackage.ConditionRendered) (ok bool, message string, err ReconcileError) {
-	// The condition does not carry any version. So, lookup for the preferred one on the cluster.
-	mapping, mErr := k8sClient.RESTMapper().RESTMapping(schema.GroupKind{
-		Group: condition.Group,
-		Kind:  string(condition.Kind),
-	})
-	if mErr != nil {
-		if meta.IsNoMatchError(mErr) {
-			// The CRD may be deployed later. So, this is not an error, just an unfulfilled condition.
-			return false, fmt.Sprintf("%s: this kind is not defined on this cluster", conditionRef(condition)), nil
-		}
-		return false, "", NewReconcileError(fmt.Errorf("unable to look up the kind of the object, %s", conditionWithheld), false, "ConditionError")
+	kind, policyErr := condition.CoreKind()
+	if policyErr != nil {
+		return false, "", NewReconcileError(policyErr, true, "ConditionError")
 	}
 	object := &unstructured.Unstructured{}
-	object.SetGroupVersionKind(mapping.GroupVersionKind)
-	objectKey := client.ObjectKey{
-		Namespace: condition.Namespace,
-		Name:      condition.Name,
-	}
-	if mapping.Scope.Name() == meta.RESTScopeNameRoot {
-		// The namespace has been defaulted to the release target namespace by the rendering. Just drop it.
-		objectKey.Namespace = ""
-	}
+	object.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: string(kind)})
+	objectKey := client.ObjectKey{Namespace: condition.Namespace, Name: condition.Name}
+	// Keep this read unstructured so conditions do not start cluster-wide Secret or ConfigMap informers.
 	gErr := k8sClient.Get(ctx, objectKey, object)
 	if gErr != nil {
 		if k8serrors.IsNotFound(gErr) {
 			return false, fmt.Sprintf("%s: object does not exists", conditionRef(condition)), nil
+		}
+		if k8serrors.IsForbidden(gErr) {
+			return false, "", NewReconcileError(errors.New(
+				"condition read forbidden: grant get access to the condition kind in the Release target namespace"), false, "ConditionError")
 		}
 		return false, "", NewReconcileError(fmt.Errorf("unable to fetch the object: %s", apiError(gErr)), false, "ConditionError")
 	}
@@ -82,7 +49,7 @@ func CheckCondition(ctx context.Context, k8sClient client.Client, condition *kub
 	return evalConditionCel(condition, object.Object)
 }
 
-// conditionWithheld stands for a message of the REST mapper or of cel-go,
+// conditionWithheld stands for a message of cel-go,
 // which can quote the condition, rendered from data, or a value of the object.
 const conditionWithheld = "message withheld, as it can quote the condition or the object"
 

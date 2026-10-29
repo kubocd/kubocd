@@ -376,16 +376,23 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 	}
 	r.Conditions = conditions
 
+	targetNamespace := release.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = release.Namespace
+	}
 	for idx, condition := range r.Conditions {
-		if condition.Kind == "" {
-			return nil, fmt.Errorf("condition[%d]: kind is a required parameters", idx)
+		kind, err := condition.CoreKind()
+		if err != nil {
+			return nil, fmt.Errorf("condition[%d]: %w", idx, err)
+		}
+		if condition.Namespace != "" && condition.Namespace != targetNamespace {
+			return nil, fmt.Errorf("condition[%d]: %w", idx, ErrConditionPolicy)
 		}
 		if condition.Name == "" {
 			return nil, fmt.Errorf("condition[%d]: name is a required parameters", idx)
 		}
-		if condition.Namespace == "" {
-			condition.Namespace = release.Spec.TargetNamespace
-		}
+		condition.Kind = kind
+		condition.Namespace = targetNamespace
 	}
 
 	return r, nil

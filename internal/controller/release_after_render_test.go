@@ -31,6 +31,7 @@ import (
 	fluxv2 "github.com/fluxcd/helm-controller/api/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -326,15 +327,19 @@ func readyHelmRelease() *fluxv2.HelmRelease {
 	return helmRelease
 }
 
-// contextCondition is a condition on the Context of the Release.
-const contextCondition = `conditions: |
-  - group: kubocd.kubotal.io
-    kind: Context
+const configMapCondition = `conditions: |
+  - kind: ConfigMap
     name: %s
     namespace: apps
     cel: %s`
 
 func TestErrorsAfterTheRenderStayOutOfStatusEventsAndLog(t *testing.T) {
+	conditionData := func(t *testing.T) []func(*ReleaseReconciler) {
+		return []func(*ReleaseReconciler){withObjects(t, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Namespace: "apps"},
+			Data:       map[string]string{"host": "pg", "password": canaryPassword + "("},
+		})}
+	}
 	cases := map[string]struct {
 		packageFields string
 		moduleFields  string
@@ -421,15 +426,18 @@ func TestErrorsAfterTheRenderStayOutOfStatusEventsAndLog(t *testing.T) {
 				return []func(*ReleaseReconciler){withObjects(t, helmReleaseWithCanaryValues()), refusingCanaryDeletes}
 			},
 			want: "error while deleting HelmRelease 'demo-main': the API server answered Forbidden, " + objectWithheld},
-		"cel expression from the Context": {packageFields: fmt.Sprintf(contextCondition, "cluster", `"spec.context.db.host == '{{ .Context.db.password }}'"`),
-			want: "Waiting for cond.#1: Context.kubocd.kubotal.io 'apps/cluster': the cel expression is false"},
-		"cel error quoting the object": {packageFields: fmt.Sprintf(contextCondition, "cluster", `"timestamp(spec.context.db.password) > timestamp('2020-01-01T00:00:00Z')"`),
-			want: "Waiting for cond.#1: Context.kubocd.kubotal.io 'apps/cluster': unable to evaluate the cel expression on this object, " + conditionOrObjectWithheld},
-		"invalid cel expression from the Context": {packageFields: fmt.Sprintf(contextCondition, "cluster", `"{{ .Context.db.password }} =="`),
-			want: "condition[0]: the cel expression is not valid, " + conditionOrObjectWithheld},
-		"condition object refused by the API server": {packageFields: fmt.Sprintf(contextCondition, `"{{ .Context.db.password }}"`, `""`),
+		"cel expression from the Context": {packageFields: fmt.Sprintf(configMapCondition, "cluster", `"data.host == '{{ .Context.db.password }}'"`),
+			options: conditionData,
+			want:    "Waiting for cond.#1: ConfigMap 'apps/cluster': the cel expression is false"},
+		"cel error quoting the object": {packageFields: fmt.Sprintf(configMapCondition, "cluster", `"timestamp(data.password) > timestamp('2020-01-01T00:00:00Z')"`),
+			options: conditionData,
+			want:    "Waiting for cond.#1: ConfigMap 'apps/cluster': unable to evaluate the cel expression on this object, " + conditionOrObjectWithheld},
+		"invalid cel expression from the Context": {packageFields: fmt.Sprintf(configMapCondition, "cluster", `"{{ .Context.db.password }} =="`),
+			options: conditionData,
+			want:    "condition[0]: the cel expression is not valid, " + conditionOrObjectWithheld},
+		"condition object refused by the API server": {packageFields: fmt.Sprintf(configMapCondition, `"{{ .Context.db.password }}"`, `""`),
 			options: func(*testing.T) []func(*ReleaseReconciler) { return []func(*ReleaseReconciler){forbiddingCanaryReads} },
-			want:    "condition[0]: unable to fetch the object: the API server answered Forbidden, " + objectWithheld},
+			want:    "condition[0]: condition read forbidden: grant get access to the condition kind in the Release target namespace"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

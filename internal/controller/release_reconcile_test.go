@@ -37,6 +37,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,7 +100,7 @@ type releaseTestbed struct {
 func newReleaseTestbed(t *testing.T, manifest string, parameters string, contextValues string, options ...func(*ReleaseReconciler)) *releaseTestbed {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{kv1alpha1.AddToScheme, sourcev1.AddToScheme, fluxv2.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{kv1alpha1.AddToScheme, sourcev1.AddToScheme, fluxv2.AddToScheme, corev1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
@@ -130,6 +131,7 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 	}
 	restMapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{kv1alpha1.GroupVersion})
 	restMapper.Add(kv1alpha1.GroupVersion.WithKind("Context"), apimeta.RESTScopeNamespace)
+	restMapper.Add(corev1.SchemeGroupVersion.WithKind("ConfigMap"), apimeta.RESTScopeNamespace)
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).WithObjects(append(objects, release)...).
 		WithStatusSubresource(&kv1alpha1.Release{}, &kv1alpha1.Connection{}, &kv1alpha1.ClusterConnection{}).
 		WithIndex(&kv1alpha1.Connection{}, ReleaseIndexOnOutputConnection, func(o client.Object) []string {

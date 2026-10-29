@@ -496,6 +496,9 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	// -------------------------------------------------------------------- Render all values
 	rendered, err := op.pckContainer.Package.Render(model, release)
 	if err != nil {
+		if errors.Is(err, kubopackage.ErrConditionPolicy) {
+			return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), true, "ConditionError"), forceUpdate)
+		}
 		return r.reportError(op, NewReconcileError(fmt.Errorf("error on rendering: %w", err), errors.Is(err, tmpl.ErrLimit), "Rendering"),
 			forceUpdate)
 	}
