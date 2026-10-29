@@ -303,7 +303,8 @@ func checkLegacyChart(chartDir, scratch string, visited map[string]bool) error {
 	})
 }
 
-func archiveChart(chartDir, archive, module string, prefixes []string, gitChart, allowExternal bool) (err error) {
+func archiveChart(chartDir string, destination misc.RootedDir, archive, module string,
+	prefixes []string, gitChart, allowExternal bool) (err error) {
 	source, err := misc.OpenChartSource(chartDir, allowExternal)
 	if err != nil {
 		return err
@@ -314,7 +315,7 @@ func archiveChart(chartDir, archive, module string, prefixes []string, gitChart,
 			return err
 		}
 	}
-	out, err := os.Create(archive)
+	out, err := destination.Create(archive)
 	if err != nil {
 		return err
 	}

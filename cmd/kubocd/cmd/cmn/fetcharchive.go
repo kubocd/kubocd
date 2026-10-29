@@ -47,6 +47,22 @@ type ArchiveInfo struct {
 // - return a status with a map of chartInfo by module
 func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath, workDir, packageFolder string,
 	sourceOpts ...SourceOptions) ([]ArchiveInfo, *kubopackage.Status, error) {
+	work, err := misc.OpenRootedDir(workDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = work.Root.Close() }()
+	assembly, err := misc.OpenRootedDir(assemblyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = assembly.Root.Close() }()
+	return FetchArchivesAt(printPrefix, pck, assembly, work, packageFolder, sourceOpts...)
+}
+
+func FetchArchivesAt(printPrefix string, pck *kubopackage.Package, assembly, work misc.RootedDir,
+	packageFolder string, sourceOpts ...SourceOptions) ([]ArchiveInfo, *kubopackage.Status, error) {
+	workDir := work.Path()
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]ArchiveInfo, 0, len(pck.Modules))
 	status := &kubopackage.Status{
@@ -107,12 +123,20 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath, w
 		} else {
 			return nil, nil, fmt.Errorf("module '%s': the module type '%s' is not supported", module.Name, module.Type)
 		}
-		chartName, chartVersion, err := extractChartInfo(archive)
+		sourceName, err := work.Relative(archive)
+		if err != nil {
+			return nil, nil, err
+		}
+		chartName, chartVersion, err := extractChartInfoAt(work, sourceName)
 		if err != nil {
 			return nil, nil, err
 		}
 		targetArchiveName := fmt.Sprintf("%s-%s.tgz", chartName, chartVersion)
-		targetArchivePath := path.Join(assemblyPath, targetArchiveName)
+		target, err := assembly.Child(targetArchiveName)
+		if err != nil {
+			return nil, nil, err
+		}
+		targetArchivePath := target.Path()
 		_, ok := chartSet[targetArchiveName]
 		if !ok {
 			chartSet[targetArchiveName] = true
@@ -120,7 +144,7 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath, w
 				Name: targetArchiveName,
 				Path: targetArchivePath,
 			})
-			err = misc.CopyFile(archive, targetArchivePath)
+			err = assembly.CopyFrom(targetArchiveName, work, sourceName)
 			if err != nil {
 				return nil, nil, fmt.Errorf("cannot copy %s to %s: %w", archive, targetArchivePath, err)
 			}
@@ -144,14 +168,24 @@ func getHelmChartArchiveFromGit(printPrefix, url, branch, tag, chartPath, module
 		return "", fmt.Errorf("git chart path %q is not inside the checkout", chartPath)
 	}
 	// Prepare target archive folder
-	loc := path.Join(workDir, "git-workdir")
-	err := misc.SafeEnsureEmpty(loc)
+	work, err := misc.OpenRootedDir(workDir)
 	if err != nil {
 		return "", err
 	}
+	defer func() { _ = work.Root.Close() }()
+	destination, err := misc.PrepareDir(work, "git-workdir")
+	if err != nil {
+		return "", err
+	}
+	loc := destination.Path()
 	repoLocation := path.Join(loc, "repo")
 	chartLocation := path.Join(repoLocation, chartPath)
-	archive := path.Join(loc, fmt.Sprintf("%s.tgz", moduleName))
+	archiveName := fmt.Sprintf("%s.tgz", moduleName)
+	archiveFile, err := destination.Child(archiveName)
+	if err != nil {
+		return "", err
+	}
+	archive := archiveFile.Path()
 
 	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, url)
 	options := &git.CloneOptions{
@@ -188,7 +222,7 @@ func getHelmChartArchiveFromGit(printPrefix, url, branch, tag, chartPath, module
 	if err := updateChartDependencies(chartLocation); err != nil {
 		return "", err
 	}
-	if err := archiveChart(chartLocation, archive, moduleName, extraFilePrefixes,
+	if err := archiveChart(chartLocation, destination, archiveName, moduleName, extraFilePrefixes,
 		true, opts.AllowExternalLinks); err != nil {
 		return "", err
 	}
@@ -226,10 +260,16 @@ func getHelmCharArchiveFromLocal(printPrefix, chartLocation, moduleName, workDir
 	sourceOpts ...SourceOptions) (string, error) {
 	opts := sourceOptions(sourceOpts)
 	fmt.Printf("%sFetching chart from '%s'\n", printPrefix, chartLocation)
-	loc1 := filepath.Join(workDir, "local1-workdir")
-	if err := misc.SafeEnsureEmpty(loc1); err != nil {
+	work, err := misc.OpenRootedDir(workDir)
+	if err != nil {
 		return "", err
 	}
+	defer func() { _ = work.Root.Close() }()
+	local1, err := misc.PrepareDir(work, "local1-workdir")
+	if err != nil {
+		return "", err
+	}
+	loc1 := local1.Path()
 	chartCopy := filepath.Join(loc1, "chart")
 	if opts.AllowExternalLinks {
 		source, err := misc.OpenChartSource(chartLocation, true)
@@ -259,12 +299,18 @@ func getHelmCharArchiveFromLocal(printPrefix, chartLocation, moduleName, workDir
 	if err := updateChartDependencies(chartCopy); err != nil {
 		return "", err
 	}
-	loc2 := filepath.Join(workDir, "local2-workdir")
-	if err := misc.SafeEnsureEmpty(loc2); err != nil {
+	destination, err := misc.PrepareDir(work, "local2-workdir")
+	if err != nil {
 		return "", err
 	}
-	archive := filepath.Join(loc2, fmt.Sprintf("%s.tgz", moduleName))
-	if err := archiveChart(chartCopy, archive, moduleName, nil, false, opts.AllowExternalLinks); err != nil {
+	archiveName := fmt.Sprintf("%s.tgz", moduleName)
+	archiveFile, err := destination.Child(archiveName)
+	if err != nil {
+		return "", err
+	}
+	archive := archiveFile.Path()
+	if err := archiveChart(chartCopy, destination, archiveName, moduleName, nil,
+		false, opts.AllowExternalLinks); err != nil {
 		return "", err
 	}
 	return archive, nil
@@ -283,17 +329,14 @@ func requireChartMetadata(dir string, allowExternal bool) error {
 	return f.Close()
 }
 
-// Extract the chart name and version from a chart archive
-func extractChartInfo(tgzPath string) (chartName string, chartVersion string, err error) {
-	ba, err := tgz.ExtractDataFromTgz(tgzPath, "Chart.yaml")
+func extractChartInfoAt(source misc.RootedDir, name string) (string, string, error) {
+	ba, err := tgz.ExtractDataAt(source, name, "Chart.yaml")
 	if err != nil {
 		return "", "", err
 	}
-	var chartMeta chart.Metadata
-	// Unmarshal YAML into the recipient
-	err = yaml.Unmarshal(ba, &chartMeta)
-	if err != nil {
+	var metadata chart.Metadata
+	if err := yaml.Unmarshal(ba, &metadata); err != nil {
 		return "", "", err
 	}
-	return chartMeta.Name, chartMeta.Version, nil
+	return metadata.Name, metadata.Version, nil
 }

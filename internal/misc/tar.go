@@ -19,6 +19,7 @@ package misc
 import (
 	"archive/tar"
 	"compress/gzip"
+	"io"
 	"os"
 	"strings"
 )
@@ -33,8 +34,21 @@ func ListTarGzContents(filename string) (string, error) {
 		_ = file.Close()
 	}(file)
 
+	return ListTarGzContentsReader(file)
+}
+
+func ListTarGzContentsAt(source RootedDir, name string) (string, error) {
+	f, err := source.OpenRegular(name)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	return ListTarGzContentsReader(f)
+}
+
+func ListTarGzContentsReader(input io.Reader) (string, error) {
 	// Create a gzip reader
-	gzReader, err := gzip.NewReader(file)
+	gzReader, err := gzip.NewReader(input)
 	if err != nil {
 		return "", err
 	}

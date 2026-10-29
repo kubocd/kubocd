@@ -52,12 +52,17 @@ type Operation struct {
 
 func DumpOci(op *Operation) error {
 
-	loc, err := FetchOciImage("", op)
+	_, err := FetchOciImage("", op)
 	if err != nil {
 		return err
 	}
+	work, err := misc.OpenRootedDir(op.WorkDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = work.Root.Close() }()
 	index := &v1.Index{}
-	if err = misc.LoadJson(path.Join(loc, "index.json"), index); err != nil {
+	if err = loadJSONAt(work, "oci-image/index.json", index); err != nil {
 		return fmt.Errorf("fail to decode index.json: %v", err)
 	}
 	fmt.Printf("---------------------- index.json:\n%s\n", misc.Any2Yaml(index))
@@ -68,8 +73,8 @@ func DumpOci(op *Operation) error {
 		}
 		if descriptor.MediaType == "application/vnd.oci.image.manifest.v1+json" || descriptor.MediaType == "application/vnd.docker.distribution.manifest.v2+json" {
 			manifest := &v1.Manifest{}
-			if err := misc.LoadJson(digestToFile(descriptor.Digest, op.WorkDir), manifest); err != nil {
-				fmt.Printf("fail to decode manifest '%s': %v", descriptor.Digest, err)
+			if err := loadBlobJSON(work, descriptor.Digest, manifest); err != nil {
+				return fmt.Errorf("fail to decode manifest %q: %w", descriptor.Digest, err)
 			}
 			// Dump config
 			err := dumpEntry(fmt.Sprintf("index.descriptor#%d.config", idx), manifest.Config.MediaType, manifest.Config.Digest, op)
@@ -93,11 +98,16 @@ func FetchOciImage(printPrefix string, op *Operation) (string, error) {
 	ctx := context.Background()
 
 	// Prepare target archive folder
-	loc := path.Join(op.WorkDir, "oci-image")
-	err := misc.SafeEnsureEmpty(loc)
+	work, err := misc.OpenRootedDir(op.WorkDir)
 	if err != nil {
-		return loc, err
+		return "", err
 	}
+	defer func() { _ = work.Root.Close() }()
+	target, err := misc.PrepareDir(work, "oci-image")
+	if err != nil {
+		return "", err
+	}
+	loc := target.Path()
 
 	// Set up an OCI layout as a destination
 	dst, err := oci.New(loc)
@@ -147,44 +157,67 @@ func FetchOciImage(printPrefix string, op *Operation) (string, error) {
 	return loc, nil
 }
 
-func dumpEntry(prefix string, mediaType string, digest digest.Digest, op *Operation) error {
+func dumpEntry(prefix string, mediaType string, value digest.Digest, op *Operation) error {
+	work, err := misc.OpenRootedDir(op.WorkDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = work.Root.Close() }()
+	name, err := blobName(value)
+	if err != nil {
+		return err
+	}
 	if strings.HasSuffix(mediaType, "+json") {
 		content := make(map[string]interface{})
-		err := misc.LoadJson(digestToFile(digest, op.WorkDir), &content)
-		if err != nil {
-			fmt.Printf("fail to decode manifest '%s' (%s) in json: %v", digest, mediaType, err)
+		if err := loadJSONAt(work, name, &content); err != nil {
+			return err
 		}
-		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, misc.Any2Yaml(content))
+		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n",
+			prefix, value[:15], mediaType, misc.Any2Yaml(content))
 	} else if strings.HasSuffix(mediaType, "tar+gzip") || strings.HasSuffix(mediaType, "tar.gzip") {
-		contents, err := misc.ListTarGzContents(digestToFile(digest, op.WorkDir))
+		contents, err := misc.ListTarGzContentsAt(work, name)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, contents)
+		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, value[:15], mediaType, contents)
 		if op.Chart && op.Output != "" && mediaType == global.HelmChartMediaType {
-			output := path.Join(op.Output, fmt.Sprintf("%s-%s", path.Base(op.ImageRepo), op.ImageTag))
-			err := misc.SafeEnsureEmpty(output)
+			target, _, err := misc.PrepareOutput(op.Output, fmt.Sprintf("%s-%s", path.Base(op.ImageRepo), op.ImageTag))
 			if err != nil {
 				return err
 			}
-			fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n", path.Base(op.ImageRepo), op.ImageTag, output)
-			err = tgz.ExtractAllFromTgz(digestToFile(digest, op.WorkDir), output)
-			if err != nil {
-				return err
-			}
+			defer func() { _ = target.Root.Close() }()
+			fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n",
+				path.Base(op.ImageRepo), op.ImageTag, target.Path())
+			return tgz.ExtractAllAt(work, name, target)
 		}
 	} else {
-		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n", prefix, digest[:15], mediaType, "CONTENT TYPE NOT YET HANDLED")
+		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n",
+			prefix, value[:15], mediaType, "CONTENT TYPE NOT YET HANDLED")
 	}
 	return nil
 }
 
-func digestToFile(digest digest.Digest, workDir string) string {
-	a := strings.Split(string(digest), ":")
-	if len(a) != 2 {
-		panic(fmt.Sprintf("invalid digest: %s", digest))
+func blobName(value digest.Digest) (string, error) {
+	if err := value.Validate(); err != nil {
+		return "", fmt.Errorf("invalid OCI digest %q: %w", value, err)
 	}
-	return path.Join(workDir, "oci-image", "blobs", a[0], a[1])
+	return path.Join("oci-image", "blobs", value.Algorithm().String(), value.Encoded()), nil
+}
+
+func loadJSONAt(source misc.RootedDir, name string, value interface{}) error {
+	data, err := source.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, value)
+}
+
+func loadBlobJSON(source misc.RootedDir, value digest.Digest, object interface{}) error {
+	name, err := blobName(value)
+	if err != nil {
+		return err
+	}
+	return loadJSONAt(source, name, object)
 }
 
 // GetCredentials retrieves stored credentials from the macOS/linux/windows Keychain
@@ -278,25 +311,41 @@ func getDockerCredentialsHelper() (string, error) {
 }
 
 func GetContentFromOci(printPrefix string, op *Operation, mediaType string) (archivePath string, err error) {
-	loc, err := FetchOciImage(printPrefix, op)
+	_, err = FetchOciImage(printPrefix, op)
 	if err != nil {
 		return "", err
 	}
+	work, err := misc.OpenRootedDir(op.WorkDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = work.Root.Close() }()
 	index := &v1.Index{}
-	if err = misc.LoadJson(path.Join(loc, "index.json"), index); err != nil {
+	if err = loadJSONAt(work, "oci-image/index.json", index); err != nil {
 		return "", fmt.Errorf("fail to decode index.json: %v", err)
 	}
 	for _, descriptor := range index.Manifests {
 		if descriptor.MediaType == "application/vnd.oci.image.manifest.v1+json" || descriptor.MediaType == "application/vnd.docker.distribution.manifest.v2+json" {
 			manifest := &v1.Manifest{}
-			if err := misc.LoadJson(digestToFile(descriptor.Digest, op.WorkDir), manifest); err != nil {
-				fmt.Printf("fail to decode manifest '%s': %v", descriptor.Digest, err)
+			if err := loadBlobJSON(work, descriptor.Digest, manifest); err != nil {
+				return "", fmt.Errorf("fail to decode manifest %q: %w", descriptor.Digest, err)
 			}
 			// And dump layers
 			for _, layer := range manifest.Layers {
 				if layer.MediaType == mediaType {
 					// GOT IT
-					return digestToFile(layer.Digest, op.WorkDir), nil
+					name, err := blobName(layer.Digest)
+					if err != nil {
+						return "", err
+					}
+					f, err := work.OpenRegular(name)
+					if err != nil {
+						return "", err
+					}
+					if err := f.Close(); err != nil {
+						return "", err
+					}
+					return path.Join(work.Path(), name), nil
 				}
 			}
 		}

@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	kapi "kubocd/api/v1alpha1"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
@@ -80,7 +79,9 @@ func init() {
 		"allowReleaseInsecureSource", false,
 		"Allow Release package sources to use insecure HTTP without a matching packageRedirect.")
 
-	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render", "Output directory")
+	renderCmd.PersistentFlags().StringVarP(&renderParams.output, "output", "o", "./.render",
+		"Output directory; an empty value prints top-level dumps to stdout and leaves charts/, modules/ "+
+			"and connection append files in the current directory")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.workDir, "workDir", "w", "", "working directory. Default to $HOME/.kubocd")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.kubocdNamespace, "kubocdNamespace", "", "kubocd", "The namespace where the kubocd controller is installed in (To fetch configs resources)")
 	renderCmd.PersistentFlags().StringVarP(&renderParams.namespace, "namespace", "n", "default", "Value to set if release.metadata.namespace is empty")
@@ -146,13 +147,16 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("error loading release: %w", err)
 			}
-			if output != "" {
-				output = path.Join(output, release.Name)
-				err := misc.SafeEnsureEmpty(output)
-				if err != nil {
-					return fmt.Errorf("error ensuring output file exists: %w", err)
-				}
+			target, output, err := misc.PrepareOutput(output, release.Name)
+			if err != nil {
+				return fmt.Errorf("error ensuring output file exists: %w", err)
 			}
+			defer func() { _ = target.Root.Close() }()
+			work, err := misc.OpenRootedDir(renderParams.workDir)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = work.Root.Close() }()
 			if release.Namespace == "" {
 				release.Namespace = renderParams.namespace
 			}
@@ -177,7 +181,10 @@ var renderCmd = &cobra.Command{
 			packageFolder := ""
 			pkgOriginal := &kubopackage.Package{}
 			pkgContainer := &kubopackage.PckContainer{}
-			chartsDir := path.Join(output, "charts")
+			chartsDir, err := target.Child("charts")
+			if err != nil {
+				return err
+			}
 			var errorOnContainer error
 			if len(args) == 2 {
 				err = misc.LoadYaml(args[1], pkgOriginal)
@@ -194,26 +201,19 @@ var renderCmd = &cobra.Command{
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000",
 					configStore, renderPackageFunctions())
 				// Compute status to give the map module->helmChart (Need to fetch helm charts)
-				assemblyPath := path.Join(renderParams.workDir, "assembly")
-				err = misc.SafeEnsureEmpty(assemblyPath)
+				assembly, err := misc.PrepareDir(work, "assembly")
 				if err != nil {
 					return fmt.Errorf("error ensuring assembly path: %w", err)
 				}
-				_, pkgContainer.Status, err = cmn.FetchArchives("", pkgOriginal, assemblyPath, renderParams.workDir,
-					packageFolder, renderParams.sourceOptions)
+				_, pkgContainer.Status, err = cmn.FetchArchivesAt("", pkgContainer.Package, assembly, work, packageFolder,
+					renderParams.sourceOptions)
 				if err != nil {
 					return fmt.Errorf("could not fetch package archive: %w", err)
 				}
-				// Deploy all charts
-				for moduleName, chartRef := range pkgContainer.Status.ChartByModule {
-					target := path.Join(chartsDir, moduleName)
-					//fmt.Printf("Expand chart %s in %s\n", chartRef.Name, chartsDir)
-					fmt.Printf("Create %s\n", target)
-					err := tgz.ExtractAllFromTgz(path.Join(assemblyPath, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
-					if err != nil {
-						return err
-					}
+				if err := cmn.ExtractPackageCharts(assembly, target, pkgContainer.Status); err != nil {
+					return err
 				}
+
 			} else {
 				var repo, tag string
 				packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
@@ -239,13 +239,17 @@ var renderCmd = &cobra.Command{
 				}
 				renderLog.V(1).Info("OCI fetched successfully", "archive", archive)
 				//fmt.Printf("# Fetched OCI image content: %s\n\n", archive)
-				err = tgz.UnmarshalDataFromTgz(archive, "original.yaml", &pkgOriginal)
+				archiveName, err := work.Relative(archive)
+				if err != nil {
+					return err
+				}
+				err = tgz.UnmarshalDataAt(work, archiveName, "original.yaml", &pkgOriginal)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
 				}
 				renderLog.V(1).Info("Unmarshalled original.yaml")
 				status := &kubopackage.Status{}
-				err = tgz.UnmarshalDataFromTgz(archive, "status.yaml", &status)
+				err = tgz.UnmarshalDataAt(work, archiveName, "status.yaml", &status)
 				if err != nil {
 					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
 				}
@@ -254,27 +258,17 @@ var renderCmd = &cobra.Command{
 					configStore, renderPackageFunctions())
 				renderLog.V(1).Info("Setting package in pkgContainer OK")
 
-				// Deploy all charts
-				tarManifest := path.Join(renderParams.workDir, "manifest.tar")
-				if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
-					return err
-				}
-				renderLog.V(1).Info("SafeEnsureEmpty OK", "folder", tarManifest)
-				err = tgz.ExtractAllFromTgz(archive, tarManifest)
+				manifest, err := misc.PrepareDir(work, "manifest.tar")
 				if err != nil {
 					return err
 				}
-				renderLog.V(1).Info("ExtractAllFromTgz OK", "archive", archive)
-				for moduleName, chartRef := range status.ChartByModule {
-					target := path.Join(chartsDir, moduleName)
-					//fmt.Printf("Expand chart %s into %s\n", chartRef.Name, target)
-					fmt.Printf("Create %s\n", target)
-					err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
-					if err != nil {
-						return err
-					}
-					renderLog.V(1).Info("ExtractAllFromTgz OK", "target", target)
+				if err := tgz.ExtractAllAt(work, archiveName, manifest); err != nil {
+					return err
 				}
+				if err := cmn.ExtractPackageCharts(manifest, target, status); err != nil {
+					return err
+				}
+
 			}
 			cmn.Dump(output, "package.yaml", pkgContainer.Package)
 			cmn.Dump(output, "default-parameters.yaml", pkgContainer.DefaultParameters)
@@ -284,18 +278,6 @@ var renderCmd = &cobra.Command{
 			if errorOnContainer != nil {
 				return fmt.Errorf("error while storing package in cache: %w", errorOnContainer)
 			}
-			//if pkgContainer.Status == nil {
-			//	// Compute status to give the map module->helmChart (Need to fetch helm charts)
-			//	assemblyPath := path.Join(renderParams.workDir, "assembly")
-			//	err := misc.SafeEnsureEmpty(assemblyPath)
-			//	if err != nil {
-			//		return fmt.Errorf("error ensuring assembly path: %w", err)
-			//	}
-			//	_, pkgContainer.Status, err = cmn.FetchArchives("", pkgContainer.Package, assemblyPath, renderParams.workDir, packageFolder)
-			//	if err != nil {
-			//		return fmt.Errorf("could not fetch package archive: %w", err)
-			//	}
-			//}
 			cmn.Dump(output, "status.yaml", pkgContainer.Status)
 
 			// ------------------------------------------------------------------------ handle context
@@ -411,7 +393,7 @@ var renderCmd = &cobra.Command{
 			}
 
 			// ---------------------------------------------------------------------- Generate stuff by module
-			err = previewModules(output, chartsDir, release, pkgContainer, rendered, helmRepositoryName, configStore, runHelm,
+			err = previewModulesAt(target, chartsDir, release, pkgContainer, rendered, helmRepositoryName, configStore, runHelm,
 				os.Stderr)
 			if err != nil {
 				return err
@@ -515,6 +497,30 @@ func fluxReleaseName(helmRelease *fluxv2.HelmRelease) string {
 func previewModules(output string, chartsDir string, release *kapi.Release, pkgContainer *kubopackage.PckContainer,
 	rendered *kubopackage.Rendered, helmRepositoryName string, configStore configstore.ConfigStore,
 	helm helmCommand, diagnostics io.Writer) error {
+	target, err := misc.OpenRootedDir(output)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = target.Root.Close() }()
+	relative, err := target.Relative(chartsDir)
+	if err != nil {
+		return err
+	}
+	charts, err := target.Child(relative)
+	if err != nil {
+		return err
+	}
+	return previewModulesAt(target, charts, release, pkgContainer, rendered, helmRepositoryName, configStore,
+		helm, diagnostics)
+}
+
+func previewModulesAt(output, chartsDir misc.RootedDir, release *kapi.Release, pkgContainer *kubopackage.PckContainer,
+	rendered *kubopackage.Rendered, helmRepositoryName string, configStore configstore.ConfigStore,
+	helm helmCommand, diagnostics io.Writer) error {
+	modules, err := output.Child("modules")
+	if err != nil {
+		return err
+	}
 	helmReleaseNameByModuleName := make(map[string]string)
 	for _, module := range pkgContainer.Package.Modules {
 		helmReleaseNameByModuleName[module.Name] = controller.BuildHelmReleaseName(release.Name, module.Name)
@@ -523,11 +529,11 @@ func previewModules(output string, chartsDir string, release *kapi.Release, pkgC
 		if !rendered.ModuleRenderedByName[module.Name].Enabled {
 			continue
 		}
-		out := path.Join(output, "modules", module.Name)
-		err := misc.SafeEnsureEmpty(out)
+		destination, err := misc.PrepareDir(modules, module.Name)
 		if err != nil {
 			return fmt.Errorf("could not ensure empty manifests folder: %w", err)
 		}
+		out := destination.Path()
 		helmRelease := &fluxv2.HelmRelease{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: fluxv2.GroupVersion.String(),
@@ -550,7 +556,14 @@ func previewModules(output string, chartsDir string, release *kapi.Release, pkgC
 		}
 		cmn.Dump(out, "values.yaml", values)
 
-		chartFolder, err := DigFolderForFile(path.Join(chartsDir, module.Name), "Chart.yaml")
+		chartDir, err := chartsDir.Child(module.Name)
+		if err != nil {
+			return err
+		}
+		if err := validatePreviewChart(chartDir); err != nil {
+			return err
+		}
+		chartFolder, err := digFolderAt(chartDir, "Chart.yaml")
 		if err != nil {
 			return fmt.Errorf("could not determine chart folder: %w", err)
 		}
@@ -568,26 +581,67 @@ func previewModules(output string, chartsDir string, release *kapi.Release, pkgC
 	return nil
 }
 
-//type WalkDirFunc func(path string, d DirEntry, err error) error
-
 func DigFolderForFile(inFolder string, lookedUpFile string) (string, error) {
-	//fmt.Printf("************** Looking in %s\n", inFolder)
-	result := ""
-	err := filepath.WalkDir(inFolder, func(thePath string, de fs.DirEntry, err error) error {
-		if err != nil {
-			return err // Stop walking
-		}
-		//fmt.Printf("----------------- %s -> %s\n", thePath, de.Name())
-		if !de.IsDir() && de.Name() == lookedUpFile {
-			result = path.Dir(thePath)
-			return filepath.SkipAll
-		}
-		return nil
-	})
+	root, err := misc.OpenRootedDir(inFolder)
 	if err != nil {
 		return "", err
 	}
-	return result, nil
+	defer func() { _ = root.Root.Close() }()
+	return digFolderAt(root, lookedUpFile)
+}
+
+func validatePreviewChart(folder misc.RootedDir) error {
+	entries, err := folder.ReadDir(".")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			child, err := folder.Child(entry.Name())
+			if err != nil {
+				return err
+			}
+			if err := validatePreviewChart(child); err != nil {
+				return err
+			}
+		} else if !entry.Type().IsRegular() {
+			return fmt.Errorf("path %q is not a regular file", filepath.Join(folder.Rel, entry.Name()))
+		}
+	}
+	return nil
+}
+
+func digFolderAt(folder misc.RootedDir, lookedUpFile string) (string, error) {
+	entries, err := folder.ReadDir(".")
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path %q is not a regular file", entry.Name())
+		}
+		if !entry.IsDir() && entry.Name() == lookedUpFile {
+			f, err := folder.OpenRegular(entry.Name())
+			if err != nil {
+				return "", err
+			}
+			if err := f.Close(); err != nil {
+				return "", err
+			}
+			return folder.Path(), nil
+		}
+		if entry.IsDir() {
+			child, err := folder.Child(entry.Name())
+			if err != nil {
+				return "", err
+			}
+			result, err := digFolderAt(child, lookedUpFile)
+			if err != nil || result != "" {
+				return result, err
+			}
+		}
+	}
+	return "", nil
 }
 
 type buildInputModelHelper struct {

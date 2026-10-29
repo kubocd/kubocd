@@ -17,7 +17,6 @@ limitations under the License.
 package pck
 
 import (
-	"fmt"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
@@ -25,136 +24,105 @@ import (
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
-	"path"
 	"path/filepath"
 	"strings"
 )
 
 func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 	sourceOpts ...cmn.SourceOptions) error {
-	pckOriginal := &kubopackage.Package{}
-	status := &kubopackage.Status{}
+	work, err := misc.OpenRootedDir(workDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = work.Root.Close() }()
 	if strings.HasPrefix(arg, "oci://") {
 		imageRepo, imageTag, err := misc.DecodeImageUrl(arg)
 		if err != nil {
 			return err
 		}
-		//fmt.Printf("OCI dump of %s:%s\n", imageRepo, imageTag)
-		op := &oci.Operation{
-			WorkDir:   workDir,
-			ImageRepo: imageRepo,
-			ImageTag:  imageTag,
-			Insecure:  insecure,
-			Anonymous: anonymous,
-		}
-
+		op := &oci.Operation{WorkDir: work.Path(), ImageRepo: imageRepo, ImageTag: imageTag,
+			Insecure: insecure, Anonymous: anonymous}
 		archive, err := oci.GetContentFromOci("", op, global.PackageContentMediaType)
 		if err != nil {
 			return err
 		}
-
-		tarManifest := path.Join(workDir, "manifest.tar")
-		if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
-			return err
-		}
-		err = tgz.ExtractAllFromTgz(archive, tarManifest)
+		name, err := work.Relative(archive)
 		if err != nil {
 			return err
 		}
-		//fmt.Printf("Fetched OCI image content: %s\n", archive)
-		pckGroomedOci := &kubopackage.Package{}
-		if err = misc.LoadYaml(path.Join(tarManifest, "original.yaml"), pckOriginal); err != nil {
-			return err
-		}
-		if err = misc.LoadYaml(path.Join(tarManifest, "groomed.yaml"), pckGroomedOci); err != nil {
-			return err
-		}
-		if err = misc.LoadYaml(path.Join(tarManifest, "status.yaml"), status); err != nil {
-			return err
-		}
-		if output != "" {
-			output = filepath.Join(output, pckOriginal.Name)
-			err := misc.SafeEnsureEmpty(output)
-			if err != nil {
-				return err
-			}
-		}
-		cmn.Dump(output, "groomed-oci.yaml", pckGroomedOci)
-		if charts {
-			chartsDir := path.Join(output, "charts")
-			for moduleName, chartRef := range status.ChartByModule {
-				// fmt.Printf("Expand chart %s\n", chartRef.Name)
-				target := path.Join(chartsDir, moduleName)
-				fmt.Printf("Create %s\n", target)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	} else {
-		// The manifest is a local file
-		pckGroomed := &kubopackage.Package{}
-		err := misc.LoadYaml(arg, pckOriginal, pckGroomed)
-		if err != nil {
-			fmt.Printf("Error loading manifest: %s\n", err)
-			return err
-		}
-		abs, err := filepath.Abs(arg)
-		if err != nil {
-			return err
-		}
-		packageFolder := filepath.Dir(abs)
-
-		err = pckGroomed.Groom(nil, tmpl.PackageFunctions(false))
-		if err != nil {
-			return err
-		}
-		if output != "" {
-			output = filepath.Join(output, pckOriginal.Name)
-			err := misc.SafeEnsureEmpty(output)
-			if err != nil {
-				return err
-			}
-		}
-		if charts {
-			tarManifest := path.Join(workDir, "manifest.tar")
-			if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
-				return err
-			}
-			_, status, err = cmn.FetchArchives("", pckGroomed, tarManifest, workDir, packageFolder, sourceOpts...)
-			if err != nil {
-				return err
-			}
-			chartsDir := path.Join(output, "charts")
-			for moduleName, chartRef := range status.ChartByModule {
-				//fmt.Printf("Expand chart %s\n", chartRef.Name)
-				target := path.Join(chartsDir, moduleName)
-				fmt.Printf("Create %s\n", target)
-				err := tgz.ExtractAllFromTgz(path.Join(tarManifest, fmt.Sprintf("%s-%s.tgz", chartRef.Name, chartRef.Version)), target)
-				if err != nil {
-					return err
-				}
-			}
-		} else {
-			status = nil // Flag as un-relevant
-		}
+		return dumpPackageArchive(work, name, output, charts)
 	}
-	if status != nil {
-		cmn.Dump(output, "status.yaml", status)
+	original, groomed := &kubopackage.Package{}, &kubopackage.Package{}
+	if err := misc.LoadYaml(arg, original, groomed); err != nil {
+		return err
 	}
-	cmn.Dump(output, "original.yaml", pckOriginal)
-
-	pckContainer := &kubopackage.PckContainer{}
-	err := pckContainer.SetPackage(pckOriginal, nil, "0.0.0@sha256:0000000000000000000000000", nil,
-		tmpl.PackageFunctions(false))
-	// We dump even in case of error, to let user have a look.
-	cmn.Dump(output, "groomed.yaml", pckContainer.Package)
-	cmn.Dump(output, "default-parameters.yaml", pckContainer.DefaultParameters)
-	cmn.Dump(output, "default-context.yaml", pckContainer.DefaultContext)
-
+	if err := groomed.Groom(nil, tmpl.PackageFunctions(false)); err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(arg)
 	if err != nil {
 		return err
 	}
-	return nil
+	var status *kubopackage.Status
+	var manifest misc.RootedDir
+	if charts {
+		manifest, err = misc.PrepareDir(work, "manifest.tar")
+		if err != nil {
+			return err
+		}
+		_, status, err = cmn.FetchArchivesAt("", groomed, manifest, work, filepath.Dir(abs), sourceOpts...)
+		if err != nil {
+			return err
+		}
+	}
+	return dumpPackageOutput(original, nil, status, manifest, output, charts)
+}
+
+func dumpPackageArchive(work misc.RootedDir, archive, output string, charts bool) error {
+	manifest, err := misc.PrepareDir(work, "manifest.tar")
+	if err != nil {
+		return err
+	}
+	if err := tgz.ExtractAllAt(work, archive, manifest); err != nil {
+		return err
+	}
+	original, groomed := &kubopackage.Package{}, &kubopackage.Package{}
+	status := &kubopackage.Status{}
+	if err := manifest.LoadYaml("original.yaml", original); err != nil {
+		return err
+	}
+	if err := manifest.LoadYaml("groomed.yaml", groomed); err != nil {
+		return err
+	}
+	if err := manifest.LoadYaml("status.yaml", status); err != nil {
+		return err
+	}
+	return dumpPackageOutput(original, groomed, status, manifest, output, charts)
+}
+
+func dumpPackageOutput(original, groomed *kubopackage.Package, status *kubopackage.Status,
+	manifest misc.RootedDir, output string, charts bool) error {
+	target, dumpPath, err := misc.PrepareOutput(output, original.Name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = target.Root.Close() }()
+	if groomed != nil {
+		cmn.Dump(dumpPath, "groomed-oci.yaml", groomed)
+	}
+	if charts {
+		if err := cmn.ExtractPackageCharts(manifest, target, status); err != nil {
+			return err
+		}
+	}
+	if status != nil {
+		cmn.Dump(dumpPath, "status.yaml", status)
+	}
+	cmn.Dump(dumpPath, "original.yaml", original)
+	container := &kubopackage.PckContainer{}
+	err = container.SetPackage(original, nil, "0.0.0@sha256:0000000000000000000000000", nil, tmpl.PackageFunctions(false))
+	cmn.Dump(dumpPath, "groomed.yaml", container.Package)
+	cmn.Dump(dumpPath, "default-parameters.yaml", container.DefaultParameters)
+	cmn.Dump(dumpPath, "default-context.yaml", container.DefaultContext)
+	return err
 }

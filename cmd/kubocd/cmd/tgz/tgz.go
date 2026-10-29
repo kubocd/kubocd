@@ -41,29 +41,37 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 // entry whose name is not a relative path inside targetPath, and prevents archive paths from escaping targetPath,
 // including through existing symbolic links.
 func ExtractAllFromTgz(tgzPath string, targetPath string) error {
-	// Open the .tgz file
 	tgzFile, err := os.Open(tgzPath)
 	if err != nil {
 		return err
 	}
-	defer tgzFile.Close()
-
-	// Create a gzip reader
-	gzReader, err := gzip.NewReader(tgzFile)
+	defer func() { _ = tgzFile.Close() }()
+	target, err := misc.OpenRootedDir(targetPath)
 	if err != nil {
 		return err
 	}
-	defer gzReader.Close()
+	defer func() { _ = target.Root.Close() }()
+	return ExtractAllFromReader(tgzFile, target)
+}
 
-	if err = os.MkdirAll(targetPath, 0755); err != nil {
-		return err
-	}
-	root, err := os.OpenRoot(targetPath)
+func ExtractAllAt(source misc.RootedDir, name string, target misc.RootedDir) error {
+	f, err := source.OpenRegular(name)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
+	defer func() { _ = f.Close() }()
+	return ExtractAllFromReader(f, target)
+}
 
+func ExtractAllFromReader(input io.Reader, target misc.RootedDir) error {
+	gzReader, err := gzip.NewReader(input)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = gzReader.Close() }()
+	if err := target.MkdirAll(".", 0755); err != nil {
+		return err
+	}
 	// Create a tar reader
 	tarReader := tar.NewReader(gzReader)
 
@@ -81,7 +89,7 @@ func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 		}
 		// Link entries are skipped, as only regular files are written.
 		if header.Typeflag == tar.TypeReg {
-			if err := extractFile(root, filepath.FromSlash(header.Name), tarReader); err != nil {
+			if err := extractFile(target, filepath.FromSlash(header.Name), tarReader); err != nil {
 				return err
 			}
 		}
@@ -90,7 +98,7 @@ func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 }
 
 // extractFile writes content to the file called name under root, after creating its parent folders.
-func extractFile(root *os.Root, name string, content io.Reader) error {
+func extractFile(root misc.RootedDir, name string, content io.Reader) error {
 	if err := root.MkdirAll(filepath.Dir(name), 0755); err != nil {
 		return err
 	}
@@ -122,8 +130,12 @@ func ExtractFromTgz(tgzPath string, fileName string, writer io.Writer) error {
 	}
 	defer tgzFile.Close()
 
+	return ExtractFromReader(tgzFile, fileName, writer)
+}
+
+func ExtractFromReader(input io.Reader, fileName string, writer io.Writer) error {
 	// Create a gzip reader
-	gzReader, err := gzip.NewReader(tgzFile)
+	gzReader, err := gzip.NewReader(input)
 	if err != nil {
 		return err
 	}
@@ -197,4 +209,47 @@ func AddToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
 		return fmt.Errorf("failed to copy file %s to archive: %w", filePath, err)
 	}
 	return nil
+}
+
+func ExtractDataAt(source misc.RootedDir, name, fileName string) ([]byte, error) {
+	f, err := source.OpenRegular(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	bb := &bytes.Buffer{}
+	if err := ExtractFromReader(f, fileName, bb); err != nil {
+		return nil, err
+	}
+	return bb.Bytes(), nil
+}
+
+func UnmarshalDataAt(source misc.RootedDir, name, fileName string, data interface{}) error {
+	ba, err := ExtractDataAt(source, name, fileName)
+	if err != nil {
+		return err
+	}
+	return misc.YamlDecode(string(ba), data)
+}
+
+func AddToArchiveAt(tw *tar.Writer, source misc.RootedDir, name, inArchiveName string) error {
+	f, err := source.OpenRegular(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	header, err := tar.FileInfoHeader(info, info.Name())
+	if err != nil {
+		return err
+	}
+	header.Name = inArchiveName
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
 }

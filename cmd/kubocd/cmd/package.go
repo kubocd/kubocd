@@ -20,6 +20,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
@@ -147,18 +148,21 @@ func pack(pck string) error {
 	tag := pckGroomed.Tag
 
 	// ---------- Prepare the target layout
-	fsPath := path.Join(packageParams.workDir, "fs")
-	err = misc.SafeEnsureEmpty(fsPath)
+	work, err := misc.OpenRootedDir(packageParams.workDir)
 	if err != nil {
 		return err
 	}
-	assemblyPath := path.Join(packageParams.workDir, "assembly")
-	err = misc.SafeEnsureEmpty(assemblyPath)
+	defer func() { _ = work.Root.Close() }()
+	if _, err := misc.PrepareDir(work, "fs"); err != nil {
+		return err
+	}
+	assembly, err := misc.PrepareDir(work, "assembly")
 	if err != nil {
 		return err
 	}
+	assemblyPath := assembly.Path()
 	// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-	chartSet, status, err := cmn.FetchArchives("", pckGroomed, assemblyPath, packageParams.workDir,
+	chartSet, status, err := cmn.FetchArchivesAt("", pckGroomed, assembly, work,
 		packageFolder, packageParams.sourceOptions)
 	if err != nil {
 		return err
@@ -176,34 +180,34 @@ func pack(pck string) error {
 	// ------------------------------------- Produce meta files
 	//fmt.Printf("index.yaml:\n%s\n", misc.Map2YamlStr(index))
 	// Generate the index file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "index.yaml"), misc.Any2Yaml(index), os.ModePerm)
+	err = assembly.WriteFile("index.yaml", misc.Any2Yaml(index), os.ModePerm)
 	if err != nil {
 		return err
 	}
 	// Generate the original.yaml file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "original.yaml"), misc.Any2Yaml(pckOriginal), os.ModePerm)
+	err = assembly.WriteFile("original.yaml", misc.Any2Yaml(pckOriginal), os.ModePerm)
 	if err != nil {
 		return err
 	}
 	// Generate the groomed.yaml file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "groomed.yaml"), misc.Any2Yaml(pckGroomed), os.ModePerm)
+	err = assembly.WriteFile("groomed.yaml", misc.Any2Yaml(pckGroomed), os.ModePerm)
 	if err != nil {
 		return err
 	}
 	// Generate the groomed.yaml file to be included in archive
-	err = os.WriteFile(path.Join(assemblyPath, "status.yaml"), misc.Any2Yaml(status), os.ModePerm)
+	err = assembly.WriteFile("status.yaml", misc.Any2Yaml(status), os.ModePerm)
 	if err != nil {
 		return err
 	}
 	// Generate the manifest.json file to be set as config in the image
-	err = os.WriteFile(path.Join(assemblyPath, "manifest.json"), misc.Map2Json(pckGroomed), os.ModePerm)
+	err = assembly.WriteFile("manifest.json", misc.Map2Json(pckGroomed), os.ModePerm)
 	if err != nil {
 		return err
 	}
 
 	// ------------------------------------- Package
 	fmt.Printf("    Wrap all in assembly.tgz\n")
-	err = buildAssembly(assemblyPath, chartSet)
+	err = buildAssembly(assembly, chartSet)
 	if err != nil {
 		return err
 	}
@@ -217,38 +221,24 @@ func pack(pck string) error {
 
 }
 
-func buildAssembly(assemblyPath string, archives []cmn.ArchiveInfo) error {
-	assemblyArchiveName := path.Join(assemblyPath, "assembly.tgz")
-	out, err := os.Create(assemblyArchiveName)
+func buildAssembly(assembly misc.RootedDir, archives []cmn.ArchiveInfo) (err error) {
+	out, err := assembly.Create("assembly.tgz")
 	if err != nil {
-		return fmt.Errorf("could not create archive '%s': %w", assemblyArchiveName, err)
+		return err
 	}
-	defer out.Close()
+	defer func() { err = errors.Join(err, out.Close()) }()
 	gw := gzip.NewWriter(out)
-	defer gw.Close()
+	defer func() { err = errors.Join(err, gw.Close()) }()
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
-
-	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "original.yaml"), "original.yaml")
-	if err != nil {
-		return fmt.Errorf("could not add 'original.yaml' to archive '%s': %w", assemblyArchiveName, err)
+	defer func() { err = errors.Join(err, tw.Close()) }()
+	for _, name := range []string{"original.yaml", "groomed.yaml", "index.yaml", "status.yaml"} {
+		if err := tgz.AddToArchiveAt(tw, assembly, name, name); err != nil {
+			return err
+		}
 	}
-	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "groomed.yaml"), "groomed.yaml")
-	if err != nil {
-		return fmt.Errorf("could not add 'groomed.yaml' to archive '%s': %w", assemblyArchiveName, err)
-	}
-	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "index.yaml"), "index.yaml")
-	if err != nil {
-		return fmt.Errorf("could not add 'index.yaml' to archive '%s': %w", assemblyArchiveName, err)
-	}
-	err = tgz.AddToArchive(tw, path.Join(assemblyPath, "status.yaml"), "status.yaml")
-	if err != nil {
-		return fmt.Errorf("could not add 'status.yaml' to archive '%s': %w", assemblyArchiveName, err)
-	}
-	for _, archiveInfo := range archives {
-		err = tgz.AddToArchive(tw, archiveInfo.Path, archiveInfo.Name)
-		if err != nil {
-			return fmt.Errorf("could not add '%s' to archive '%s': %w", archiveInfo.Name, assemblyArchiveName, err)
+	for _, archive := range archives {
+		if err := tgz.AddToArchiveAt(tw, assembly, archive.Name, archive.Name); err != nil {
+			return err
 		}
 	}
 	return nil

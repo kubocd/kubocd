@@ -35,6 +35,10 @@
 - `--allowExternalLinks` on `kubocd package`, `dump package` and `render` restores reads outside the source root
   in the previous source layout and accepts absolute `file://` dependencies unchanged.
   It does not permit special files or add local sibling dependency support.
+- CLI paths outside their work/output parent fail with
+  `path "../victim" is not inside its trusted parent directory`.
+  A `.transient` marker must be a regular file and cannot authorize cleanup of the parent itself.
+- `kubocd render --output=""` refuses symlinks or special files left in `charts/` by earlier runs before running Helm.
 
 # v0.4.1
 

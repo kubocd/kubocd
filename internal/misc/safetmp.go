@@ -98,3 +98,70 @@ func setTransientFlag(loc string) error {
 	}
 	return f.Close()
 }
+
+func SafeRemoveAt(parent RootedDir, name string) error {
+	if name == "" || filepath.Clean(name) == "." {
+		return fmt.Errorf("refusing to clean the trusted parent directory")
+	}
+	if !filepath.IsLocal(name) {
+		return pathBoundary(name)
+	}
+	if _, err := parent.checked(filepath.Dir(name)); err != nil {
+		return err
+	}
+	info, err := parent.Root.Lstat(joinPathComponents(parent.Rel, name))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to clean symlink directory %q", name)
+	}
+	child, err := parent.Child(name)
+	if err != nil {
+		return err
+	}
+	parentInfo, err := parent.Root.Stat(parent.Rel)
+	if err != nil {
+		return err
+	}
+	targetInfo, err := parent.Root.Stat(child.Rel)
+	if err != nil {
+		return err
+	}
+	if os.SameFile(targetInfo, parentInfo) {
+		return fmt.Errorf("refusing to clean the trusted parent directory")
+	}
+	marker := filepath.Join(child.Rel, transientFlag)
+	info, err = parent.Root.Lstat(marker)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("unable to remove %s. Missing %s flag", name, transientFlag)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("transient marker %q is not a regular file", marker)
+	}
+	return parent.Root.RemoveAll(child.Rel)
+}
+
+func SafeEnsureEmptyAt(parent RootedDir, name string) error {
+	if err := SafeRemoveAt(parent, name); err != nil {
+		return err
+	}
+	child, err := parent.Child(name)
+	if err != nil {
+		return err
+	}
+	if err := child.MkdirAll(".", os.ModePerm); err != nil {
+		return err
+	}
+	f, err := child.Create(transientFlag)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}

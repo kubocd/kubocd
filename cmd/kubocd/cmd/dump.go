@@ -190,7 +190,8 @@ func init() {
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.anonymous, "anonymous", "a", false, "Connect anonymously to the registry. To check 'public' image status")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.charts, "charts", "c", false, "unpack charts in output directory")
-	dumpPackageCmd.PersistentFlags().StringVarP(&dumpPackageParams.output, "output", "o", "./.dump", "Output dump directory")
+	dumpPackageCmd.PersistentFlags().StringVarP(&dumpPackageParams.output, "output", "o", "./.dump",
+		"Output directory; an empty value prints to stdout (requires --charts=false)")
 }
 
 var dumpPackageCmd = &cobra.Command{
