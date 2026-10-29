@@ -59,6 +59,10 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, revision 
 		// Caller will Requeue
 		return nil, waitHelmRepository, nil
 	}
+	if !metav1.IsControlledBy(helmRepository, op.release) {
+		return nil, "", NewReconcileError(fmt.Errorf("HelmRepository '%s' exists and is not controlled by this Release", op.helmRepositoryName),
+			false, "HelmRepositoryOwner")
+	}
 	// Helm repo exists
 	if !helmRepository.DeletionTimestamp.IsZero() {
 		// Its deletion, once Flux removes its finalizer, reconciles the Release again
@@ -66,7 +70,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, revision 
 	}
 	if helmRepository.GetAnnotations()[packageRevisionAnnotation] != revision {
 		op.logger.V(0).Info("Will delete associated HelmRepository as content have changed", "name", op.helmRepositoryName, "namespace", op.release.Namespace)
-		err := r.Delete(op.ctx, helmRepository)
+		err := r.Delete(op.ctx, helmRepository, client.Preconditions{UID: &helmRepository.UID})
 		if apierrors.IsNotFound(err) {
 			// Deleted by an earlier pass, which the cache does not show yet
 			return nil, waitHelmRepository, nil
@@ -140,7 +144,7 @@ func (r *ReleaseReconciler) createHelmRepository(op *releaseOperation, revision 
 
 func (r *ReleaseReconciler) patchHelmRepository(op *releaseOperation, helmRepository *sourcev1.HelmRepository, repoUrl string) (bool, error) {
 	originalGeneration := helmRepository.Generation
-	patch := client.MergeFrom(helmRepository.DeepCopy())
+	patch := mergeFromWithUID(helmRepository)
 	PopulateHelmRepository(helmRepository, op.release, repoUrl)
 	err := r.Patch(op.ctx, helmRepository, patch)
 	if err != nil {

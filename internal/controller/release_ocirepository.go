@@ -72,6 +72,10 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 		// Caller will Requeue, waiting for OCI
 		return nil, waitOciRepository, nil
 	} else {
+		if !metav1.IsControlledBy(ociRepository, op.release) {
+			return nil, "", NewReconcileError(fmt.Errorf("OCIRepository '%s' exists and is not controlled by this Release", op.ociRepositoryName),
+				false, "OCIRepositoryOwner")
+		}
 		changed, err := r.patchOciRepository(op, ociRepository, mediaType, ociOperation)
 		if err != nil {
 			if errors.Is(err, errReleaseInsecureSource) {
@@ -210,7 +214,7 @@ func (r *ReleaseReconciler) createOciRepository(op *releaseOperation, mediaType 
 
 func (r *ReleaseReconciler) patchOciRepository(op *releaseOperation, ociRepository *sourcev1.OCIRepository, mediaType string, ociOperation string) (bool, error) {
 	originalGeneration := ociRepository.Generation
-	patch := client.MergeFrom(ociRepository.DeepCopy())
+	patch := mergeFromWithUID(ociRepository)
 	err := PopulateOciRepository(ociRepository, op.release, mediaType, ociOperation, r.ConfigStore, r.OCIRepositoryOptions)
 	if err != nil {
 		if errors.Is(err, errReleaseInsecureSource) && ociRepository.Spec.Insecure && metav1.IsControlledBy(ociRepository, op.release) {

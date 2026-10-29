@@ -112,14 +112,17 @@ func newReleaseTestbed(t *testing.T, manifest string, parameters string, context
 	release.Finalizers = []string{global.FinalizerName}
 	objects := []client.Object{
 		&sourcev1.OCIRepository{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(OciRepositoryNameFormat, "demo"), Namespace: "apps"},
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(OciRepositoryNameFormat, "demo"), Namespace: "apps", UID: "demo-oci"},
 			Status:     sourcev1.OCIRepositoryStatus{Conditions: ready, Artifact: artifact},
 		},
 		&sourcev1.HelmRepository{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(HelmRepositoryNameFormat, "demo"), Namespace: "apps",
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf(HelmRepositoryNameFormat, "demo"), Namespace: "apps", UID: "demo-helm",
 				Annotations: map[string]string{packageRevisionAnnotation: reconcileRevision}},
 			Status: sourcev1.HelmRepositoryStatus{Conditions: ready, Artifact: artifact},
 		},
+	}
+	for _, source := range objects {
+		ownedByDemo(source)
 	}
 	if contextValues != "" {
 		release.Spec.Contexts = []kv1alpha1.NamespacedName{{Namespace: "apps", Name: "cluster"}}

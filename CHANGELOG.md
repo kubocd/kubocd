@@ -111,6 +111,17 @@
   Context values.
   Events, errors, logs and Release status withhold these decoder diagnostics. Reasons, phases and retry behavior
   are unchanged. Inspect the Context values directly when diagnosing malformed data.
+- A Release refuses a Flux source it does not control, before changing it or using its readiness or artifact.
+  Source patches and HelmRepository deletion carry the source UID so a replacement at the same name is left alone.
+  An ownership conflict reports `OCIRepositoryOwner` or `HelmRepositoryOwner` and is retried until resolved, also for
+  a Release with `spec.package.insecure: true`, as the ownership check comes first.
+  Inspect the source's `metadata.ownerReferences` and compare its controller UID with the current Release UID.
+  For a hand-created source or one restored with an old Release UID, first check that nothing else uses it.
+  The default fix is to delete that source and let KuboCD recreate it from the Release.
+  To keep the source instead, first check that no other controller owns it, then use `kubectl edit` to set its
+  controller ownerReference to the current Release's apiVersion, kind, name and UID, with `controller: true`.
+  KuboCD then manages it as its own: it rewrites its spec, and deletes and recreates a HelmRepository whose
+  `kubocd.kubotal.io/package-revision` annotation differs. KuboCD never adopts or deletes a foreign source on its own.
 
 # v0.4.1
 

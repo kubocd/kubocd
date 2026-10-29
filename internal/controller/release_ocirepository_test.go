@@ -668,9 +668,18 @@ func TestReleaseInsecureSourceForeignRepository(t *testing.T) {
 				t.Fatal(err)
 			}
 			b.original = fetchedVerificationSource(t, b.r, b.op).DeepCopy()
-			policy := b.policyRefusal(t)
+			got, wait, ownerErr := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+			want := fmt.Sprintf("OCIRepository '%s' exists and is not controlled by this Release", b.op.ociRepositoryName)
+			assertSourceOwnerError(t, ownerErr, want, "OCIRepositoryOwner")
+			if got != nil || wait != "" {
+				t.Fatal("foreign source returned an artifact or wait")
+			}
 			b.checkCorrection(t, 0, false)
-			b.reportPolicyDiagnostic(t, policy)
+			if ownerErr != nil {
+				_, retry := b.r.reportError(b.op, ownerErr, false)
+				assertSourceOwnerError(t, retry, want, "OCIRepositoryOwner")
+				b.expectEvent(t, "Warning OCIRepositoryOwner "+want)
+			}
 		})
 	}
 }
