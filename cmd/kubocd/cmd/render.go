@@ -187,6 +187,22 @@ var renderCmd = &cobra.Command{
 			controller.GroomRelease(release, renderLog, configStore)
 			cmn.Dump(output, "release.yaml", release)
 
+			ociRepository := &sourcev1.OCIRepository{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       sourcev1.OCIRepositoryKind,
+					APIVersion: sourcev1.GroupVersion.String(),
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: release.Namespace,
+					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
+				},
+			}
+			err = controller.PopulateOciRepository(ociRepository, release, global.PackageContentMediaType, "extract",
+				configStore, renderParams.ociRepositoryOptions)
+			if err != nil {
+				return fmt.Errorf("could not populate OCI repository: %w", err)
+			}
+
 			// ----------------------------------------------------------------------- Retrieve package
 			packageFolder := ""
 			pkgOriginal := &kubopackage.Package{}
@@ -216,23 +232,12 @@ var renderCmd = &cobra.Command{
 				}
 
 			} else {
-				var repo, tag string
-				packageRedirectSpec, newUrl := configStore.GetPackageRedirect(fmt.Sprintf("%s:%s", release.Spec.Package.Repository, release.Spec.Package.Tag))
-				if packageRedirectSpec != nil {
-					repo, tag, err = misc.DecodeImageUrl(newUrl)
-					if err != nil {
-						return fmt.Errorf("invalid OCI repository URL: %w", err)
-					}
-				} else {
-					repo = release.Spec.Package.Repository
-					tag = release.Spec.Package.Tag
-				}
 				op := &oci.Operation{
 					AllowInsecureCredentials: renderParams.sourceOptions.AllowInsecureCredentials,
 					WorkDir:                  renderParams.workDir,
-					ImageRepo:                repo,
-					ImageTag:                 tag,
-					Insecure:                 release.Spec.Package.Insecure,
+					ImageRepo:                strings.TrimPrefix(ociRepository.Spec.URL, "oci://"),
+					ImageTag:                 ociRepository.Spec.Reference.Tag,
+					Insecure:                 ociRepository.Spec.Insecure,
 					Anonymous:                false,
 				}
 				archive, err := oci.GetContentFromOci("# ", op, global.PackageContentMediaType)
@@ -328,22 +333,6 @@ var renderCmd = &cobra.Command{
 			cmn.Dump(output, "roles.yaml", roles)
 			cmn.Dump(output, "dependencies.yaml", dependencies)
 
-			// -------------------------------------------------------------------------Generate OCI repository
-			ociRepository := &sourcev1.OCIRepository{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       sourcev1.OCIRepositoryKind,
-					APIVersion: sourcev1.GroupVersion.String(),
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: release.Namespace,
-					Name:      fmt.Sprintf(controller.OciRepositoryNameFormat, release.Name),
-				},
-			}
-			err = controller.PopulateOciRepository(ociRepository, release, global.PackageContentMediaType, "extract",
-				configStore, renderParams.ociRepositoryOptions)
-			if err != nil {
-				return fmt.Errorf("could not populate OCI repository: %w", err)
-			}
 			cmn.Dump(output, "ociRepository.yaml", ociRepository)
 
 			// -------------------------------------------------------------------------Generate Usage

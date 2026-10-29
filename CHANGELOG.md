@@ -137,6 +137,9 @@
 - For `arbitraryFSAccessThroughSMs.deny: true`, set `metrics.serviceMonitor.authorization.credentials.name`
   and `.key` to use a token Secret in the release namespace. See values.yaml for the SA/Secret recipe and
   rotation caveat. Complete identity and credential settings are ignored with `secured: false`.
+- `kubocd render` applies the package source policy before downloading: a direct insecure source is refused before
+  any package registry request unless `--allowReleaseInsecureSource` is set, and a matching `packageRedirect` uses
+  its own `insecure` setting to select the transport.
 
 # v0.4.1
 
