@@ -145,6 +145,67 @@
   `ERROR: output[0]: could not append connection: path "./outputConnections.yaml" is not inside its trusted parent directory`
   or `ERROR: output[0]: could not append connection: path "outputConnections.yaml" is not a regular file`.
 
+## Upgrading from v0.4.1
+
+Set controller flags in `controller.additionalArgs` when using the `kubocd-ctrl` chart.
+
+- In both charts, `helm upgrade --reuse-values` keeps `metrics.secured: false` from the previous chart defaults.
+  Use `--reset-then-reuse-values` instead, or explicitly set `controller.metrics.secured: true` or
+  `webhook.metrics.secured: true`. An explicitly saved false value still overrides the new default with
+  `--reset-then-reuse-values` and must be changed explicitly. Metrics remain disabled unless enabled.
+- Enabled metrics require HTTPS and an authorized bearer token. Configure the scraper's CA and grant its identity
+  `get /metrics`, using `metrics.serviceMonitor.prometheusServiceAccount.name` and `.namespace` or external RBAC.
+  With `arbitraryFSAccessThroughSMs.deny: true`, also set `metrics.serviceMonitor.authorization.credentials.name`
+  and `.key` to a token Secret in the chart's namespace. These settings go under `controller` or `webhook`.
+  `metrics.secured: false` restores unauthenticated HTTP.
+- A `packageRedirect` without its own `verify` keeps the Release's verification. Ensure the mirror has compatible
+  signatures. `--allowRedirectVerifyDrop=true` restores dropping verification for such redirects in the controller
+  and `kubocd render`.
+- Releases with `spec.package.insecure: true` and no matching `packageRedirect` stop reconciling. Use TLS or an
+  administrator redirect, or set `--allowReleaseInsecureSource=true` in the controller and `kubocd render` to
+  restore direct insecure sources. A matching redirect uses its own `insecure` setting.
+- A Flux OCIRepository or HelmRepository not controlled by its Release is refused. Compare its controller
+  ownerReference UID with the current Release UID. For a hand-created source or one restored with an old UID,
+  check that no other controller owns it and nothing else uses it, then delete it so KuboCD can recreate it.
+  Ownership conflicts are retried until resolved and have no opt-out.
+- Git and local charts must keep files and dependencies inside their source root. `--allowExternalLinks` on
+  `kubocd package`, `kubocd dump package` and `kubocd render` restores external reads and absolute `file://`
+  dependencies. Special files remain refused, and local sibling dependencies remain unsupported.
+- `kubocd render` fails to append connection output files when a symbolic link escapes the output directory
+  (the current directory with `--output=''`) or the target is a special file. Errors include
+  `could not append connection: path "<path>" is not inside its trusted parent directory` or
+  `could not append connection: path "<path>" is not a regular file`. Replace the link or special file with a
+  regular file, or point `--output` at a clean directory. This restriction has no opt-out.
+- For CLI archives that exceed the new defaults, raise `--maxArchiveStreamSize`, `--maxArchiveContentSize`,
+  `--maxArchiveEntries`, `--maxArchiveMetadataSize` or `--maxArchiveListingSize`. `--disableArchiveLimits` restores
+  unbounded CLI archive resource handling while keeping path checks and archive validation. These flags apply to
+  `kubocd package`, `kubocd render`, `kubocd dump package`, `kubocd dump helmRepository` and `kubocd dump oci`.
+  The bundled Helm loader's separate 100 MiB content limit remains.
+- OCI credentials require HTTPS. `--allowInsecureCredentials` on `kubocd package`, `kubocd dump oci`,
+  `kubocd dump package` and `kubocd render` restores OCI authentication over HTTP. Select HTTP separately with the
+  existing transport setting. The flag does not relax Git protections or certificate checks.
+- Git chart clones send `GITHUB_TOKEN` only to `https://github.com:443` by default. Set `KCD_GIT_TOKEN_HOSTS` to
+  comma-separated hostnames and optional ports to restore token use on other HTTPS hosts. The list replaces the
+  default, and an omitted port means 443. It does not allow token use over HTTP or authenticated origin changes.
+- HTTP(S) Git DNS hostnames containing `_` or characters outside ASCII letters, digits, `-` and `.` fail with
+  `invalid Git URL`. Use a valid hostname, with punycode for internationalized names. Invalid hostnames also fail as
+  `KCD_GIT_TOKEN_HOSTS` entries. SSH URL hosts are not checked, but the environment setting is still validated.
+- Conditions must target core Secrets or ConfigMaps in the Release target namespace. With
+  `controller.featureGates.replications: false`, grant the controller scoped `get` access to these objects.
+  `kubocd render` needs the caller's access. The scope restriction has no opt-out, even with `--skipConditions`.
+- Condition CEL evaluation defaults to 1000000 cost units and 1s. In the controller and `kubocd render`,
+  `--conditionCelCostLimit=0` and `--conditionCelTimeout=0` restore evaluation without the corresponding new limit.
+  Caller cancellation and deadlines still apply.
+- The chart server limits header reads to 5s and idle keep-alive waits to 60s. In the controller,
+  `--helmRepoReadHeaderTimeout=0` and `--helmRepoIdleTimeout=0` restore unlimited waits for each respective stage.
+  Chart downloads still have no time limit.
+- Leader election uses a namespaced Role/RoleBinding, and cluster-wide Lease access is removed. The controller
+  chart installs these resources during upgrade. If you maintain custom RBAC, grant the controller ServiceAccount
+  Lease `get`, `create` and `update` in the installation namespace and remove its cluster-wide Lease grant.
+- Templates using `indent`, `nindent`, `replace`, `join`, `printf` or `regexReplaceAll` must stay within the new
+  4 MiB intermediate-result limits, even if their final output is smaller. Reduce oversized operations and avoid
+  negative indentation. Conservative size bounds can also refuse smaller results. These checks have no opt-out.
+
 # v0.4.1
 
 - A refused update of the finalizer of a Release no longer quotes the answer of the API server.
