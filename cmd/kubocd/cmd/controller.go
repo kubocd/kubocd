@@ -69,10 +69,12 @@ var controllerParams struct {
 	metricsCertName string
 	metricsCertKey  string
 
-	rootDataFolder           string
-	sourceControllerOverride string
-	helmRepoAdvAddr          string
-	helmRepoBindAddr         string
+	rootDataFolder            string
+	sourceControllerOverride  string
+	helmRepoAdvAddr           string
+	helmRepoBindAddr          string
+	helmRepoReadHeaderTimeout time.Duration
+	helmRepoIdleTimeout       time.Duration
 
 	allowDNSLookups bool
 
@@ -167,6 +169,12 @@ func init() {
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.sourceControllerOverride, "sourceControllerOverride", "", "Override source controller fetch entry point. In the form <X.X.X.X:PORT")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoAdvAddr, "helmRepoAdvAddr", "", "The advertised network address of our helm repository file server.")
 	controllerCmd.PersistentFlags().StringVar(&controllerParams.helmRepoBindAddr, "helmRepoBindAddr", ":9090", "The address the static helm repository server binds to.")
+	controllerCmd.PersistentFlags().DurationVar(&controllerParams.helmRepoReadHeaderTimeout,
+		"helmRepoReadHeaderTimeout", 5*time.Second,
+		"Maximum time to read the headers of a chart request. 0 disables the limit.")
+	controllerCmd.PersistentFlags().DurationVar(&controllerParams.helmRepoIdleTimeout,
+		"helmRepoIdleTimeout", 60*time.Second,
+		"Maximum idle time between chart requests on a keep-alive connection. 0 disables the limit.")
 
 	controllerCmd.PersistentFlags().BoolVar(&controllerParams.allowDNSLookups, "allowDNSLookups", false,
 		"Let the templates of all packages resolve host names with resolveDNS. Release parameters never can.")
@@ -640,7 +648,16 @@ var controllerCmd = &cobra.Command{
 
 func startFileServer(path string, address string, logger logr.Logger) {
 	logger.Info("starting helm repository file server", "bindAddress", address, "path", path)
-	err := http.ListenAndServe(address, helmRepositoryHandler(path, logger))
+	server := &http.Server{Addr: address, Handler: helmRepositoryHandler(path, logger)}
+	if controllerParams.helmRepoReadHeaderTimeout > 0 {
+		server.ReadHeaderTimeout = controllerParams.helmRepoReadHeaderTimeout
+	}
+	if controllerParams.helmRepoIdleTimeout > 0 {
+		server.IdleTimeout = controllerParams.helmRepoIdleTimeout
+	}
+	// Both zero-valued timeouts fall back to ReadTimeout. Leave it and
+	// WriteTimeout unset, so disabling a limit works and downloads can finish.
+	err := server.ListenAndServe()
 	if err != nil {
 		logger.Error(err, "file server error")
 	}

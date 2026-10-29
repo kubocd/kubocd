@@ -103,6 +103,9 @@
 - Controller RBAC drops unused patch/update permissions, OCIRepository delete, status get and unused finalizer
   permissions. Generated controller and leader election rules match the chart with all feature gates enabled.
   Chart gate defaults stay unchanged.
+- The chart server allows 5 seconds to read request headers and 60 seconds between requests on an idle keep-alive
+  connection. `--helmRepoReadHeaderTimeout` and `--helmRepoIdleTimeout` of the controller change these durations, and
+  0 disables a limit. A chart download has no time limit. GET, HEAD and byte-range requests are unchanged.
 
 # v0.4.1
 
