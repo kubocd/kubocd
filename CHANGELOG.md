@@ -49,6 +49,22 @@
   validation remain enabled with the opt-out.
 - Archive listing and metadata reads propagate limit and corruption errors, including errors after a metadata match.
   Archives must have a complete tar end marker and valid gzip footer. Nonzero data after the tar end is refused.
+- Git chart clones send `GITHUB_TOKEN` only to HTTPS on `github.com:443` by default. A non-blank
+  `KCD_GIT_TOKEN_HOSTS` replaces that list with comma-separated hostnames and optional ports. Hostnames are
+  case-insensitive, omitted ports mean 443, and subdomains do not match automatically. Invalid entries, including
+  hostnames with `_`, fail with
+  `invalid KCD_GIT_TOKEN_HOSTS entry 1: expected a hostname with an optional port from 1 to 65535 (no scheme, path, userinfo, wildcard, or IPv6 literal)`.
+  The entry index starts at 1. This setting is validated for every Git source, including SSH and local clones.
+- Git URL credentials require HTTPS. Authenticated requests outside their original origin fail with
+  `Git credentials cannot be sent to a different origin`. HTTPS downgrades fail with
+  `Git HTTPS-to-HTTP redirect is not allowed`. Plain-HTTP URL credentials fail with
+  `Git credentials require HTTPS`. SSH and local clones receive no `GITHUB_TOKEN`.
+- HTTP(S) Git URLs whose DNS hostname contains `_` or any character other than ASCII letters, digits, `-` and `.`
+  fail with `invalid Git URL`. Use ASCII punycode for internationalized names. Empty labels, labels longer than
+  63 characters, leading or trailing hyphens, and hostnames longer than 253 characters also fail. IP literals remain
+  accepted in HTTP(S) URLs. These hostname checks do not apply to SSH URLs.
+- Git clone messages and errors remove URL userinfo and credential values, including Go-quoted and JSON-escaped
+  secrets, while preserving safe paths and email text. This protection has no opt-out.
 
 # v0.4.1
 

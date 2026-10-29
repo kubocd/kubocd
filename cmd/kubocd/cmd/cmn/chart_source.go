@@ -46,7 +46,23 @@ Internal links and Git sibling dependencies are supported.
 Local file://../sibling dependencies are not supported.
 Absolute file:// dependencies are refused; use a relative file:// path inside the source root.
 --allowExternalLinks restores external reads and accepts absolute file:// dependencies
-in the previous source layout; special files are always refused.`
+in the previous source layout; special files are always refused.
+
+GITHUB_TOKEN is sent only to HTTPS Git origins allowed by KCD_GIT_TOKEN_HOSTS.
+Unset, empty or whitespace-only KCD_GIT_TOKEN_HOSTS defaults to github.com:443.
+A non-blank comma-separated list replaces that default, for example:
+  KCD_GIT_TOKEN_HOSTS=github.com,git.example.org:8443
+Surrounding whitespace is trimmed, hostnames are case-insensitive, and omitted ports
+mean 443. Entries must be ASCII hostnames or IPv4 addresses with an optional port
+from 1 to 65535; schemes, paths, userinfo, wildcards, empty entries, trailing dots
+and IPv6 literals are refused. Use ASCII punycode for internationalized names.
+HTTP(S) Git URLs also require ASCII hosts; use punycode for internationalized names.
+The variable is validated for every Git source, including SSH and local clones.
+Subdomains and other ports do not match automatically. SSH and local clones never
+receive GITHUB_TOKEN. Explicit Git URL credentials require HTTPS and stay within
+the initial origin; authenticated cross-origin redirects and all HTTPS-to-HTTP
+redirects are refused. URL credentials and secret values are removed from clone
+messages and errors. These Git protections have no opt-out.`
 
 func sourceOptions(options []SourceOptions) SourceOptions {
 	if len(options) == 0 {

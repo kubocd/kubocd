@@ -26,6 +26,7 @@ import (
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,7 +34,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	"sigs.k8s.io/yaml"
 )
@@ -161,6 +161,10 @@ func FetchArchivesAt(printPrefix string, pck *kubopackage.Package, assembly, wor
 
 func getHelmChartArchiveFromGit(printPrefix, url, branch, tag, chartPath, moduleName, workDir string,
 	extraFilePrefixes []string, sourceOpts ...SourceOptions) (string, error) {
+	policy, err := newGitCredentialPolicy(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to clone repo: %w", err)
+	}
 	opts := sourceOptions(sourceOpts)
 	if chartPath == "" {
 		chartPath = "."
@@ -188,21 +192,13 @@ func getHelmChartArchiveFromGit(printPrefix, url, branch, tag, chartPath, module
 	}
 	archive := archiveFile.Path()
 
-	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, url)
+	fmt.Printf("%sCloning git repository '%s'\n", printPrefix, policy.redact(url))
 	options := &git.CloneOptions{
-		//Auth:          auth,		// See KAD git services for auth handling
 		URL:           url,
 		Progress:      io.Discard,
 		ReferenceName: misc.Ternary(tag == "", plumbing.NewBranchReferenceName(branch), plumbing.NewTagReferenceName(tag)),
 	}
-	gitToken := os.Getenv("GITHUB_TOKEN")
-	if gitToken != "" {
-		options.Auth = &http.BasicAuth{
-			Username: "git",
-			Password: gitToken,
-		}
-	}
-	_, err = git.PlainClone(repoLocation, false, options)
+	err = cloneGitWithCredentials(repoLocation, options, policy, http.DefaultTransport)
 	if err != nil {
 		return "", fmt.Errorf("failed to clone repo: %w", err)
 	}
