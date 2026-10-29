@@ -122,6 +122,9 @@
   controller ownerReference to the current Release's apiVersion, kind, name and UID, with `controller: true`.
   KuboCD then manages it as its own: it rewrites its spec, and deletes and recreates a HelmRepository whose
   `kubocd.kubotal.io/package-revision` annotation differs. KuboCD never adopts or deletes a foreign source on its own.
+- Build workflows pin GitHub actions to commit SHAs and production base images to multi-architecture index digests.
+  CI checks these pins, and Dependabot proposes weekly updates. Review update PRs by checking the action tags and
+  image indexes and building for both linux/amd64 and linux/arm64 before merging.
 
 # v0.4.1
 

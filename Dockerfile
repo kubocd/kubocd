@@ -16,7 +16,7 @@
 # Pin the builder to the *build* platform so the toolchain runs natively and Go
 # cross-compiles via GOARCH below (fast). Without this, buildx runs the builder
 # under QEMU emulation for the non-native arch, which is much slower.
-FROM --platform=$BUILDPLATFORM docker.io/golang:1.27.3 AS builder
+FROM --platform=$BUILDPLATFORM docker.io/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
@@ -46,7 +46,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 WORKDIR /
 COPY --from=builder /workspace/kubocd .
 USER 65532:65532

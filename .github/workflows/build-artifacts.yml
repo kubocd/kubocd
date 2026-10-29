@@ -42,7 +42,7 @@ jobs:
       # Under workflow_run, github.sha is the head of main, not the commit that
       # the CI tested.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0          # goreleaser needs tags + full history
@@ -68,7 +68,7 @@ jobs:
       # ubuntu-latest already ships make, go and docker; this only adds the
       # bits `make docker-buildx` needs for cross-platform builds.
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
 
@@ -76,10 +76,10 @@ jobs:
       # `make docker-buildx` creates its own `kubocd-builder`, so no
       # setup-buildx-action step is needed here.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Install goreleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           version: v2.16.0          # pinned (was `latest`) to avoid silent drift
           install-only: true       # install the binary, don't run it
@@ -90,7 +90,7 @@ jobs:
       # rate limits / timeouts. Skipped automatically if the var is unset.
       - name: Log in to Docker Hub
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -101,7 +101,7 @@ jobs:
         run: echo "host=${REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ steps.reg.outputs.host }}
           username: ${{ secrets.REGISTRY_USERNAME }}
