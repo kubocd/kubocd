@@ -175,13 +175,18 @@ var dumpHrCmd = &cobra.Command{
 // --------------------------------------------------------------------------------- dump package
 
 var dumpPackageParams struct {
-	output    string
-	insecure  bool
-	anonymous bool
-	charts    bool
+	sourceOptions cmn.SourceOptions
+	output        string
+	insecure      bool
+	anonymous     bool
+	charts        bool
 }
 
 func init() {
+	dumpPackageCmd.PersistentFlags().BoolVar(&dumpPackageParams.sourceOptions.AllowExternalLinks,
+		"allowExternalLinks", false,
+		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
+			"special files remain refused.")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.anonymous, "anonymous", "a", false, "Connect anonymously to the registry. To check 'public' image status")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.charts, "charts", "c", false, "unpack charts in output directory")
@@ -191,6 +196,7 @@ func init() {
 var dumpPackageCmd = &cobra.Command{
 	Use:     "package <package.yaml|oci://repo:version>",
 	Short:   "Dump KuboCD Package",
+	Long:    "Dump KuboCD Package.\n\n" + cmn.ChartSourceHelp,
 	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"pck", "Package", "Pck", "pack", "Pack"},
 	Example: `	Dump package content from an OCI image repository	
@@ -208,7 +214,8 @@ var dumpPackageCmd = &cobra.Command{
 			if dumpPackageParams.charts && dumpPackageParams.output == "" {
 				return fmt.Errorf("--output is required when --charts is specified")
 			}
-			return pck.Dump(args[0], dumpParams.workDir, dumpPackageParams.insecure, dumpPackageParams.anonymous, dumpPackageParams.charts, output)
+			return pck.Dump(args[0], dumpParams.workDir, dumpPackageParams.insecure, dumpPackageParams.anonymous,
+				dumpPackageParams.charts, output, dumpPackageParams.sourceOptions)
 		}()
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)

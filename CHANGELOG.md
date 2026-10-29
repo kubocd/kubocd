@@ -26,6 +26,15 @@
 - Before refusing a direct insecure source, the controller sets `spec.insecure: false` on an existing OCIRepository
   controlled by the Release, retaining its other settings. A failed patch is retried with
   `could not disable insecure transport on associated OCIRepository`. The fatal refusal follows a successful patch.
+- Git and local charts refuse files and `file://` dependencies outside their source root. Internal links and Git
+  sibling charts inside the clone still work. An absolute `source.local.path` selects the trusted local root.
+  Local `file://../sibling` dependencies remain unsupported. Special files fail with
+  `chart source path "templates/fifo.yaml" is not a regular file or directory`.
+- Absolute `file://` dependencies fail with
+  `absolute local chart dependency "file:///abs/path" is not allowed; use a relative file:// path inside the source root`.
+- `--allowExternalLinks` on `kubocd package`, `dump package` and `render` restores reads outside the source root
+  in the previous source layout and accepts absolute `file://` dependencies unchanged.
+  It does not permit special files or add local sibling dependency support.
 
 # v0.4.1
 

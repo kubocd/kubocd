@@ -52,6 +52,7 @@ import (
 )
 
 var renderParams struct {
+	sourceOptions   cmn.SourceOptions
 	output          string
 	workDir         string
 	kubocdNamespace string
@@ -67,6 +68,10 @@ var renderParams struct {
 var renderLog logr.Logger
 
 func init() {
+	renderCmd.PersistentFlags().BoolVar(&renderParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
+		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
+			"special files remain refused.")
+
 	renderCmd.PersistentFlags().BoolVar(&renderParams.ociRepositoryOptions.AllowRedirectVerifyDrop,
 		"allowRedirectVerifyDrop", false,
 		"Allow a matching packageRedirect without verify to remove Release signature verification.")
@@ -95,6 +100,7 @@ func renderPackageFunctions() tmpl.Functions {
 var renderCmd = &cobra.Command{
 	Use:   "render <Release manifest> [<package manifest>]",
 	Short: "Render a KuboCD release",
+	Long:  "Render a KuboCD release.\n\n" + cmn.ChartSourceHelp,
 	Args:  cobra.RangeArgs(1, 2),
 	Example: `	Preview a Release.
 	$ render releases/podinfo2-ctx.yaml
@@ -193,7 +199,8 @@ var renderCmd = &cobra.Command{
 				if err != nil {
 					return fmt.Errorf("error ensuring assembly path: %w", err)
 				}
-				_, pkgContainer.Status, err = cmn.FetchArchives("", pkgOriginal, assemblyPath, renderParams.workDir, packageFolder)
+				_, pkgContainer.Status, err = cmn.FetchArchives("", pkgOriginal, assemblyPath, renderParams.workDir,
+					packageFolder, renderParams.sourceOptions)
 				if err != nil {
 					return fmt.Errorf("could not fetch package archive: %w", err)
 				}

@@ -17,20 +17,15 @@ limitations under the License.
 package cmn
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"fmt"
 	"io"
-	"io/fs"
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
-	"log/slog"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -50,7 +45,8 @@ type ArchiveInfo struct {
 // FetchArchives load all module's archive and
 // - return a list of archive (de-duplicated, if two modules use the same chart)
 // - return a status with a map of chartInfo by module
-func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath string, workDir string, packageFolder string) ([]ArchiveInfo, *kubopackage.Status, error) {
+func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath, workDir, packageFolder string,
+	sourceOpts ...SourceOptions) ([]ArchiveInfo, *kubopackage.Status, error) {
 	chartSet := make(map[string]bool) // To deduplicate
 	archives := make([]ArchiveInfo, 0, len(pck.Modules))
 	status := &kubopackage.Status{
@@ -90,7 +86,9 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
 			} else if module.Source.Git != nil {
-				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch, module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir, module.Source.Git.ExtraFilePrefixes)
+				archive, err = getHelmChartArchiveFromGit(printPrefix+"    ", module.Source.Git.Url, module.Source.Git.Branch,
+					module.Source.Git.Tag, module.Source.Git.Path, module.Name, workDir,
+					module.Source.Git.ExtraFilePrefixes, sourceOpts...)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -99,7 +97,7 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 				if !path.IsAbs(chartPath) {
 					chartPath = path.Join(packageFolder, module.Source.Local.Path)
 				}
-				archive, err = getHelmCharArchiveFromLocal(printPrefix+"    ", chartPath, module.Name, workDir)
+				archive, err = getHelmCharArchiveFromLocal(printPrefix+"    ", chartPath, module.Name, workDir, sourceOpts...)
 				if err != nil {
 					return nil, nil, fmt.Errorf("module '%s': could not get helm chart archive: %w", module.Name, err)
 				}
@@ -136,7 +134,15 @@ func FetchArchives(printPrefix string, pck *kubopackage.Package, assemblyPath st
 	return archives, status, nil
 }
 
-func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, tag string, chartPath string, moduleName string, workDir string, extraFilePrefixes []string) (string, error) {
+func getHelmChartArchiveFromGit(printPrefix, url, branch, tag, chartPath, moduleName, workDir string,
+	extraFilePrefixes []string, sourceOpts ...SourceOptions) (string, error) {
+	opts := sourceOptions(sourceOpts)
+	if chartPath == "" {
+		chartPath = "."
+	}
+	if !opts.AllowExternalLinks && !filepath.IsLocal(chartPath) {
+		return "", fmt.Errorf("git chart path %q is not inside the checkout", chartPath)
+	}
 	// Prepare target archive folder
 	loc := path.Join(workDir, "git-workdir")
 	err := misc.SafeEnsureEmpty(loc)
@@ -166,52 +172,24 @@ func getHelmChartArchiveFromGit(printPrefix string, url string, branch string, t
 		return "", fmt.Errorf("failed to clone repo: %w", err)
 	}
 
-	// ----------------------------------------------------------- Check we are at the root of an helm chart
-	chartFile := path.Join(chartLocation, "Chart.yaml")
-	_, err = os.Stat(chartFile)
-	if err != nil {
-		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
-	}
-
-	// ----------------------------------------------------------- Build chart dependencies
-	cmd := exec.Command("helm", "dependency", "update", chartLocation)
-	// Run the command and capture output
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to build chart dependencies: %w", err)
-	}
-
-	// ----------------------------------------------------------- Build chart archive
-	out, err := os.Create(archive)
-	if err != nil {
-		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
-	}
-	gw := gzip.NewWriter(out)
-	defer gw.Close()
-	tw := tar.NewWriter(gw)
-	defer tw.Close()
-
-	chartLocationLen := len(chartLocation)
-	err = filepath.WalkDir(chartLocation, func(thePath string, d fs.DirEntry, err error) error {
+	if opts.AllowExternalLinks {
+		if err := checkLegacyChart(chartLocation, loc, map[string]bool{}); err != nil {
+			return "", err
+		}
+	} else {
+		chartLocation, err = stageChart(repoLocation, filepath.Clean(chartPath), filepath.Join(loc, "stage"), true)
 		if err != nil {
-			slog.Error("Error while walking git repository on path: %s: %s", thePath, err.Error())
-			return nil
+			return "", err
 		}
-		if !d.IsDir() {
-			itemFileName := thePath[chartLocationLen:]
-			targetFileName := path.Join(moduleName, itemFileName)
-			if isChartItem(itemFileName, extraFilePrefixes) {
-				//fmt.Printf("%s  -> %s (%s)\n", thePath, targetFileName, itemFileName)
-				slog.Debug("Store chart item", "item", itemFileName)
-				err := tgz.AddToArchive(tw, thePath, targetFileName)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
+	}
+	if err := requireChartMetadata(chartLocation, opts.AllowExternalLinks); err != nil {
+		return "", err
+	}
+	if err := updateChartDependencies(chartLocation); err != nil {
+		return "", err
+	}
+	if err := archiveChart(chartLocation, archive, moduleName, extraFilePrefixes,
+		true, opts.AllowExternalLinks); err != nil {
 		return "", err
 	}
 	return archive, nil
@@ -244,74 +222,65 @@ func isChartItem(fileName string, extraFilePrefixes []string) bool {
 	return false
 }
 
-func getHelmCharArchiveFromLocal(printPrefix string, chartLocation string, moduleName string, workDir string) (string, error) {
-	// ----------------------------------------------------------- Build chart archive
+func getHelmCharArchiveFromLocal(printPrefix, chartLocation, moduleName, workDir string,
+	sourceOpts ...SourceOptions) (string, error) {
+	opts := sourceOptions(sourceOpts)
 	fmt.Printf("%sFetching chart from '%s'\n", printPrefix, chartLocation)
-
-	chartFile := path.Join(chartLocation, "Chart.yaml")
-	_, err := os.Stat(chartFile)
-	if err != nil {
-		return "", fmt.Errorf("mising 'Chart.yaml'. Does not look like an helm chart: %w", err)
-	}
-	// Copy the chart is a safe place to add dependencies, if any
-	loc1 := path.Join(workDir, "local1-workdir")
-	err = misc.SafeEnsureEmpty(loc1)
-	if err != nil {
+	loc1 := filepath.Join(workDir, "local1-workdir")
+	if err := misc.SafeEnsureEmpty(loc1); err != nil {
 		return "", err
 	}
-	chartLocation2 := path.Join(loc1, "chart")
-	err = misc.CopyDir(chartLocation, chartLocation2)
-	if err != nil {
-		return "", err
-	}
-	//----------------------
-	cmd := exec.Command("helm", "dependency", "update", chartLocation2)
-
-	// Run the command and capture output
-	_, err = cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to build chart dependencies: %w", err)
-	}
-
-	//----------------------
-
-	chartLocation = chartLocation2
-	loc2 := path.Join(workDir, "local2-workdir")
-	err = misc.SafeEnsureEmpty(loc2)
-	if err != nil {
-		return "", err
-	}
-	archive := path.Join(loc2, fmt.Sprintf("%s.tgz", moduleName))
-	out, err := os.Create(archive)
-	if err != nil {
-		return "", fmt.Errorf("failed to create archive '%s': %w", archive, err)
-	}
-	gw := gzip.NewWriter(out)
-	defer gw.Close()
-	tw := tar.NewWriter(gw)
-	defer tw.Close()
-
-	chartLocation = path.Clean(chartLocation)
-	chartLocationLen := len(chartLocation)
-	err = filepath.WalkDir(chartLocation, func(thePath string, d fs.DirEntry, err error) error {
+	chartCopy := filepath.Join(loc1, "chart")
+	if opts.AllowExternalLinks {
+		source, err := misc.OpenChartSource(chartLocation, true)
 		if err != nil {
-			slog.Error("Error while walking git repository on path: %s: %s", thePath, err.Error())
-			return nil
+			return "", err
 		}
-		if !d.IsDir() {
-			targetFileName := path.Join(moduleName, thePath[chartLocationLen:])
-			//fmt.Printf("%s adding file to archive '%s' -> '%s'\n", printPrefix, thePath, targetFileName)
-			err := tgz.AddToArchive(tw, thePath, targetFileName)
-			if err != nil {
-				return err
-			}
+		defer func() { _ = source.Close() }()
+		root, err := os.OpenRoot(loc1)
+		if err != nil {
+			return "", err
 		}
-		return nil
-	})
-	if err != nil {
+		defer func() { _ = root.Close() }()
+		if err := source.CopyTree(".", root, "chart", true); err != nil {
+			return "", err
+		}
+		if err := checkLegacyChart(chartCopy, loc1, map[string]bool{}); err != nil {
+			return "", err
+		}
+	} else {
+		if _, err := stageChart(chartLocation, ".", chartCopy, false); err != nil {
+			return "", err
+		}
+	}
+	if err := requireChartMetadata(chartCopy, opts.AllowExternalLinks); err != nil {
+		return "", err
+	}
+	if err := updateChartDependencies(chartCopy); err != nil {
+		return "", err
+	}
+	loc2 := filepath.Join(workDir, "local2-workdir")
+	if err := misc.SafeEnsureEmpty(loc2); err != nil {
+		return "", err
+	}
+	archive := filepath.Join(loc2, fmt.Sprintf("%s.tgz", moduleName))
+	if err := archiveChart(chartCopy, archive, moduleName, nil, false, opts.AllowExternalLinks); err != nil {
 		return "", err
 	}
 	return archive, nil
+}
+
+func requireChartMetadata(dir string, allowExternal bool) error {
+	source, err := misc.OpenChartSource(dir, allowExternal)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = source.Close() }()
+	f, err := source.OpenRegular("Chart.yaml")
+	if err != nil {
+		return fmt.Errorf("missing 'Chart.yaml'. Does not look like a Helm chart: %w", err)
+	}
+	return f.Close()
 }
 
 // Extract the chart name and version from a chart archive

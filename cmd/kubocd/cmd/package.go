@@ -57,6 +57,7 @@ import (
 */
 
 var packageParams struct {
+	sourceOptions cmn.SourceOptions
 	logConfig     misc.LogConfig
 	ociRepoPrefix string
 	plainHTTP     bool
@@ -64,6 +65,10 @@ var packageParams struct {
 }
 
 func init() {
+	packageCmd.PersistentFlags().BoolVar(&packageParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
+		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
+			"special files remain refused.")
+
 	packageCmd.PersistentFlags().StringVar(&packageParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
 	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
@@ -74,6 +79,7 @@ func init() {
 var packageCmd = &cobra.Command{
 	Use:     "package <Package manifest>",
 	Short:   "Assemble a KuboCd Package from a manifest to an OCI image",
+	Long:    "Assemble a KuboCd Package from a manifest to an OCI image.\n\n" + cmn.ChartSourceHelp,
 	Args:    cobra.ExactArgs(1),
 	Aliases: []string{"pack", "build"},
 	Example: `	Build and push a package:
@@ -152,7 +158,8 @@ func pack(pck string) error {
 		return err
 	}
 	// -------------------------- Collect all archives, store them in assembly, and reference them in a []moduleInfo
-	chartSet, status, err := cmn.FetchArchives("", pckGroomed, assemblyPath, packageParams.workDir, packageFolder)
+	chartSet, status, err := cmn.FetchArchives("", pckGroomed, assemblyPath, packageParams.workDir,
+		packageFolder, packageParams.sourceOptions)
 	if err != nil {
 		return err
 	}

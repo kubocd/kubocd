@@ -30,7 +30,8 @@ import (
 	"strings"
 )
 
-func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool, output string) error {
+func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
+	sourceOpts ...cmn.SourceOptions) error {
 	pckOriginal := &kubopackage.Package{}
 	status := &kubopackage.Status{}
 	if strings.HasPrefix(arg, "oci://") {
@@ -121,7 +122,7 @@ func Dump(arg string, workDir string, insecure bool, anonymous bool, charts bool
 			if err = misc.SafeEnsureEmpty(tarManifest); err != nil {
 				return err
 			}
-			_, status, err = cmn.FetchArchives("", pckGroomed, tarManifest, workDir, packageFolder)
+			_, status, err = cmn.FetchArchives("", pckGroomed, tarManifest, workDir, packageFolder, sourceOpts...)
 			if err != nil {
 				return err
 			}
