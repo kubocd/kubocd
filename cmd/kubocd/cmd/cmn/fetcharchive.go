@@ -22,6 +22,7 @@ import (
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
@@ -127,7 +128,7 @@ func FetchArchivesAt(printPrefix string, pck *kubopackage.Package, assembly, wor
 		if err != nil {
 			return nil, nil, err
 		}
-		chartName, chartVersion, err := extractChartInfoAt(work, sourceName)
+		chartName, chartVersion, err := extractChartInfoAt(work, sourceName, sourceOptions(sourceOpts).ArchiveLimits)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -329,8 +330,8 @@ func requireChartMetadata(dir string, allowExternal bool) error {
 	return f.Close()
 }
 
-func extractChartInfoAt(source misc.RootedDir, name string) (string, string, error) {
-	ba, err := tgz.ExtractDataAt(source, name, "Chart.yaml")
+func extractChartInfoAt(source misc.RootedDir, name string, limits ...*archiveio.Limits) (string, string, error) {
+	ba, err := tgz.ExtractDataAt(source, name, "Chart.yaml", limits...)
 	if err != nil {
 		return "", "", err
 	}

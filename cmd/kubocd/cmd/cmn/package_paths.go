@@ -19,11 +19,13 @@ package cmn
 import (
 	"fmt"
 	"kubocd/cmd/kubocd/cmd/tgz"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 )
 
-func ExtractPackageCharts(manifest, output misc.RootedDir, status *kubopackage.Status) error {
+func ExtractPackageCharts(manifest, output misc.RootedDir, status *kubopackage.Status,
+	limits ...*archiveio.Limits) error {
 	charts, err := output.Child("charts")
 	if err != nil {
 		return err
@@ -35,7 +37,7 @@ func ExtractPackageCharts(manifest, output misc.RootedDir, status *kubopackage.S
 		}
 		archive := fmt.Sprintf("%s-%s.tgz", ref.Name, ref.Version)
 		fmt.Printf("Create %s\n", target.Path())
-		if err := tgz.ExtractAllAt(manifest, archive, target); err != nil {
+		if err := tgz.ExtractAllAt(manifest, archive, target, limits...); err != nil {
 			return err
 		}
 	}

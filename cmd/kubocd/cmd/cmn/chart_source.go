@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/misc"
 	"os"
 	"os/exec"
@@ -36,6 +37,7 @@ import (
 
 type SourceOptions struct {
 	AllowExternalLinks bool
+	ArchiveLimits      *archiveio.Limits
 }
 
 const ChartSourceHelp = `Git charts may read files and file:// dependencies only within their checkout.

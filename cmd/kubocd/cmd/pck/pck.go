@@ -20,6 +20,7 @@ import (
 	"kubocd/cmd/kubocd/cmd/cmn"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/tgz"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/global"
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
@@ -30,6 +31,10 @@ import (
 
 func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 	sourceOpts ...cmn.SourceOptions) error {
+	var limits *archiveio.Limits
+	if len(sourceOpts) > 0 {
+		limits = sourceOpts[0].ArchiveLimits
+	}
 	work, err := misc.OpenRootedDir(workDir)
 	if err != nil {
 		return err
@@ -50,7 +55,7 @@ func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 		if err != nil {
 			return err
 		}
-		return dumpPackageArchive(work, name, output, charts)
+		return dumpPackageArchive(work, name, output, charts, limits)
 	}
 	original, groomed := &kubopackage.Package{}, &kubopackage.Package{}
 	if err := misc.LoadYaml(arg, original, groomed); err != nil {
@@ -75,33 +80,37 @@ func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 			return err
 		}
 	}
-	return dumpPackageOutput(original, nil, status, manifest, output, charts)
+	return dumpPackageOutput(original, nil, status, manifest, output, charts, limits)
 }
 
-func dumpPackageArchive(work misc.RootedDir, archive, output string, charts bool) error {
+func dumpPackageArchive(work misc.RootedDir, archive, output string, charts bool, limits ...*archiveio.Limits) error {
+	var option *archiveio.Limits
+	if len(limits) > 0 {
+		option = limits[0]
+	}
 	manifest, err := misc.PrepareDir(work, "manifest.tar")
 	if err != nil {
 		return err
 	}
-	if err := tgz.ExtractAllAt(work, archive, manifest); err != nil {
+	if err := tgz.ExtractAllAt(work, archive, manifest, limits...); err != nil {
 		return err
 	}
 	original, groomed := &kubopackage.Package{}, &kubopackage.Package{}
 	status := &kubopackage.Status{}
-	if err := manifest.LoadYaml("original.yaml", original); err != nil {
+	if err := misc.LoadArchiveYaml(manifest, "original.yaml", option, original); err != nil {
 		return err
 	}
-	if err := manifest.LoadYaml("groomed.yaml", groomed); err != nil {
+	if err := misc.LoadArchiveYaml(manifest, "groomed.yaml", option, groomed); err != nil {
 		return err
 	}
-	if err := manifest.LoadYaml("status.yaml", status); err != nil {
+	if err := misc.LoadArchiveYaml(manifest, "status.yaml", option, status); err != nil {
 		return err
 	}
-	return dumpPackageOutput(original, groomed, status, manifest, output, charts)
+	return dumpPackageOutput(original, groomed, status, manifest, output, charts, limits...)
 }
 
 func dumpPackageOutput(original, groomed *kubopackage.Package, status *kubopackage.Status,
-	manifest misc.RootedDir, output string, charts bool) error {
+	manifest misc.RootedDir, output string, charts bool, limits ...*archiveio.Limits) error {
 	target, dumpPath, err := misc.PrepareOutput(output, original.Name)
 	if err != nil {
 		return err
@@ -111,7 +120,7 @@ func dumpPackageOutput(original, groomed *kubopackage.Package, status *kubopacka
 		cmn.Dump(dumpPath, "groomed-oci.yaml", groomed)
 	}
 	if charts {
-		if err := cmn.ExtractPackageCharts(manifest, target, status); err != nil {
+		if err := cmn.ExtractPackageCharts(manifest, target, status, limits...); err != nil {
 			return err
 		}
 	}

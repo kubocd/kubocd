@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"kubocd/cmd/kubocd/cmd/tgz"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/global"
 	"kubocd/internal/misc"
 	"log/slog"
@@ -41,13 +42,14 @@ import (
 )
 
 type Operation struct {
-	WorkDir   string
-	ImageRepo string
-	ImageTag  string
-	Insecure  bool
-	Anonymous bool
-	Chart     bool
-	Output    string
+	ArchiveLimits *archiveio.Limits
+	WorkDir       string
+	ImageRepo     string
+	ImageTag      string
+	Insecure      bool
+	Anonymous     bool
+	Chart         bool
+	Output        string
 }
 
 func DumpOci(op *Operation) error {
@@ -175,7 +177,7 @@ func dumpEntry(prefix string, mediaType string, value digest.Digest, op *Operati
 		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n",
 			prefix, value[:15], mediaType, misc.Any2Yaml(content))
 	} else if strings.HasSuffix(mediaType, "tar+gzip") || strings.HasSuffix(mediaType, "tar.gzip") {
-		contents, err := misc.ListTarGzContentsAt(work, name)
+		contents, err := misc.ListTarGzContentsAt(work, name, op.ArchiveLimits)
 		if err != nil {
 			return err
 		}
@@ -188,7 +190,7 @@ func dumpEntry(prefix string, mediaType string, value digest.Digest, op *Operati
 			defer func() { _ = target.Root.Close() }()
 			fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n",
 				path.Base(op.ImageRepo), op.ImageTag, target.Path())
-			return tgz.ExtractAllAt(work, name, target)
+			return tgz.ExtractAllAt(work, name, target, op.ArchiveLimits)
 		}
 	} else {
 		fmt.Printf("-------------------- %s blob:%s... mediaType:'%s'\n%s\n",

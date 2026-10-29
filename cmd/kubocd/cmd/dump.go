@@ -24,6 +24,7 @@ import (
 	"kubocd/cmd/kubocd/cmd/helmrepo"
 	"kubocd/cmd/kubocd/cmd/oci"
 	"kubocd/cmd/kubocd/cmd/pck"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/configstore"
 	"kubocd/internal/controller"
 	"kubocd/internal/k8sapi"
@@ -35,6 +36,10 @@ import (
 )
 
 func init() {
+	ociParams.archiveLimits = registerArchiveFlags(dumpOciCmd)
+	dumpHrParams.archiveLimits = registerArchiveFlags(dumpHrCmd)
+	dumpPackageParams.sourceOptions.ArchiveLimits = registerArchiveFlags(dumpPackageCmd)
+
 	dumpCmd.AddCommand(dumpOciCmd)
 	dumpCmd.AddCommand(dumpHrCmd)
 	dumpCmd.AddCommand(dumpPackageCmd)
@@ -71,10 +76,11 @@ var dumpCmd = &cobra.Command{
 // ---------------------------------------------------------------------------- dumpOci
 
 var ociParams struct {
-	insecure  bool
-	anonymous bool
-	chart     bool
-	output    string
+	archiveLimits *archiveio.Limits
+	insecure      bool
+	anonymous     bool
+	chart         bool
+	output        string
 }
 
 func init() {
@@ -100,13 +106,14 @@ var dumpOciCmd = &cobra.Command{
 				return err
 			}
 			op := &oci.Operation{
-				WorkDir:   dumpParams.workDir,
-				ImageRepo: imageRepo,
-				ImageTag:  imageTag,
-				Insecure:  ociParams.insecure,
-				Anonymous: ociParams.anonymous,
-				Chart:     ociParams.chart,
-				Output:    ociParams.output,
+				ArchiveLimits: ociParams.archiveLimits,
+				WorkDir:       dumpParams.workDir,
+				ImageRepo:     imageRepo,
+				ImageTag:      imageTag,
+				Insecure:      ociParams.insecure,
+				Anonymous:     ociParams.anonymous,
+				Chart:         ociParams.chart,
+				Output:        ociParams.output,
 			}
 			return oci.DumpOci(op)
 		}()
@@ -120,8 +127,9 @@ var dumpOciCmd = &cobra.Command{
 // --------------------------------------------------------------------------- dump helmRepo
 
 var dumpHrParams struct {
-	output string
-	chart  bool
+	archiveLimits *archiveio.Limits
+	output        string
+	chart         bool
 }
 
 func init() {
@@ -152,10 +160,11 @@ var dumpHrCmd = &cobra.Command{
 				return fmt.Errorf("--output is required when --charts is specified")
 			}
 			op := &helmrepo.Operation{
-				WorkDir: dumpParams.workDir,
-				RepoUrl: args[0],
-				Output:  dumpHrParams.output,
-				Chart:   dumpHrParams.chart,
+				ArchiveLimits: dumpHrParams.archiveLimits,
+				WorkDir:       dumpParams.workDir,
+				RepoUrl:       args[0],
+				Output:        dumpHrParams.output,
+				Chart:         dumpHrParams.chart,
 			}
 			if len(args) > 1 {
 				op.ChartName = args[1]

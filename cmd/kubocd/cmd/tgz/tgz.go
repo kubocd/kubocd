@@ -19,9 +19,9 @@ package tgz
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"fmt"
 	"io"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/misc"
 	"os"
 	"path"
@@ -29,8 +29,9 @@ import (
 	"strings"
 )
 
-func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) error {
-	ba, err := ExtractDataFromTgz(tgzPath, fileName)
+func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{},
+	limits ...*archiveio.Limits) error {
+	ba, err := ExtractDataFromTgz(tgzPath, fileName, limits...)
 	if err != nil {
 		return err
 	}
@@ -40,7 +41,7 @@ func UnmarshalDataFromTgz(tgzPath string, fileName string, data interface{}) err
 // ExtractAllFromTgz writes the regular files of the archive under targetPath, created if missing. It fails on an
 // entry whose name is not a relative path inside targetPath, and prevents archive paths from escaping targetPath,
 // including through existing symbolic links.
-func ExtractAllFromTgz(tgzPath string, targetPath string) error {
+func ExtractAllFromTgz(tgzPath string, targetPath string, limits ...*archiveio.Limits) error {
 	tgzFile, err := os.Open(tgzPath)
 	if err != nil {
 		return err
@@ -51,29 +52,27 @@ func ExtractAllFromTgz(tgzPath string, targetPath string) error {
 		return err
 	}
 	defer func() { _ = target.Root.Close() }()
-	return ExtractAllFromReader(tgzFile, target)
+	return ExtractAllFromReader(tgzFile, target, limits...)
 }
 
-func ExtractAllAt(source misc.RootedDir, name string, target misc.RootedDir) error {
+func ExtractAllAt(source misc.RootedDir, name string, target misc.RootedDir, limits ...*archiveio.Limits) error {
 	f, err := source.OpenRegular(name)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	return ExtractAllFromReader(f, target)
+	return ExtractAllFromReader(f, target, limits...)
 }
 
-func ExtractAllFromReader(input io.Reader, target misc.RootedDir) error {
-	gzReader, err := gzip.NewReader(input)
+func ExtractAllFromReader(input io.Reader, target misc.RootedDir, limits ...*archiveio.Limits) error {
+	tarReader, err := archiveio.New(input, limits...)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = gzReader.Close() }()
+	defer func() { _ = tarReader.Close() }()
 	if err := target.MkdirAll(".", 0755); err != nil {
 		return err
 	}
-	// Create a tar reader
-	tarReader := tar.NewReader(gzReader)
 
 	// Iterate through the archive and create files
 	for {
@@ -122,7 +121,7 @@ func isLocalEntryName(name string) bool {
 	return filepath.IsLocal(name) && !strings.Contains(name, `\`)
 }
 
-func ExtractFromTgz(tgzPath string, fileName string, writer io.Writer) error {
+func ExtractFromTgz(tgzPath string, fileName string, writer io.Writer, limits ...*archiveio.Limits) error {
 	// Open the .tgz file
 	tgzFile, err := os.Open(tgzPath)
 	if err != nil {
@@ -130,49 +129,40 @@ func ExtractFromTgz(tgzPath string, fileName string, writer io.Writer) error {
 	}
 	defer tgzFile.Close()
 
-	return ExtractFromReader(tgzFile, fileName, writer)
+	return ExtractFromReader(tgzFile, fileName, writer, limits...)
 }
 
-func ExtractFromReader(input io.Reader, fileName string, writer io.Writer) error {
-	// Create a gzip reader
-	gzReader, err := gzip.NewReader(input)
+func ExtractFromReader(input io.Reader, fileName string, writer io.Writer, limits ...*archiveio.Limits) error {
+	reader, err := archiveio.New(input, limits...)
 	if err != nil {
 		return err
 	}
-	defer gzReader.Close()
-
-	// Create a tar reader
-	tarReader := tar.NewReader(gzReader)
-
-	// Iterate through the archive to find the YAML file
+	defer func() { _ = reader.Close() }()
+	found := false
 	for {
-		header, err := tarReader.Next()
+		header, err := reader.Next()
 		if err == io.EOF {
-			break // End of archive
+			break
 		}
 		if err != nil {
 			return err
 		}
-		// Check if the file is the target YAML file
-		if header.Typeflag == tar.TypeReg {
-			currentFile := header.Name
-			//fmt.Printf("archive file: %s\n", currentFile)
-			if path.Base(currentFile) == fileName {
-				// Got it. Read the file content
-				_, err := io.Copy(writer, tarReader)
-				if err != nil {
-					return err
-				}
-				return nil
+		if !found && header.Typeflag == tar.TypeReg && path.Base(header.Name) == fileName {
+			if err := reader.CopyMetadata(writer); err != nil {
+				return err
 			}
+			found = true
 		}
+	}
+	if found {
+		return nil
 	}
 	return fmt.Errorf("file '%s' not found in archive", fileName)
 }
 
-func ExtractDataFromTgz(tgzPath string, fileName string) ([]byte, error) {
+func ExtractDataFromTgz(tgzPath string, fileName string, limits ...*archiveio.Limits) ([]byte, error) {
 	bb := &bytes.Buffer{}
-	err := ExtractFromTgz(tgzPath, fileName, bb)
+	err := ExtractFromTgz(tgzPath, fileName, bb, limits...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,21 +201,22 @@ func AddToArchive(tw *tar.Writer, filePath string, inArchiveName string) error {
 	return nil
 }
 
-func ExtractDataAt(source misc.RootedDir, name, fileName string) ([]byte, error) {
+func ExtractDataAt(source misc.RootedDir, name, fileName string, limits ...*archiveio.Limits) ([]byte, error) {
 	f, err := source.OpenRegular(name)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 	bb := &bytes.Buffer{}
-	if err := ExtractFromReader(f, fileName, bb); err != nil {
+	if err := ExtractFromReader(f, fileName, bb, limits...); err != nil {
 		return nil, err
 	}
 	return bb.Bytes(), nil
 }
 
-func UnmarshalDataAt(source misc.RootedDir, name, fileName string, data interface{}) error {
-	ba, err := ExtractDataAt(source, name, fileName)
+func UnmarshalDataAt(source misc.RootedDir, name, fileName string, data interface{},
+	limits ...*archiveio.Limits) error {
+	ba, err := ExtractDataAt(source, name, fileName, limits...)
 	if err != nil {
 		return err
 	}

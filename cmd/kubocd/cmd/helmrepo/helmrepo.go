@@ -17,12 +17,16 @@ limitations under the License.
 package helmrepo
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"kubocd/cmd/kubocd/cmd/tgz"
+	"kubocd/internal/archiveio"
 	"kubocd/internal/misc"
 	"log/slog"
 	"path"
 	"sort"
+	"strings"
 
 	helmclient "github.com/mittwald/go-helm-client"
 	"helm.sh/helm/v4/pkg/action"
@@ -32,12 +36,13 @@ import (
 )
 
 type Operation struct {
-	WorkDir      string
-	RepoUrl      string
-	ChartName    string
-	ChartVersion string
-	Output       string
-	Chart        bool
+	ArchiveLimits *archiveio.Limits
+	WorkDir       string
+	RepoUrl       string
+	ChartName     string
+	ChartVersion  string
+	Output        string
+	Chart         bool
 }
 
 func DumpHelmRepo(op *Operation) error {
@@ -92,16 +97,7 @@ func DumpHelmRepo(op *Operation) error {
 		if err != nil {
 			return err
 		}
-		tarList, err := misc.ListTarGzContentsAt(work, name)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n", chartInfo.Metadata.Name, chartInfo.Metadata.Version, misc.Any2Yaml(chartInfo.Metadata), tarList)
-		if op.Chart && op.Output != "" {
-			if err := dumpChartAt(work, name, op); err != nil {
-				return err
-			}
-		}
+		return dumpFetchedChartAt(work, name, chartInfo, op)
 	}
 	return nil
 
@@ -207,5 +203,71 @@ func dumpChartAt(source misc.RootedDir, name string, op *Operation) error {
 	}
 	defer func() { _ = target.Root.Close() }()
 	fmt.Printf("---------------------- Extract chart %s (%s) to ./%s\n\n", op.ChartName, op.ChartVersion, target.Path())
-	return tgz.ExtractAllAt(source, name, target)
+	return tgz.ExtractAllAt(source, name, target, op.ArchiveLimits)
+}
+
+func dumpFetchedChartAt(work misc.RootedDir, name string, _ *chart.Chart, op *Operation) error {
+	tarList, err := misc.ListTarGzContentsAt(work, name, op.ArchiveLimits)
+	if err != nil {
+		return err
+	}
+	metadata, err := readDumpChartMetadata(work, name, op.ArchiveLimits)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nChart: %s:%s\n\n---------------------- Chart.yaml:\n%s\n\n-------------------- content:\n%s\n",
+		metadata.Name, metadata.Version, misc.Any2Yaml(metadata), tarList)
+	if op.Chart && op.Output != "" {
+		if err := dumpChartAt(work, name, op); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readDumpChartMetadata(work misc.RootedDir, name string, limits *archiveio.Limits) (*chart.Metadata, error) {
+	file, err := work.OpenRegular(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	reader, err := archiveio.New(file, limits)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = reader.Close() }()
+	var metadata *chart.Metadata
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		// Helm chooses backslashes before removing the first component of a mixed path.
+		separator := "/"
+		if strings.ContainsRune(header.Name, '\\') {
+			separator = "\\"
+		}
+		_, relative, ok := strings.Cut(header.Name, separator)
+		relative = strings.ReplaceAll(relative, separator, "/")
+		if !ok || path.Clean(relative) != "Chart.yaml" {
+			continue
+		}
+		var data bytes.Buffer
+		if err := reader.CopyMetadata(&data); err != nil {
+			return nil, err
+		}
+		if metadata == nil {
+			metadata = &chart.Metadata{}
+		}
+		if err := yaml.Unmarshal(bytes.TrimPrefix(data.Bytes(), []byte{0xef, 0xbb, 0xbf}), metadata); err != nil {
+			return nil, err
+		}
+	}
+	if metadata == nil {
+		return nil, fmt.Errorf("file 'Chart.yaml' not found in archive")
+	}
+	return metadata, nil
 }

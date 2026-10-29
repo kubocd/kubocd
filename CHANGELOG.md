@@ -39,6 +39,16 @@
   `path "../victim" is not inside its trusted parent directory`.
   A `.transient` marker must be a regular file and cannot authorize cleanup of the parent itself.
 - `kubocd render --output=""` refuses symlinks or special files left in `charts/` by earlier runs before running Helm.
+- CLI archive reads default to 47087616 decompressed bytes, 40 MiB of logical content, 1000 entries including
+  implicit directories, 1 MiB per metadata file and 1 MiB per listing. Skipped content and archive overhead count.
+  These limits apply per archive traversal, not per command. Nested archives have separate budgets.
+- `package`, `render`, `dump package`, `dump helmRepository` and `dump oci` accept `--maxArchiveStreamSize`,
+  `--maxArchiveContentSize`, `--maxArchiveEntries`, `--maxArchiveMetadataSize` and `--maxArchiveListingSize` to raise
+  these limits, or `--disableArchiveLimits` to disable resource limits. Downloads and Helm subprocess resource use
+  are outside these budgets. The bundled Helm loader has a separate 100 MiB content limit. Path protection and archive
+  validation remain enabled with the opt-out.
+- Archive listing and metadata reads propagate limit and corruption errors, including errors after a metadata match.
+  Archives must have a complete tar end marker and valid gzip footer. Nonzero data after the tar end is refused.
 
 # v0.4.1
 

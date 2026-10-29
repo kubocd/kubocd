@@ -67,6 +67,7 @@ var renderParams struct {
 var renderLog logr.Logger
 
 func init() {
+	renderParams.sourceOptions.ArchiveLimits = registerArchiveFlags(renderCmd)
 	renderCmd.PersistentFlags().BoolVar(&renderParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
 		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
 			"special files remain refused.")
@@ -201,16 +202,7 @@ var renderCmd = &cobra.Command{
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, nil, "0.0.0@sha256:0000000000000000000000000",
 					configStore, renderPackageFunctions())
 				// Compute status to give the map module->helmChart (Need to fetch helm charts)
-				assembly, err := misc.PrepareDir(work, "assembly")
-				if err != nil {
-					return fmt.Errorf("error ensuring assembly path: %w", err)
-				}
-				_, pkgContainer.Status, err = cmn.FetchArchivesAt("", pkgContainer.Package, assembly, work, packageFolder,
-					renderParams.sourceOptions)
-				if err != nil {
-					return fmt.Errorf("could not fetch package archive: %w", err)
-				}
-				if err := cmn.ExtractPackageCharts(assembly, target, pkgContainer.Status); err != nil {
+				if err := fetchRenderCharts(work, target, pkgContainer, packageFolder); err != nil {
 					return err
 				}
 
@@ -243,29 +235,16 @@ var renderCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				err = tgz.UnmarshalDataAt(work, archiveName, "original.yaml", &pkgOriginal)
-				if err != nil {
-					return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
-				}
-				renderLog.V(1).Info("Unmarshalled original.yaml")
 				status := &kubopackage.Status{}
-				err = tgz.UnmarshalDataAt(work, archiveName, "status.yaml", &status)
-				if err != nil {
-					return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
+				if err := readRenderPackageMetadata(work, archiveName, pkgOriginal, status); err != nil {
+					return err
 				}
-				renderLog.V(1).Info("Unmarshalled status.yaml")
+
 				errorOnContainer = pkgContainer.SetPackage(pkgOriginal, status, "0.0.0@sha256:0000000000000000000000000",
 					configStore, renderPackageFunctions())
 				renderLog.V(1).Info("Setting package in pkgContainer OK")
 
-				manifest, err := misc.PrepareDir(work, "manifest.tar")
-				if err != nil {
-					return err
-				}
-				if err := tgz.ExtractAllAt(work, archiveName, manifest); err != nil {
-					return err
-				}
-				if err := cmn.ExtractPackageCharts(manifest, target, status); err != nil {
+				if err := extractRenderPackage(work, archiveName, target, status); err != nil {
 					return err
 				}
 
@@ -717,4 +696,44 @@ func (h *buildInputModelHelper) FindOutputClusterConnectionsFromRelease(ctx cont
 		}
 	}
 	return result, nil
+}
+
+func fetchRenderCharts(work, target misc.RootedDir, container *kubopackage.PckContainer, packageFolder string) error {
+	assembly, err := misc.PrepareDir(work, "assembly")
+	if err != nil {
+		return fmt.Errorf("error ensuring assembly path: %w", err)
+	}
+	_, container.Status, err = cmn.FetchArchivesAt("", container.Package, assembly, work, packageFolder,
+		renderParams.sourceOptions)
+	if err != nil {
+		return fmt.Errorf("could not fetch package archive: %w", err)
+	}
+	return cmn.ExtractPackageCharts(assembly, target, container.Status, renderParams.sourceOptions.ArchiveLimits)
+}
+
+func readRenderPackageMetadata(work misc.RootedDir, archiveName string,
+	original *kubopackage.Package, status *kubopackage.Status) error {
+	if err := tgz.UnmarshalDataAt(work, archiveName, "original.yaml", original,
+		renderParams.sourceOptions.ArchiveLimits); err != nil {
+		return fmt.Errorf("error unmarshalling OCI content (original.yaml): %w", err)
+	}
+	renderLog.V(1).Info("Unmarshalled original.yaml")
+	if err := tgz.UnmarshalDataAt(work, archiveName, "status.yaml", status,
+		renderParams.sourceOptions.ArchiveLimits); err != nil {
+		return fmt.Errorf("error unmarshalling OCI content (status.yaml): %w", err)
+	}
+	renderLog.V(1).Info("Unmarshalled status.yaml")
+	return nil
+}
+
+func extractRenderPackage(work misc.RootedDir, archiveName string,
+	target misc.RootedDir, status *kubopackage.Status) error {
+	manifest, err := misc.PrepareDir(work, "manifest.tar")
+	if err != nil {
+		return err
+	}
+	if err := tgz.ExtractAllAt(work, archiveName, manifest, renderParams.sourceOptions.ArchiveLimits); err != nil {
+		return err
+	}
+	return cmn.ExtractPackageCharts(manifest, target, status, renderParams.sourceOptions.ArchiveLimits)
 }

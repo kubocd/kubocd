@@ -66,6 +66,7 @@ var packageParams struct {
 }
 
 func init() {
+	packageParams.sourceOptions.ArchiveLimits = registerArchiveFlags(packageCmd)
 	packageCmd.PersistentFlags().BoolVar(&packageParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
 		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
 			"special files remain refused.")
