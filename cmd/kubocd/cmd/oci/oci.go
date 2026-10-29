@@ -37,19 +37,18 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 type Operation struct {
-	ArchiveLimits *archiveio.Limits
-	WorkDir       string
-	ImageRepo     string
-	ImageTag      string
-	Insecure      bool
-	Anonymous     bool
-	Chart         bool
-	Output        string
+	AllowInsecureCredentials bool
+	ArchiveLimits            *archiveio.Limits
+	WorkDir                  string
+	ImageRepo                string
+	ImageTag                 string
+	Insecure                 bool
+	Anonymous                bool
+	Chart                    bool
+	Output                   string
 }
 
 func DumpOci(op *Operation) error {
@@ -125,26 +124,12 @@ func FetchOciImage(printPrefix string, op *Operation) (string, error) {
 	}
 	repo.PlainHTTP = op.Insecure
 
-	if !op.Anonymous {
-		splits := strings.Split(op.ImageRepo, "/")
-		regHost := splits[0]
-		userName, secret, err := GetCredentials(regHost)
-		if err != nil {
-			return loc, fmt.Errorf("failed to get credentials for repository '%s': %v", regHost, err)
-		}
-		if secret != "" {
-			repo.Client = &auth.Client{
-				Client: retry.DefaultClient,
-				Cache:  auth.NewCache(),
-				Credential: auth.StaticCredential(regHost, auth.Credential{
-					Username: userName,
-					Password: secret,
-				}),
-			}
-		} else {
-			slog.Debug("No credentials provided. Will connect anonymously\n")
-		}
-	} else {
+	repo.Client, err = NewRegistryClient(repo.Reference.Registry, op.Insecure, op.Anonymous,
+		CredentialOptions{AllowInsecureCredentials: op.AllowInsecureCredentials})
+	if err != nil {
+		return loc, err
+	}
+	if op.Anonymous {
 		fmt.Printf("Will connect anonymously as required\n")
 	}
 

@@ -67,6 +67,8 @@ var renderParams struct {
 var renderLog logr.Logger
 
 func init() {
+	renderCmd.PersistentFlags().BoolVar(&renderParams.sourceOptions.AllowInsecureCredentials,
+		"allowInsecureCredentials", false, oci.CredentialHelp)
 	renderParams.sourceOptions.ArchiveLimits = registerArchiveFlags(renderCmd)
 	renderCmd.PersistentFlags().BoolVar(&renderParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
 		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
@@ -219,11 +221,12 @@ var renderCmd = &cobra.Command{
 					tag = release.Spec.Package.Tag
 				}
 				op := &oci.Operation{
-					WorkDir:   renderParams.workDir,
-					ImageRepo: repo,
-					ImageTag:  tag,
-					Insecure:  release.Spec.Package.Insecure,
-					Anonymous: false,
+					AllowInsecureCredentials: renderParams.sourceOptions.AllowInsecureCredentials,
+					WorkDir:                  renderParams.workDir,
+					ImageRepo:                repo,
+					ImageTag:                 tag,
+					Insecure:                 release.Spec.Package.Insecure,
+					Anonymous:                false,
 				}
 				archive, err := oci.GetContentFromOci("# ", op, global.PackageContentMediaType)
 				if err != nil {

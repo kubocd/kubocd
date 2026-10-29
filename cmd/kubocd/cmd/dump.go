@@ -36,6 +36,10 @@ import (
 )
 
 func init() {
+	dumpOciCmd.PersistentFlags().BoolVar(&ociParams.allowInsecureCredentials,
+		"allowInsecureCredentials", false, oci.CredentialHelp)
+	dumpPackageCmd.PersistentFlags().BoolVar(&dumpPackageParams.sourceOptions.AllowInsecureCredentials,
+		"allowInsecureCredentials", false, oci.CredentialHelp)
 	ociParams.archiveLimits = registerArchiveFlags(dumpOciCmd)
 	dumpHrParams.archiveLimits = registerArchiveFlags(dumpHrCmd)
 	dumpPackageParams.sourceOptions.ArchiveLimits = registerArchiveFlags(dumpPackageCmd)
@@ -76,15 +80,17 @@ var dumpCmd = &cobra.Command{
 // ---------------------------------------------------------------------------- dumpOci
 
 var ociParams struct {
-	archiveLimits *archiveio.Limits
-	insecure      bool
-	anonymous     bool
-	chart         bool
-	output        string
+	allowInsecureCredentials bool
+	archiveLimits            *archiveio.Limits
+	insecure                 bool
+	anonymous                bool
+	chart                    bool
+	output                   string
 }
 
 func init() {
-	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
+	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.insecure, "insecure", "i", false,
+		"Use HTTP instead of HTTPS; authentication over HTTP requires --allowInsecureCredentials")
 	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.anonymous, "anonymous", "a", false, "Connect anonymously. To check 'public' image status")
 	dumpOciCmd.PersistentFlags().BoolVarP(&ociParams.chart, "chart", "c", false, "unpack charts in output directory")
 	dumpOciCmd.PersistentFlags().StringVarP(&ociParams.output, "output", "o", "./.charts", "Output chart directory")
@@ -106,14 +112,15 @@ var dumpOciCmd = &cobra.Command{
 				return err
 			}
 			op := &oci.Operation{
-				ArchiveLimits: ociParams.archiveLimits,
-				WorkDir:       dumpParams.workDir,
-				ImageRepo:     imageRepo,
-				ImageTag:      imageTag,
-				Insecure:      ociParams.insecure,
-				Anonymous:     ociParams.anonymous,
-				Chart:         ociParams.chart,
-				Output:        ociParams.output,
+				AllowInsecureCredentials: ociParams.allowInsecureCredentials,
+				ArchiveLimits:            ociParams.archiveLimits,
+				WorkDir:                  dumpParams.workDir,
+				ImageRepo:                imageRepo,
+				ImageTag:                 imageTag,
+				Insecure:                 ociParams.insecure,
+				Anonymous:                ociParams.anonymous,
+				Chart:                    ociParams.chart,
+				Output:                   ociParams.output,
 			}
 			return oci.DumpOci(op)
 		}()
@@ -196,7 +203,8 @@ func init() {
 		"allowExternalLinks", false,
 		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
 			"special files remain refused.")
-	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.insecure, "insecure", "i", false, "insecure (use HTTP, not HTTPS)")
+	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.insecure, "insecure", "i", false,
+		"Use HTTP instead of HTTPS; authentication over HTTP requires --allowInsecureCredentials")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.anonymous, "anonymous", "a", false, "Connect anonymously to the registry. To check 'public' image status")
 	dumpPackageCmd.PersistentFlags().BoolVarP(&dumpPackageParams.charts, "charts", "c", false, "unpack charts in output directory")
 	dumpPackageCmd.PersistentFlags().StringVarP(&dumpPackageParams.output, "output", "o", "./.dump",

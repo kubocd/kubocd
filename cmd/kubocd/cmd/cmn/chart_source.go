@@ -36,8 +36,9 @@ import (
 )
 
 type SourceOptions struct {
-	AllowExternalLinks bool
-	ArchiveLimits      *archiveio.Limits
+	AllowInsecureCredentials bool
+	AllowExternalLinks       bool
+	ArchiveLimits            *archiveio.Limits
 }
 
 const ChartSourceHelp = `Git charts may read files and file:// dependencies only within their checkout.

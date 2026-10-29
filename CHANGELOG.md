@@ -65,6 +65,19 @@
   accepted in HTTP(S) URLs. These hostname checks do not apply to SSH URLs.
 - Git clone messages and errors remove URL userinfo and credential values, including Go-quoted and JSON-escaped
   secrets, while preserving safe paths and email text. This protection has no opt-out.
+- OCI reads and package pushes refuse configured credentials over HTTP before sending a request, with
+  `OCI credentials require HTTPS; use --allowInsecureCredentials to allow authentication over HTTP`.
+  HTTPS token services remain supported. Anonymous HTTP registries, including anonymous Bearer flows, still work.
+- OCI credential checks cover token-service requests and redirects. A credential-related downgrade fails with
+  `OCI HTTPS-to-HTTP redirect with credentials is not allowed; use --allowInsecureCredentials to allow authentication over HTTP`.
+- `--allowInsecureCredentials` on `package`, `dump oci`, `dump package` and `render` permits OCI authentication
+  over HTTP, including OCI modules. Existing HTTP selections (`--plainHTTP`, `--insecure`, or `insecure: true`)
+  remain separate. The flag does not disable certificate checks or change Git protections. ORAS still refuses
+  an HTTP token realm advertised by an HTTPS registry. For example:
+  `kubocd package package.yaml --ociRepoPrefix localhost:5000/packages --plainHTTP --allowInsecureCredentials`.
+- OCI redirects to another origin never carry the initial request's Authorization header, including later hops
+  within that other origin. Redirects with userinfo at another origin are refused.
+  Empty credential-helper secrets keep anonymous authentication and the default ORAS User-Agent.
 
 # v0.4.1
 

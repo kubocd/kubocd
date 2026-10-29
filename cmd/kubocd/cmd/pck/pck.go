@@ -32,8 +32,10 @@ import (
 func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 	sourceOpts ...cmn.SourceOptions) error {
 	var limits *archiveio.Limits
+	allowInsecureCredentials := false
 	if len(sourceOpts) > 0 {
 		limits = sourceOpts[0].ArchiveLimits
+		allowInsecureCredentials = sourceOpts[0].AllowInsecureCredentials
 	}
 	work, err := misc.OpenRootedDir(workDir)
 	if err != nil {
@@ -45,7 +47,8 @@ func Dump(arg, workDir string, insecure, anonymous, charts bool, output string,
 		if err != nil {
 			return err
 		}
-		op := &oci.Operation{WorkDir: work.Path(), ImageRepo: imageRepo, ImageTag: imageTag,
+		op := &oci.Operation{AllowInsecureCredentials: allowInsecureCredentials,
+			WorkDir: work.Path(), ImageRepo: imageRepo, ImageTag: imageTag,
 			Insecure: insecure, Anonymous: anonymous}
 		archive, err := oci.GetContentFromOci("", op, global.PackageContentMediaType)
 		if err != nil {

@@ -77,11 +77,12 @@ func FetchArchivesAt(printPrefix string, pck *kubopackage.Package, assembly, wor
 		if module.Type == global.HelmChartType {
 			if module.Source.Oci != nil {
 				op := &oci.Operation{
-					ImageRepo: module.Source.Oci.Repository,
-					ImageTag:  module.Source.Oci.Tag,
-					Insecure:  module.Source.Oci.Insecure,
-					WorkDir:   workDir,
-					Anonymous: false,
+					AllowInsecureCredentials: sourceOptions(sourceOpts).AllowInsecureCredentials,
+					ImageRepo:                module.Source.Oci.Repository,
+					ImageTag:                 module.Source.Oci.Tag,
+					Insecure:                 module.Source.Oci.Insecure,
+					WorkDir:                  workDir,
+					Anonymous:                false,
 				}
 				archive, err = oci.GetContentFromOci(printPrefix+"    ", op, global.HelmChartMediaType)
 				if err != nil {

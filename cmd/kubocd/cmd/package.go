@@ -33,7 +33,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
@@ -41,8 +40,6 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 /*
@@ -66,6 +63,8 @@ var packageParams struct {
 }
 
 func init() {
+	packageCmd.PersistentFlags().BoolVar(&packageParams.sourceOptions.AllowInsecureCredentials,
+		"allowInsecureCredentials", false, oci.CredentialHelp)
 	packageParams.sourceOptions.ArchiveLimits = registerArchiveFlags(packageCmd)
 	packageCmd.PersistentFlags().BoolVar(&packageParams.sourceOptions.AllowExternalLinks, "allowExternalLinks", false,
 		"Allow Git and local charts to read files and file:// dependencies outside their source root; "+
@@ -73,7 +72,8 @@ func init() {
 
 	packageCmd.PersistentFlags().StringVar(&packageParams.logConfig.Level, "logLevel", "INFO", "Log level")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.ociRepoPrefix, "ociRepoPrefix", "r", "", "OCI repository prefix (i.e 'quay.io/your-organization/packages'). Can also be specified with OCI_REPO_PREFIX environment variable")
-	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false, "Use plain HTTP instead of HTTPS when pushing image")
+	packageCmd.PersistentFlags().BoolVarP(&packageParams.plainHTTP, "plainHTTP", "p", false,
+		"Use plain HTTP instead of HTTPS when pushing image; authentication over HTTP requires --allowInsecureCredentials")
 	packageCmd.PersistentFlags().StringVarP(&packageParams.workDir, "workDir", "w", "", "Working directory. Default to $HOME/.kubocd")
 
 }
@@ -214,7 +214,8 @@ func pack(pck string) error {
 	}
 
 	// Build and push image
-	err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP)
+	err = pushImage(assemblyPath, repository, tag, packageParams.plainHTTP,
+		oci.CredentialOptions{AllowInsecureCredentials: packageParams.sourceOptions.AllowInsecureCredentials})
 	if err != nil {
 		return err
 	}
@@ -245,7 +246,8 @@ func buildAssembly(assembly misc.RootedDir, archives []cmn.ArchiveInfo) (err err
 	return nil
 }
 
-func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool) error {
+func pushImage(assemblyPath string, repository string, tag string, plainHTTP bool,
+	credentialOptions ...oci.CredentialOptions) error {
 	fmt.Printf("--- push OCI image: %s:%s\n", repository, tag)
 	// 0. Create a file store
 	ociFs, err := file.New(assemblyPath)
@@ -297,22 +299,13 @@ func pushImage(assemblyPath string, repository string, tag string, plainHTTP boo
 	}
 	remoteRepo.PlainHTTP = plainHTTP
 
-	splits := strings.Split(repository, "/")
-	regHost := splits[0]
-	userName, secret, err := oci.GetCredentials(regHost)
-	if err != nil {
-		return fmt.Errorf("failed to get credentials for repository '%s': %v", regHost, err)
+	options := oci.CredentialOptions{}
+	if len(credentialOptions) > 0 {
+		options = credentialOptions[0]
 	}
-
-	if secret != "" {
-		remoteRepo.Client = &auth.Client{
-			Client: retry.DefaultClient,
-			Cache:  auth.NewCache(),
-			Credential: auth.StaticCredential(regHost, auth.Credential{
-				Username: userName,
-				Password: secret,
-			}),
-		}
+	remoteRepo.Client, err = oci.NewRegistryClient(remoteRepo.Reference.Registry, plainHTTP, false, options)
+	if err != nil {
+		return err
 	}
 	// 4. Copy from the file store to the remote repository
 	_, err = oras.Copy(ctx, ociFs, tag, remoteRepo, tag, oras.DefaultCopyOptions)
