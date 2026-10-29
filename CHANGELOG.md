@@ -140,6 +140,10 @@
 - `kubocd render` applies the package source policy before downloading: a direct insecure source is refused before
   any package registry request unless `--allowReleaseInsecureSource` is set, and a matching `packageRedirect` uses
   its own `insecure` setting to select the transport.
+- `kubocd render` appends `outputConnections.yaml` and `outputClusterConnections.yaml` only inside its output
+  directory (the current directory with `--output=""`), refusing escaping links and special files. Refusals include
+  `ERROR: output[0]: could not append connection: path "./outputConnections.yaml" is not inside its trusted parent directory`
+  or `ERROR: output[0]: could not append connection: path "outputConnections.yaml" is not a regular file`.
 
 # v0.4.1
 

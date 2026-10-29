@@ -202,6 +202,17 @@ func (d RootedDir) WriteFile(name string, data []byte, mode fs.FileMode) (err er
 	return err
 }
 
+// AppendFile appends data to a regular file within the directory, creating it with mode 0644 if needed.
+func (d RootedDir) AppendFile(name string, data []byte) (err error) {
+	f, err := d.openFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	_, err = f.Write(data)
+	return err
+}
+
 func (d RootedDir) ReadFile(name string) (data []byte, err error) {
 	f, err := d.OpenRegular(name)
 	if err != nil {

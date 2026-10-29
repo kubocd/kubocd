@@ -403,7 +403,9 @@ var renderCmd = &cobra.Command{
 						Namespace: release.Namespace,
 					}
 
-					cmn.DumpAppend(output, "outputClusterConnections.yaml", connection)
+					if err := cmn.DumpAppend(target, "outputClusterConnections.yaml", connection); err != nil {
+						return fmt.Errorf("output[%d]: could not append connection: %w", idx, err)
+					}
 				} else {
 					connection := &kapi.Connection{
 						TypeMeta: metav1.TypeMeta{
@@ -425,7 +427,9 @@ var renderCmd = &cobra.Command{
 					connection.Spec.Priority = outputRendered.Priority
 					connection.Spec.OutputName = outputRendered.Name
 
-					cmn.DumpAppend(output, "outputConnections.yaml", connection)
+					if err := cmn.DumpAppend(target, "outputConnections.yaml", connection); err != nil {
+						return fmt.Errorf("output[%d]: could not append connection: %w", idx, err)
+					}
 				}
 			}
 
