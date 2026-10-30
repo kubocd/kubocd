@@ -1,3 +1,22 @@
+# v0.4.3
+
+- Templates can call `contains`, `hasPrefix`, `hasSuffix`, `b64enc`, `b64dec`, `substr`, `splitn`, `add`, `add1`,
+  `sub`, `mul`, `max`, `mod`, `atoi`, `int64`, `all`, `any`, `kindOf`, `deepEqual`, `regexMatch`, `semverCompare`,
+  `snakecase`, `kebabcase` and `camelcase` again. Removed by v0.4.0, their result depends on their arguments only and
+  they do not modify them.
+- Templates can call `repeat` again. It checks the result size before allocation and refuses a result larger than
+  4 MiB with `repeat: the result is larger than 4194304 bytes`. A negative count fails with
+  `repeat: the count must not be negative`. This applies to the controller and `kubocd render`, with no retry on
+  the refusal in the controller.
+- Templates can call `untilStep` and `seq` again. Each builds at most 10000 numbers and checks the count before
+  allocation, including at integer extremes. A larger count fails with
+  `untilStep: the count is beyond the limit of 10000` or `seq: the count is beyond the limit of 10000`.
+  This applies to the controller and `kubocd render`, with no retry on the refusal in the controller.
+- Templates can call `without` again, restricted to scalar items. Every list item and every argument to omit must
+  be a string, number, boolean or null. Otherwise it fails with
+  `without: the list items must be strings, numbers, booleans or null`, with no retry in the controller.
+  It returns a new list and does not modify its arguments or share nested maps or lists with them.
+
 # v0.4.2
 
 - `indent`, `nindent` and `replace` refuse an intermediate result larger than 4 MiB, even when the final rendered text

@@ -19,6 +19,7 @@ package tmpl
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -35,14 +36,17 @@ import (
 
 // Changing this list changes what every package and Release template can do.
 var expectedFunctions = []string{
-	"append", "coalesce", "compact", "concat", "default", "dict", "dig", "div",
-	"divf", "empty", "fail", "first", "float64", "fromJson", "fromYaml", "get",
-	"has", "hasKey", "imageRedirect", "indent", "int", "join", "keys", "kindIs",
-	"last", "list", "lower", "min", "mulf", "nindent", "nospace", "omit",
-	"prepend", "quote", "regexReplaceAll", "replace", "required", "set",
-	"sha256sum", "sortAlpha", "split", "splitList", "ternary", "title",
-	"toJson", "toYaml", "trim", "trimAll", "trimPrefix", "trimSuffix", "trunc",
-	"uniq", "until", "upper", "urlParse",
+	"add", "add1", "all", "any", "append", "atoi", "b64dec", "b64enc",
+	"camelcase", "coalesce", "compact", "concat", "contains", "deepEqual", "default", "dict",
+	"dig", "div", "divf", "empty", "fail", "first", "float64", "fromJson",
+	"fromYaml", "get", "has", "hasKey", "hasPrefix", "hasSuffix", "imageRedirect", "indent",
+	"int", "int64", "join", "kebabcase", "keys", "kindIs", "kindOf", "last",
+	"list", "lower", "max", "min", "mod", "mul", "mulf", "nindent",
+	"nospace", "omit", "prepend", "quote", "regexMatch", "regexReplaceAll", "repeat", "replace",
+	"required", "semverCompare", "seq", "set", "sha256sum", "snakecase", "sortAlpha", "split",
+	"splitList", "splitn", "sub", "substr", "ternary", "title", "toJson", "toYaml",
+	"trim", "trimAll", "trimPrefix", "trimSuffix", "trunc", "uniq", "until", "untilStep",
+	"upper", "urlParse", "without",
 }
 
 // packageOnlyFunctions are available to package templates, never to Release
@@ -85,6 +89,7 @@ func TestExcludedFunctionsAreRejected(t *testing.T) {
 	excluded := []string{
 		"env", "expandenv", "getHostByName", "now", "date", "dateInZone", "randAlphaNum",
 		"randBytes", "uuidv4", "genPrivateKey", "genCA", "htpasswd", "derivePassword",
+		"merge", "mergeOverwrite", "mustWithout", "unset", "pick", "values", "semver", "toStrings", "toString",
 		"readFile", "lookup", "include", "tpl", "toToml", "fromYamlArray", "fromJsonArray",
 	}
 	for name := range sprig.TxtFuncMap() {
@@ -122,6 +127,33 @@ func TestAllowedFunctionsWork(t *testing.T) {
 		text string
 		want string
 	}{
+		"add":             {`{{ add 1 2 3 }}`, "6"},
+		"add1":            {`{{ add1 2 }}`, "3"},
+		"all":             {`{{ all true 1 "x" }}`, "true"},
+		"any":             {`{{ any false "" "x" }}`, "true"},
+		"atoi":            {`{{ atoi "42" }}`, "42"},
+		"b64dec":          {`{{ b64dec "aGVsbG8=" }}`, "hello"},
+		"b64enc":          {`{{ b64enc "hello" }}`, "aGVsbG8="},
+		"camelcase":       {`{{ camelcase "hello_world" }}`, "HelloWorld"},
+		"contains":        {`{{ contains "ell" "hello" }}`, "true"},
+		"deepEqual":       {`{{ deepEqual (list 1 2) (list 1 2) }}`, "true"},
+		"hasPrefix":       {`{{ hasPrefix "he" "hello" }}`, "true"},
+		"hasSuffix":       {`{{ hasSuffix "lo" "hello" }}`, "true"},
+		"int64":           {`{{ int64 "42" }}`, "42"},
+		"kebabcase":       {`{{ kebabcase "HelloWorld" }}`, "hello-world"},
+		"kindOf":          {`{{ kindOf (dict) }}`, "map"},
+		"max":             {`{{ max 2 7 4 }}`, "7"},
+		"mod":             {`{{ mod 7 3 }}`, "1"},
+		"mul":             {`{{ mul 2 3 4 }}`, "24"},
+		"regexMatch":      {`{{ regexMatch "^[a-z]+$" "hello" }}`, "true"},
+		"repeat":          {`{{ repeat 3 "ab" }}`, "ababab"},
+		"semverCompare":   {`{{ semverCompare ">=1.2.0" "1.3.0" }}`, "true"},
+		"seq":             {`{{ seq 1 2 5 }}`, "1 3 5"},
+		"snakecase":       {`{{ snakecase "HelloWorld" }}`, "hello_world"},
+		"splitn":          {`{{ (splitn "." 2 "a.b.c")._1 }}`, "b.c"},
+		"sub":             {`{{ sub 7 3 }}`, "4"},
+		"substr":          {`{{ substr 1 4 "hello" }}`, "ell"},
+		"untilStep":       {`{{ untilStep 1 7 2 | toJson }}`, "[1,3,5]"},
 		"append":          {`{{ append (list 1) 2 | toJson }}`, "[1,2]"},
 		"coalesce":        {`{{ coalesce "" .missing "x" }}`, "x"},
 		"compact":         {`{{ compact (list "a" "" "b") | toJson }}`, `["a","b"]`},
@@ -177,6 +209,7 @@ func TestAllowedFunctionsWork(t *testing.T) {
 		"until":           {`{{ until 3 | toJson }}`, "[0,1,2]"},
 		"upper":           {`{{ upper "abc" }}`, "ABC"},
 		"urlParse":        {`{{ (urlParse "https://h:8443/p").host }}`, "h:8443"},
+		"without":         {`{{ without (list "a" "b" "a" "c") "a" "c" | toJson }}`, `["b"]`},
 	}
 	if got, want := slices.Sorted(maps.Keys(cases)), sortedCopy(expectedFunctions); !slices.Equal(got, want) {
 		t.Fatalf("test cases differ from the frozen list\ngot:  %v\nwant: %v", got, want)
@@ -195,6 +228,73 @@ func TestAllowedFunctionsWork(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestWithoutInAirflowScope(t *testing.T) {
+	text := `{{ append (without (splitList " " (.Context.oidc.scope | default "openid profile email groups")) "openid") "offline_access" | join " " | quote }}`
+	cases := map[string]struct {
+		oidc map[string]interface{}
+		want string
+	}{
+		"no scope":       {map[string]interface{}{}, `"profile email groups offline_access"`},
+		"explicit scope": {map[string]interface{}{"scope": "openid email"}, `"email offline_access"`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			tt, err := New("", text, "", PackageFunctions(false))
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			got, err := tt.RenderToText(map[string]interface{}{
+				"Context": map[string]interface{}{"oidc": c.oidc},
+			})
+			if err != nil {
+				t.Fatalf("render error: %v", err)
+			}
+			if got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestWithoutDoesNotModifyInput(t *testing.T) {
+	without := PackageFunctions(false).funcs["without"].(func(interface{}, ...interface{}) ([]interface{}, error))
+	input := []interface{}{"openid", "email", "openid", "groups"}
+	want := slices.Clone(input)
+	omit := []interface{}{"openid"}
+	got, err := without(input, omit...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, []interface{}{"email", "groups"}) {
+		t.Fatalf("got %v, want [email groups]", got)
+	}
+	if !slices.Equal(input, want) || !slices.Equal(omit, []interface{}{"openid"}) {
+		t.Fatalf("without modified its arguments: input %v, omit %v", input, omit)
+	}
+	got[0] = "changed"
+	if !slices.Equal(input, want) {
+		t.Fatalf("result shares the input list storage: got %v, want %v", input, want)
+	}
+}
+
+func TestWithoutRejectsNonListWithoutQuotingData(t *testing.T) {
+	tt, err := New("", `{{ without .secret "openid" }}`, "", PackageFunctions(false))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	secret := "private-scope-value"
+	got, err := tt.RenderToText(map[string]interface{}{"secret": secret})
+	if err == nil {
+		t.Fatal("without accepted a non-list")
+	}
+	if got != "" || strings.Contains(err.Error(), secret) {
+		t.Fatalf("failed render exposed data: output %q, error %v", got, err)
+	}
+	if want := "line 1, column 4: error calling without: without: the input must be a list"; err.Error() != want {
+		t.Fatalf("got error %v, want %q", err, want)
 	}
 }
 
@@ -504,5 +604,55 @@ func TestNewRejectsTheZeroFunctions(t *testing.T) {
 	}
 	if _, err := NewFromAny("", nil, "", Functions{}); err == nil {
 		t.Error("NewFromAny accepted the zero Functions")
+	}
+}
+
+func TestWithoutRejectsContainers(t *testing.T) {
+	cases := map[string]string{
+		"map item":                  `without (list (dict "secret" "private")) "x"`,
+		"list item":                 `without (list (list "private")) "x"`,
+		"map omit":                  `without (list "x") (dict "secret" "private")`,
+		"list omit":                 `without (list "x") (list "private")`,
+		"omitted map":               `without (list (dict "secret" "private")) (dict "secret" "private")`,
+		"empty input with map omit": `without (list) (dict "secret" "private")`,
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			for _, functions := range amplifierFunctionSets {
+				tt, err := New("", "{{ "+call+" }}", "", functions)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := tt.RenderToText(nil)
+				want := "line 1, column 4: error calling without: without: the list items must be strings, numbers, booleans or null"
+				if got != "" || err == nil || err.Error() != want {
+					t.Fatalf("got %q (%v), want %q", got, err, want)
+				}
+				if !errors.Is(err, ErrLimit) {
+					t.Fatalf("got error %v, want ErrLimit", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWithoutScalarTypes(t *testing.T) {
+	type namedNumber int
+	input := []interface{}{nil, "x", true, int(1), int8(1), int16(1), int32(1), int64(1),
+		uint(1), uint8(1), uint16(1), uint32(1), uint64(1), uintptr(1), float32(1), float64(1),
+		complex64(1), complex128(1), namedNumber(1)}
+	original := sprig.TxtFuncMap()["without"].(func(interface{}, ...interface{}) []interface{})
+	for _, omit := range input {
+		got, err := without(input, omit)
+		want := original(input, omit)
+		if err != nil || !slices.Equal(got, want) {
+			t.Fatalf("omit %T: got %v (%v), want %v", omit, got, err, want)
+		}
+	}
+	for _, input := range []interface{}{[]string{"a", "b"}, [2]string{"a", "b"}, []interface{}{}, []string(nil)} {
+		got, err := without(input)
+		if err != nil || got == nil || !slices.Equal(got, original(input)) {
+			t.Fatalf("input %T: got %v (%v), want a fresh list with the same items", input, got, err)
+		}
 	}
 }

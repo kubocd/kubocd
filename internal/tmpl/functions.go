@@ -24,8 +24,10 @@ import (
 	"kubocd/internal/misc"
 	"net"
 	"net/url"
+	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode/utf8"
@@ -39,8 +41,8 @@ import (
 // network, environment, cluster, clock or randomness.
 var sprigFunctions = []string{
 	// Strings
-	"lower", "nospace", "quote",
-	"split", "splitList", "title", "trim", "trimAll", "trimPrefix", "trimSuffix",
+	"camelcase", "contains", "hasPrefix", "hasSuffix", "kebabcase", "lower", "nospace", "quote", "regexMatch", "snakecase",
+	"split", "splitList", "splitn", "substr", "title", "trim", "trimAll", "trimPrefix", "trimSuffix",
 	"trunc", "upper",
 	// Lists
 	"append", "compact", "concat", "first", "has", "last", "list",
@@ -48,11 +50,11 @@ var sprigFunctions = []string{
 	// Dictionaries
 	"dict", "dig", "get", "hasKey", "omit", "set",
 	// Logic, defaults and types
-	"coalesce", "default", "empty", "kindIs", "ternary",
+	"all", "any", "coalesce", "deepEqual", "default", "empty", "kindIs", "kindOf", "ternary",
 	// Conversions and math
-	"div", "divf", "float64", "int", "min", "mulf",
+	"add", "add1", "atoi", "div", "divf", "float64", "int", "int64", "max", "min", "mod", "mul", "mulf", "semverCompare", "sub",
 	// Encoding
-	"sha256sum",
+	"b64dec", "b64enc", "sha256sum",
 }
 
 // kubocdFunctions lists the functions KuboCD defines for templates.
@@ -66,12 +68,16 @@ var kubocdFunctions = template.FuncMap{
 	"keys":            keys,
 	"nindent":         nindent,
 	"regexReplaceAll": regexReplaceAll,
+	"repeat":          repeat,
 	"replace":         replace,
 	"required":        required,
+	"seq":             seq,
 	"toJson":          toJSON,
 	"toYaml":          toYAML,
 	"until":           until,
+	"untilStep":       untilStep,
 	"urlParse":        urlParse,
+	"without":         without,
 }
 
 // builtinOverrides replace the text/template builtins of the same name.
@@ -296,7 +302,18 @@ func replace(old, replacement, source string) (string, error) {
 	return sprigReplace(old, replacement, source), nil
 }
 
-// maxUntil is the most items that until builds, either way.
+// repeat checks the result size before repeating the string.
+func repeat(count int, s string) (string, error) {
+	if count < 0 {
+		return "", &limitError{msg: "repeat: the count must not be negative"}
+	}
+	if len(s) > 0 && count > maxRenderedText/len(s) {
+		return "", textResultLimit("repeat")
+	}
+	return strings.Repeat(s, count), nil
+}
+
+// maxUntil is the most items that until, untilStep and seq build, either way.
 const maxUntil = 10000
 
 var sprigUntil = sprig.TxtFuncMap()["until"].(func(int) []int)
@@ -308,6 +325,124 @@ func until(count int) ([]int, error) {
 		return nil, &limitError{msg: fmt.Sprintf("until: the count is beyond the limit of %d", maxUntil)}
 	}
 	return sprigUntil(count), nil
+}
+
+// sequenceCount counts an exclusive or inclusive range, saturating at maxUntil+1.
+// Unsigned subtraction holds the full distance between any two ints, and the
+// magnitude of a negative step, including MinInt, without signed overflow.
+func sequenceCount(start, stop, step int, inclusive bool) int {
+	if step == 0 || step > 0 && start > stop || step < 0 && start < stop {
+		return 0
+	}
+	distance, stride := uint(stop)-uint(start), uint(step)
+	if step < 0 {
+		distance, stride = uint(start)-uint(stop), 0-uint(step)
+	}
+	if !inclusive {
+		if distance == 0 {
+			return 0
+		}
+		distance--
+	}
+	quotient := distance / stride
+	if quotient >= maxUntil {
+		return maxUntil + 1
+	}
+	return int(quotient) + 1
+}
+
+// untilStep keeps Sprig's exclusive stop and direction rules, with a bounded count.
+func untilStep(start, stop, step int) ([]int, error) {
+	count := sequenceCount(start, stop, step, false)
+	if count > maxUntil {
+		return nil, &limitError{msg: "untilStep: the count is beyond the limit of 10000"}
+	}
+	result := make([]int, count)
+	for i := range result {
+		result[i] = start
+		if i+1 < count {
+			start += step
+		}
+	}
+	return result, nil
+}
+
+// seq keeps Sprig's inclusive end without computing end+1 or end-1.
+func seq(params ...int) (string, error) {
+	start, stop, step := 1, 0, 1
+	switch len(params) {
+	case 1:
+		stop = params[0]
+	case 2:
+		start, stop = params[0], params[1]
+	case 3:
+		start, step, stop = params[0], params[1], params[2]
+	default:
+		return "", nil
+	}
+	if len(params) < 3 && stop < start {
+		step = -1
+	}
+	// Sprig rejects a negative step when the end equals the start.
+	if start == stop && step < 0 {
+		return "", nil
+	}
+	count := sequenceCount(start, stop, step, true)
+	if count > maxUntil {
+		return "", &limitError{msg: "seq: the count is beyond the limit of 10000"}
+	}
+	var result strings.Builder
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			result.WriteByte(' ')
+		}
+		result.WriteString(strconv.Itoa(start))
+		if i+1 < count {
+			start += step
+		}
+	}
+	return result.String(), nil
+}
+
+// without accepts only scalars, so its fresh list cannot share nested containers.
+func without(list interface{}, omit ...interface{}) ([]interface{}, error) {
+	value := reflect.ValueOf(list)
+	if !value.IsValid() || value.Kind() != reflect.Slice && value.Kind() != reflect.Array {
+		return nil, shownf("without: the input must be a list")
+	}
+	for _, item := range omit {
+		if !withoutScalar(item) {
+			return nil, &limitError{msg: "without: the list items must be strings, numbers, booleans or null"}
+		}
+	}
+	for i := 0; i < value.Len(); i++ {
+		if !withoutScalar(value.Index(i).Interface()) {
+			return nil, &limitError{msg: "without: the list items must be strings, numbers, booleans or null"}
+		}
+	}
+	result := make([]interface{}, 0, value.Len())
+	for i := 0; i < value.Len(); i++ {
+		item := value.Index(i).Interface()
+		if !slices.ContainsFunc(omit, func(other interface{}) bool { return reflect.DeepEqual(item, other) }) {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func withoutScalar(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	switch reflect.TypeOf(value).Kind() {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		return true
+	default:
+		return false
+	}
 }
 
 var sprigURLParse = sprig.TxtFuncMap()["urlParse"].(func(string) map[string]interface{})

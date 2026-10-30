@@ -19,6 +19,7 @@ package tmpl
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -126,6 +127,10 @@ func TestUntilBuildsUpToTheLimitEitherWay(t *testing.T) {
 
 const (
 	amplifierWidthKey     = "width"
+	amplifierCountKey     = "count"
+	seqFunctionName       = "seq"
+	untilStepFunctionName = "untilStep"
+	repeatFunctionName    = "repeat"
 	nindentFunctionName   = "nindent"
 	amplifierSourceKey    = "source"
 	amplifierSourceCanary = "source-canary"
@@ -488,4 +493,178 @@ func TestTemplateRegexReplaceAllLimit(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestTemplateRepeatLimit(t *testing.T) {
+	for _, extra := range []int{-1, 0, 1} {
+		t.Run(fmt.Sprintf("boundary/%d", extra), func(t *testing.T) {
+			count := maxRenderedText + extra
+			checkTemplateAmplifier(t, repeatFunctionName, "repeat .count .source",
+				map[string]interface{}{amplifierCountKey: count, amplifierSourceKey: "x"}, strings.Repeat("x", count), extra > 0)
+		})
+	}
+	for name, c := range map[string]struct {
+		count        int
+		source, want string
+		refused      bool
+	}{
+		"product overflow":   {math.MaxInt, "private", "", true},
+		"empty input":        {math.MaxInt, "", "", false},
+		"zero count":         {0, strings.Repeat("x", maxRenderedText+1), "", false},
+		"Unicode at limit":   {maxRenderedText / 2, "é", strings.Repeat("é", maxRenderedText/2), false},
+		"Unicode over limit": {maxRenderedText/2 + 1, "é", "", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			checkTemplateAmplifier(t, repeatFunctionName, "repeat .count .source",
+				map[string]interface{}{amplifierCountKey: c.count, amplifierSourceKey: c.source}, c.want, c.refused)
+		})
+	}
+	for _, count := range []int{-1, math.MinInt} {
+		for _, source := range []string{"", "private"} {
+			got, err := repeat(count, source)
+			if got != "" || err == nil || err.Error() != "repeat: the count must not be negative" || !errors.Is(err, ErrLimit) {
+				t.Fatalf("negative repeat: got %q (%v)", got, err)
+			}
+		}
+	}
+	tt, err := New("", `{{ repeat -1 "private" }}`, "", ReleaseFunctions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tt.RenderToText(nil)
+	if want := "line 1, column 4: error calling repeat: repeat: the count must not be negative"; err == nil || err.Error() != want || !errors.Is(err, ErrLimit) {
+		t.Fatalf("got %v, want %q and ErrLimit", err, want)
+	}
+}
+
+func TestUntilStepMatchesSprig(t *testing.T) {
+	original := sprig.TxtFuncMap()[untilStepFunctionName].(func(int, int, int) []int)
+	for start := -3; start <= 3; start++ {
+		for stop := -3; stop <= 3; stop++ {
+			for step := -4; step <= 4; step++ {
+				got, err := untilStep(start, stop, step)
+				if want := original(start, stop, step); err != nil || got == nil || !slices.Equal(got, want) {
+					t.Fatalf("untilStep(%d, %d, %d): got %v (%v), want %v", start, stop, step, got, err, want)
+				}
+			}
+		}
+	}
+}
+
+func TestUntilStepBoundsAndOverflow(t *testing.T) {
+	for name, c := range map[string]struct {
+		start, stop, step, count, last int
+	}{
+		"ascending limit":      {0, maxUntil, 1, maxUntil, maxUntil - 1},
+		"descending limit":     {0, -maxUntil, -1, maxUntil, -maxUntil + 1},
+		"stride limit":         {0, 2 * maxUntil, 2, maxUntil, 2*maxUntil - 2},
+		"upper edge":           {math.MaxInt - 1, math.MaxInt, 2, 1, math.MaxInt - 1},
+		"lower edge":           {math.MinInt + 1, math.MinInt, -2, 1, math.MinInt + 1},
+		"full distance":        {math.MinInt, math.MaxInt, math.MaxInt, 3, math.MaxInt - 1},
+		"minimum step":         {math.MaxInt, math.MinInt, math.MinInt, 2, -1},
+		"minimum step at zero": {0, math.MinInt, math.MinInt, 1, 0},
+		"wrong direction":      {math.MinInt, math.MaxInt, math.MinInt, 0, 0},
+		"zero step":            {math.MinInt, math.MaxInt, 0, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := untilStep(c.start, c.stop, c.step)
+			if err != nil || len(got) != c.count {
+				t.Fatalf("got %d items (%v), want %d", len(got), err, c.count)
+			}
+			if c.count > 0 && (got[0] != c.start || got[len(got)-1] != c.last) {
+				t.Fatalf("got endpoints %d, %d, want %d, %d", got[0], got[len(got)-1], c.start, c.last)
+			}
+		})
+	}
+	for _, params := range [][3]int{{0, maxUntil + 1, 1}, {0, -maxUntil - 1, -1}, {0, 2*maxUntil + 1, 2},
+		{math.MinInt, math.MaxInt, 1}, {math.MaxInt, math.MinInt, -1}} {
+		got, err := untilStep(params[0], params[1], params[2])
+		if len(got) != 0 || err == nil || err.Error() != "untilStep: the count is beyond the limit of 10000" || !errors.Is(err, ErrLimit) {
+			t.Fatalf("untilStep %v: got %d items (%v), want a count limit error", params, len(got), err)
+		}
+	}
+}
+
+func TestSeqMatchesSprig(t *testing.T) {
+	original := sprig.TxtFuncMap()[seqFunctionName].(func(...int) string)
+	check := func(params ...int) {
+		t.Helper()
+		got, err := seq(params...)
+		if want := original(params...); err != nil || got != want {
+			t.Fatalf("seq %v: got %q (%v), want %q", params, got, err, want)
+		}
+	}
+	check()
+	check(1, 2, 3, 4)
+	for start := -3; start <= 3; start++ {
+		check(start)
+		for stop := -3; stop <= 3; stop++ {
+			check(start, stop)
+			for step := -4; step <= 4; step++ {
+				check(start, step, stop)
+			}
+		}
+	}
+}
+
+func TestSeqBoundsAndOverflow(t *testing.T) {
+	for _, params := range [][]int{{maxUntil}, {2 - maxUntil}, {1, maxUntil}, {0, -maxUntil + 1},
+		{0, 2, 2 * (maxUntil - 1)}, {math.MaxInt - maxUntil + 1, math.MaxInt}, {math.MinInt + maxUntil - 1, math.MinInt}} {
+		got, err := seq(params...)
+		if err != nil || len(strings.Fields(got)) != maxUntil {
+			t.Fatalf("seq %v: got %d bytes (%v), want 10000 numbers", params, len(got), err)
+		}
+		if len(got) >= maxRenderedText/10 {
+			t.Fatalf("10000 numbers, including integer extremes, must stay below one tenth of maxRenderedText, got %d bytes", len(got))
+		}
+	}
+	for _, params := range [][]int{{maxUntil + 1}, {1 - maxUntil}, {1, maxUntil + 1}, {0, -maxUntil},
+		{0, 2, 2 * maxUntil}, {math.MaxInt}, {math.MinInt}, {math.MinInt, math.MaxInt}, {math.MaxInt, math.MinInt},
+		{math.MinInt, 1, math.MaxInt}, {math.MaxInt, -1, math.MinInt}} {
+		got, err := seq(params...)
+		if got != "" || err == nil || err.Error() != "seq: the count is beyond the limit of 10000" || !errors.Is(err, ErrLimit) {
+			t.Fatalf("seq %v: got %d bytes (%v), want a count limit error", params, len(got), err)
+		}
+	}
+	for _, c := range []struct {
+		params []int
+		want   string
+	}{
+		{[]int{math.MaxInt, math.MaxInt}, strconv.Itoa(math.MaxInt)},
+		{[]int{math.MinInt, math.MinInt}, strconv.Itoa(math.MinInt)},
+		{[]int{math.MinInt, math.MaxInt, math.MaxInt}, fmt.Sprintf("%d -1 %d", math.MinInt, math.MaxInt-1)},
+		{[]int{math.MaxInt, math.MinInt, math.MinInt}, fmt.Sprintf("%d -1", math.MaxInt)},
+		{[]int{0, math.MinInt, math.MinInt}, "0 " + strconv.Itoa(math.MinInt)},
+		{[]int{math.MinInt, math.MinInt, math.MaxInt}, ""},
+		{[]int{math.MinInt, 0, math.MaxInt}, ""},
+	} {
+		got, err := seq(c.params...)
+		if err != nil || got != c.want {
+			t.Fatalf("seq %v: got %q (%v), want %q", c.params, got, err, c.want)
+		}
+	}
+}
+
+func TestTemplateSequenceLimits(t *testing.T) {
+	for name, call := range map[string]string{untilStepFunctionName: "untilStep 0 .count 1", seqFunctionName: "seq .count"} {
+		for _, extra := range []int{0, 1} {
+			for _, functions := range amplifierFunctionSets {
+				tt, err := New("", "{{ $unused := "+call+" }}ok", "", functions)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := tt.RenderToText(map[string]interface{}{amplifierCountKey: maxUntil + extra})
+				if extra == 0 {
+					if err != nil || got != "ok" {
+						t.Fatalf("%s at limit: got %q (%v)", name, got, err)
+					}
+				} else {
+					want := "line 1, column 15: error calling " + name + ": " + name + ": the count is beyond the limit of 10000"
+					if err == nil || err.Error() != want || !errors.Is(err, ErrLimit) {
+						t.Fatalf("%s over limit: got %v, want %q and ErrLimit", name, err, want)
+					}
+				}
+			}
+		}
+	}
 }
