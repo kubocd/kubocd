@@ -274,7 +274,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	GroomRelease(release, logger, r.ConfigStore)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
-	ociRepository, waitMessage, reconcileError := r.handleOciRepository(op, global.PackageContentMediaType, "extract")
+	ociRepository, waitMessage, reconcileError := r.handleOciRepository(op)
 	if reconcileError != nil {
 		return r.reportError(op, reconcileError, false)
 	}

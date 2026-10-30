@@ -51,7 +51,7 @@ func TestExcludedFunctionInConnectionRefDefaultIsRejected(t *testing.T) {
 			def := `{{ ` + name + ` }}`
 			pckContainer := &kubopackage.PckContainer{
 				DefaultParameters:    map[string]interface{}{"db": def},
-				ParamConnectionDecls: []kuboschema.ConnectionDecl{{Path: []string{"db"}, Contract: "database", Default: def}},
+				ParamConnectionDecls: []kuboschema.ConnectionDecl{{Path: []string{"db"}, Contract: databaseContract, Default: def}},
 			}
 			_, err := HandleParameters(&kv1alpha1.Release{}, map[string]interface{}{}, configstore.New(), pckContainer)
 			if err == nil {

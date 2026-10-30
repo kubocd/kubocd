@@ -434,7 +434,7 @@ func newInsecureSourceTestbed(t *testing.T, path string, spec kv1alpha1.ConfigSp
 // policyRefusal checks the handle boundary without permitting artifact consumption.
 func (b *insecureSourceTestbed) policyRefusal(t *testing.T) ReconcileError {
 	t.Helper()
-	source, wait, err := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+	source, wait, err := b.r.handleOciRepository(b.op)
 	if err == nil {
 		t.Fatal("expected fatal ReleaseInsecureSource refusal, got no error")
 	}
@@ -579,7 +579,7 @@ func TestReleaseInsecureSourceRepairFailure(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b := newInsecureSourceTestbed(t, sourceUpdatePath, kv1alpha1.ConfigSpec{}, OCIRepositoryOptions{})
 			b.patchError = failure
-			source, wait, err := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+			source, wait, err := b.r.handleOciRepository(b.op)
 			if err == nil || err.IsFatal() || err.GetEventReason() != sourcePatchFailureReason || err.Error() != insecureRepairMessage {
 				t.Fatalf("failed transport correction must remain retryable: %v", err)
 			}
@@ -625,7 +625,7 @@ func TestReleaseInsecureSourceOwnershipChange(t *testing.T) {
 			return err
 		},
 	})
-	source, wait, err := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+	source, wait, err := b.r.handleOciRepository(b.op)
 	if !conflicted {
 		t.Fatalf("ownership change must conflict before transport correction: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestReleaseInsecureSourceForeignRepository(t *testing.T) {
 				t.Fatal(err)
 			}
 			b.original = fetchedVerificationSource(t, b.r, b.op).DeepCopy()
-			got, wait, ownerErr := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+			got, wait, ownerErr := b.r.handleOciRepository(b.op)
 			want := fmt.Sprintf("OCIRepository '%s' exists and is not controlled by this Release", b.op.ociRepositoryName)
 			assertSourceOwnerError(t, ownerErr, want, "OCIRepositoryOwner")
 			if got != nil || wait != "" {
@@ -708,7 +708,7 @@ func TestReleaseInsecureSourceRollback(t *testing.T) {
 							b.reportPolicyDiagnostic(t, policy)
 							return
 						}
-						_, _, err := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+						_, _, err := b.r.handleOciRepository(b.op)
 						if err != nil {
 							t.Fatalf("rollback refused direct insecure source: %v", err)
 						}
@@ -753,7 +753,7 @@ func TestOCIRepositoryAPIFailuresRemainRetryable(t *testing.T) {
 				b.patchError = failure
 				wantReason = sourcePatchFailureReason
 			}
-			source, _, err := b.r.handleOciRepository(b.op, global.PackageContentMediaType, verifyOperation)
+			source, _, err := b.r.handleOciRepository(b.op)
 			if err == nil || err.IsFatal() || err.GetEventReason() != wantReason {
 				t.Fatalf("unrelated API failure became fatal or lost its reason: %v", err)
 			}

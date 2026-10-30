@@ -44,12 +44,16 @@ func get(t *testing.T, url string) (int, string) {
 }
 
 func TestTheChartServerServesItsFilesAndListsNoFolder(t *testing.T) {
+	const (
+		chartNamespaceDirectory = "apps"
+		chartReleaseDirectory   = "demo"
+	)
 	root := t.TempDir()
-	folder := filepath.Join(root, "hr", "apps", "demo")
+	folder := filepath.Join(root, "hr", chartNamespaceDirectory, chartReleaseDirectory)
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	files := map[string]string{"index.yaml": "apiVersion: v1\nentries: {}\n", "demo-1.0.0.tgz": "the chart archive"}
+	files := map[string]string{ociTestIndex: "apiVersion: v1\nentries: {}\n", "demo-1.0.0.tgz": "the chart archive"}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(folder, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -69,7 +73,7 @@ func TestTheChartServerServesItsFilesAndListsNoFolder(t *testing.T) {
 		if code != http.StatusNotFound {
 			t.Errorf("%s: got %d, want 404", path, code)
 		}
-		for _, name := range []string{"apps", "demo", "index.yaml"} {
+		for _, name := range []string{chartNamespaceDirectory, chartReleaseDirectory, ociTestIndex} {
 			if strings.Contains(body, name) {
 				t.Errorf("%s: the answer names %s:\n%s", path, name, body)
 			}

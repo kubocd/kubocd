@@ -98,7 +98,7 @@ func testSourceController(t *testing.T, kind string, states []string) {
 				var wait string
 				var rerr ReconcileError
 				if kind == sourcev1.OCIRepositoryKind {
-					got, message, err := b.reconciler.handleOciRepository(op, global.PackageContentMediaType, "extract")
+					got, message, err := b.reconciler.handleOciRepository(op)
 					returned, wait, rerr = got != nil, message, err
 				} else {
 					got, message, err := b.reconciler.handleHelmRepository(op, reconcileRevision, "http://"+b.reconciler.HelmRepoAdvAddr+"/hr/apps/demo")

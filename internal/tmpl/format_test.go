@@ -25,9 +25,11 @@ import (
 )
 
 const (
-	shortFormatText      = "text"
-	invalidUnicodeString = "é\xff界"
-	dynamicStringWidth   = "%*s"
+	shortFormatText        = "text"
+	invalidUnicodeString   = "é\xff界"
+	dynamicStringWidth     = "%*s"
+	dynamicStringPrecision = "%.*s"
+	formatDataKey          = "data"
 )
 
 var rejectedFormats = []string{
@@ -37,7 +39,7 @@ var rejectedFormats = []string{
 
 var acceptedFormats = []string{
 	"", "100%", "%%p", "%s", "%v", "%d", "%5.2f", "%-8s|", "%[2]s %[1]s", "%x", "%T", "%#v", "%q",
-	"%5.", "%!p", "%9999999999p", "%ép", "%[1]*s", "%.*s", "%w",
+	"%5.", "%!p", "%9999999999p", "%ép", "%[1]*s", dynamicStringPrecision, "%w",
 }
 
 func TestPrintfRejectsThePointerVerb(t *testing.T) {
@@ -71,7 +73,7 @@ func TestPrintfInATemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = tt.RenderToText(map[string]interface{}{"format": "%p", "data": map[string]interface{}{}})
+	_, err = tt.RenderToText(map[string]interface{}{"format": "%p", formatDataKey: map[string]interface{}{}})
 	if want := "printf: the %p verb is not allowed"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got error %v, want one containing %q", err, want)
 	}
@@ -139,12 +141,12 @@ func TestPrintfFormattingCompatibility(t *testing.T) {
 		{"%-8s|%.2s", []interface{}{"界", invalidUnicodeString}},
 		{"%5.2f %g %#g %e %x", []interface{}{1.5, math.MaxFloat64, 1.5, 1.5, 1.5}},
 		{"%% %9999999%", nil}, {"%[2]s %[1]s", []interface{}{"a", "b"}},
-		{dynamicStringWidth, []interface{}{-8, "é"}}, {"%.*s", []interface{}{2, invalidUnicodeString}},
+		{dynamicStringWidth, []interface{}{-8, "é"}}, {dynamicStringPrecision, []interface{}{2, invalidUnicodeString}},
 		{"%*.*f", []interface{}{8, 2, 1.5}}, {"%[3]*.[2]*[1]f", []interface{}{1.5, 2, 8}},
 		{"%9999999999s", []interface{}{"x"}}, {"%1000001s", []interface{}{"x"}},
 		{dynamicStringWidth, []interface{}{int(^uint(0) >> 1), "x"}}, {dynamicStringWidth, []interface{}{-int(^uint(0)>>1) - 1, "x"}},
-		{"%.*s", []interface{}{-2, shortFormatText}}, {"%.*s", []interface{}{1000001, shortFormatText}},
-		{dynamicStringWidth, []interface{}{"bad width", "x"}}, {"%.*s", []interface{}{"bad precision", "x"}},
+		{dynamicStringPrecision, []interface{}{-2, shortFormatText}}, {dynamicStringPrecision, []interface{}{1000001, shortFormatText}},
+		{dynamicStringWidth, []interface{}{"bad width", "x"}}, {dynamicStringPrecision, []interface{}{"bad precision", "x"}},
 		{"%[9]s", []interface{}{"x"}}, {"%s", nil}, {"%s", []interface{}{"x", "extra"}},
 		{"%d", []interface{}{"wrong verb"}}, {"%w", []interface{}{"wrong verb"}},
 		{"%*.*s", []interface{}{4, 2, "é界x"}}, {"%[1]s", []interface{}{"x", "unused"}},

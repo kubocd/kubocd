@@ -21,6 +21,7 @@ import (
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
+	"kubocd/internal/global"
 	"kubocd/internal/misc"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -50,7 +51,7 @@ var errReleaseInsecureSource = &releaseInsecureSourceError{}
 
 // handleOciRepository returns the OCIRepository of the Release once ready, or
 // otherwise the message of the wait.
-func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType string, ociOperation string) (*sourcev1.OCIRepository, string, ReconcileError) {
+func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation) (*sourcev1.OCIRepository, string, ReconcileError) {
 	// Fetch associated OCIRepository
 	ociRepository := &sourcev1.OCIRepository{}
 	err := r.Get(op.ctx, types.NamespacedName{Name: op.ociRepositoryName, Namespace: op.release.Namespace}, ociRepository)
@@ -61,7 +62,7 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 		}
 		// Must create it
 		op.logger.V(0).Info("Will create associated OCIRepository", "name", op.ociRepositoryName, "namespace", op.release.Namespace)
-		err := r.createOciRepository(op, mediaType, ociOperation)
+		err := r.createOciRepository(op, global.PackageContentMediaType, sourcev1.OCILayerExtract)
 		if err != nil {
 			if errors.Is(err, errReleaseInsecureSource) {
 				return nil, "", NewReconcileError(errReleaseInsecureSource, true, "ReleaseInsecureSource")
@@ -76,7 +77,7 @@ func (r *ReleaseReconciler) handleOciRepository(op *releaseOperation, mediaType 
 			return nil, "", NewReconcileError(fmt.Errorf("OCIRepository '%s' exists and is not controlled by this Release", op.ociRepositoryName),
 				false, "OCIRepositoryOwner")
 		}
-		changed, err := r.patchOciRepository(op, ociRepository, mediaType, ociOperation)
+		changed, err := r.patchOciRepository(op, ociRepository, global.PackageContentMediaType, sourcev1.OCILayerExtract)
 		if err != nil {
 			if errors.Is(err, errReleaseInsecureSource) {
 				return nil, "", NewReconcileError(errReleaseInsecureSource, true, "ReleaseInsecureSource")

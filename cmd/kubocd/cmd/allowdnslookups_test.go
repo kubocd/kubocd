@@ -25,6 +25,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const chartControllerComponent = "controller"
+
 func TestAllowDNSLookupsIsOffByDefault(t *testing.T) {
 	for _, command := range []*cobra.Command{controllerCmd, renderCmd} {
 		flag := command.PersistentFlags().Lookup("allowDNSLookups")
@@ -61,10 +63,10 @@ func TestRenderGivesItsDNSPolicyToPackageTemplates(t *testing.T) {
 func controllerArgs(t *testing.T, setValues func(controller map[string]interface{})) []string {
 	t.Helper()
 	deployment := chartDeployment(t, "kubocd-ctrl", func(values map[string]interface{}) {
-		setValues(values["controller"].(map[string]interface{}))
+		setValues(values[chartControllerComponent].(map[string]interface{}))
 	})
 	for _, container := range deployment.Spec.Template.Spec.Containers {
-		if container.Name == "controller" {
+		if container.Name == chartControllerComponent {
 			return container.Args
 		}
 	}
