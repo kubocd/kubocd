@@ -38,13 +38,14 @@ rules:
   - kubocd.kubotal.io
   resources:
   - claims
-  - clustercontracts
-  - configs
-  - contexts
-  - contracts
+  - clusterconnections
+  - connections
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - kubocd.kubotal.io
@@ -60,14 +61,13 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
-  - clusterconnections
-  - connections
+  - clustercontracts
+  - configs
+  - contexts
+  - contracts
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
   - watch
 - apiGroups:
   - kubocd.kubotal.io

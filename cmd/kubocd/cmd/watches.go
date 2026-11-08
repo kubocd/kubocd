@@ -54,6 +54,7 @@ func releaseController(mgr ctrl.Manager, reconciler reconcile.Reconciler, config
 		Owns(&sourcev1.HelmRepository{}).
 		Owns(&fluxv2.HelmRelease{}).
 		Owns(&kubocdv1alpha1.Connection{}).
+		Owns(&kubocdv1alpha1.Claim{}).
 		Watches(&kubocdv1alpha1.ClusterConnection{}, handler.EnqueueRequestsFromMapFunc(
 			findReleaseFromOutputClusterConnection(mgr.GetClient(), logger))).
 		Watches(&kubocdv1alpha1.Context{}, handler.EnqueueRequestsFromMapFunc(

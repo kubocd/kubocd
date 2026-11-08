@@ -109,3 +109,9 @@ type ClaimList struct {
 func init() {
 	SchemeBuilder.Register(&Claim{}, &ClaimList{})
 }
+
+// IsBound tells whether the status binds the claim, for its current spec.
+func (claim *Claim) IsBound() bool {
+	return claim.Status.Phase == ClaimPhaseBound && claim.Status.Connection != "" &&
+		claim.Status.ObservedGeneration == claim.Generation
+}
