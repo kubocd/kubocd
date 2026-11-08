@@ -73,7 +73,7 @@ func controllerAuthorizationExpectations(replications bool) []authorizationExpec
 	// Include every removed generated subresource, even ones never granted by the chart.
 	inventory := append(controllerRules(true), rbacRule("kubocd.kubotal.io",
 		"configs/status,configs/finalizers,contexts/finalizers,contracts/finalizers,clustercontracts/finalizers,"+
-			"connections/finalizers,clusterconnections/finalizers,replications/finalizers", "update"))
+			"connections/finalizers,clusterconnections/finalizers,replications/finalizers,claims/finalizers", "update"))
 	var result []authorizationExpectation
 	for _, rule := range inventory {
 		for _, resource := range rule.Resources {

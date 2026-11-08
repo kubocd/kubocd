@@ -196,6 +196,56 @@ func findConnectionFromContract(reader client.Reader, logger logr.Logger) handle
 	}
 }
 
+// indexClaims creates the indexes of the Claims that name a connection, by
+// contract and by connection.
+func indexClaims(indexer client.FieldIndexer) error {
+	indexes := []struct {
+		name string
+		key  func(claim *kubocdv1alpha1.Claim) string
+	}{
+		{controller.ClaimIndexOnContract, func(claim *kubocdv1alpha1.Claim) string {
+			return claim.Spec.Contract
+		}},
+		{controller.ClaimIndexOnTargetConnection, func(claim *kubocdv1alpha1.Claim) string {
+			return claim.Spec.Target.Connection
+		}},
+	}
+	for _, index := range indexes {
+		extract := func(rawObj client.Object) []string {
+			claim := rawObj.(*kubocdv1alpha1.Claim)
+			if claim.Spec.Target.Connection == "" {
+				return nil
+			}
+			return []string{index.key(claim)}
+		}
+		if err := indexer.IndexField(context.Background(), &kubocdv1alpha1.Claim{}, index.name, extract); err != nil {
+			return fmt.Errorf("could not create the index %s of the Claims: %w", index.name, err)
+		}
+	}
+	return nil
+}
+
+// findClaimFromConnection maps a Connection to the Claims of its namespace
+// that name it.
+func findClaimFromConnection(reader client.Reader, logger logr.Logger) handler.MapFunc {
+	return func(ctx context.Context, connection client.Object) []reconcile.Request {
+		return requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ClaimList{},
+			"findClaimFromConnection(): Unable to find claim bindings",
+			client.InNamespace(connection.GetNamespace()),
+			selecting(controller.ClaimIndexOnTargetConnection, connection.GetName()))
+	}
+}
+
+// findClaimFromContract maps a Contract or a ClusterContract to the Claims
+// that name it and a connection.
+func findClaimFromContract(reader client.Reader, logger logr.Logger) handler.MapFunc {
+	return func(ctx context.Context, contract client.Object) []reconcile.Request {
+		return requestsFromList(ctx, reader, logger, &kubocdv1alpha1.ClaimList{},
+			"findClaimFromContract(): Unable to find claim bindings",
+			selecting(controller.ClaimIndexOnContract, contract.GetName()))
+	}
+}
+
 // findClusterConnectionFromClusterContract maps a ClusterContract to the
 // ClusterConnections that name it.
 func findClusterConnectionFromClusterContract(reader client.Reader, logger logr.Logger) handler.MapFunc {
