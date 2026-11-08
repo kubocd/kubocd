@@ -40,7 +40,6 @@ rules:
       - contracts
       - clustercontracts
       - configs
-      - claims
     verbs:
       - get
       - list
@@ -50,6 +49,7 @@ rules:
     resources:
       - connections
       - clusterconnections
+      - claims
     verbs:
       - get
       - list

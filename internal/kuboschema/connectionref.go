@@ -158,18 +158,7 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 		return nil
 	}
 	if properties, ok := node["properties"].(map[string]interface{}); ok {
-		requiredSet := make(map[string]bool)
-		if reqList, ok := node["required"].([]string); ok {
-			for _, r := range reqList {
-				requiredSet[r] = true
-			}
-		} else if reqList, ok := node["required"].([]interface{}); ok {
-			for _, r := range reqList {
-				if s, isStr := r.(string); isStr {
-					requiredSet[s] = true
-				}
-			}
-		}
+		requiredSet := requiredProperties(node)
 		for k, v := range properties {
 			child, ok := v.(map[string]interface{})
 			if !ok {
@@ -186,6 +175,24 @@ func collectConnectionDecls(node map[string]interface{}, path []string, required
 		}
 	}
 	return nil
+}
+
+// requiredProperties returns the names of the required properties of an
+// object node.
+func requiredProperties(node map[string]interface{}) map[string]bool {
+	requiredSet := make(map[string]bool)
+	if reqList, ok := node["required"].([]string); ok {
+		for _, r := range reqList {
+			requiredSet[r] = true
+		}
+	} else if reqList, ok := node["required"].([]interface{}); ok {
+		for _, r := range reqList {
+			if s, isStr := r.(string); isStr {
+				requiredSet[s] = true
+			}
+		}
+	}
+	return requiredSet
 }
 
 // checkRefPathSegments rejects all-digit property names on a connection

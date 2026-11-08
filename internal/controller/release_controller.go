@@ -116,6 +116,7 @@ type releaseOperation struct {
 	outputConnectionByName         map[string]kv1alpha1.ReleaseOutputConnection // To collect values for user display and index by connection. Host both Connection and ClusterConnection
 	outputConnectionK8sName        map[string]struct{}                          // To prevent orphan deletion
 	outputClusterConnectionK8sName map[string]struct{}                          // To prevent orphan deletion
+	claimNames                     map[string]struct{}                          // To prevent orphan deletion
 	helmReleaseNameByModuleName    map[string]string
 	roles                          []string
 	dependencies                   []string
@@ -458,6 +459,29 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return r.reportError(op, NewReconcileError(err, true, "ConnectionParameters"), forceUpdate)
 	}
 	inputs = append(inputs, generatedInputs...)
+	// --------------------------------- Create the claims, and generate the inputs of the bound ones
+	claimInputs, claimBindings, claimMessages, reconcileError := r.handleClaims(op, parameters, inputs)
+	if reconcileError != nil {
+		return r.reportError(op, reconcileError, forceUpdate)
+	}
+	if len(claimMessages) > 0 {
+		for _, message := range claimMessages {
+			r.Event(op.release, "Warning", "UnboundClaim", message)
+		}
+		r, err := r.updateStatus(op, kv1alpha1.ReleasePhaseWaitClaims, strings.Join(claimMessages, " - "), forceUpdate)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if r.RequeueAfter > 0 {
+			// It is a Requeue due to update status error
+			return r, nil
+		}
+		return ctrl.Result{
+			RequeueAfter: time.Second * 5,
+		}, nil
+	}
+	inputs = append(inputs, claimInputs...)
+	refBindings = append(refBindings, claimBindings...)
 	// -------------------------------------------------------------------- Enrich model with inputs
 	buildInputModelResult, err := BuildInputModel(op.ctx, r, inputs)
 	if err != nil {
@@ -740,6 +764,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 				logger.Error(errors.New(apiError(err)), "unable to delete clusterConnection", "clusterConnection", clusterConnection.Name)
 			}
 		}
+	}
+	// ---------------------------------------------------------- Find orphan claims, and delete them
+	if reconcileError := r.deleteOrphanClaims(op); reconcileError != nil {
+		return r.reportError(op, reconcileError, forceUpdate)
 	}
 	// Final return
 	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)

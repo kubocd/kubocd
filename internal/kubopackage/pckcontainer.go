@@ -40,6 +40,8 @@ type PckContainer struct {
 	// The connectionRef declarations of both schemas
 	ParamConnectionDecls   []kuboschema.ConnectionDecl `json:"paramConnectionDecls,omitempty"`
 	ContextConnectionDecls []kuboschema.ConnectionDecl `json:"contextConnectionDecls,omitempty"`
+	// The claim declarations of the parameters
+	ParamClaimDecls []kuboschema.ClaimDecl `json:"paramClaimDecls,omitempty"`
 }
 
 var _ cache.Entry = &PckContainer{}
@@ -92,6 +94,13 @@ func (p *PckContainer) SetPackage(pck *Package, status *Status, revision string,
 		}
 		p.ContextConnectionDecls, err = kuboschema.CollectConnectionDecls(pck.Schema.Context, true)
 		if err != nil {
+			return fmt.Errorf("schema.context: %w", err)
+		}
+		p.ParamClaimDecls, err = kuboschema.CollectClaimDecls(pck.Schema.Parameters, false)
+		if err != nil {
+			return fmt.Errorf("schema.parameters: %w", err)
+		}
+		if _, err = kuboschema.CollectClaimDecls(pck.Schema.Context, true); err != nil {
 			return fmt.Errorf("schema.context: %w", err)
 		}
 	} else {
