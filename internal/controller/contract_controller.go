@@ -56,6 +56,9 @@ func (r *ContractReconciler) reconcile2(ctx context.Context, req ctrl.Request, l
 	previous := contract.DeepCopy()
 
 	_, _, _, err = resolveContract(contract)
+	if err == nil {
+		_, err = resolveContractClaim(contract)
+	}
 	if err != nil {
 		logger.V(0).Error(err, "Error on contract", "contract", contract.Name)
 		r.Event(contract, "Warning", "Invalid", err.Error())

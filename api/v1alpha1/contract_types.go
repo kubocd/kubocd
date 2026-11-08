@@ -28,6 +28,10 @@ type ContractSpec struct {
 	// +kubebuilder:validation:Optional
 	Schema *apiextensionsv1.JSON `json:"schema"`
 
+	// What a Claim on this contract can require
+	// +kubebuilder:validation:Optional
+	Claim *ContractClaim `json:"claim,omitempty"`
+
 	// A human oriented description
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`
@@ -84,4 +88,8 @@ func (contract *Contract) GetSchemaRaw() []byte {
 
 func (contract *Contract) GetStatusPhase() ContractPhase {
 	return contract.Status.Phase
+}
+
+func (contract *Contract) GetClaim() *ContractClaim {
+	return contract.Spec.Claim
 }

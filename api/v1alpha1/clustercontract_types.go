@@ -28,6 +28,10 @@ type ClusterContractSpec struct {
 	// +kubebuilder:validation:Optional
 	Schema *apiextensionsv1.JSON `json:"schema"`
 
+	// What a Claim on this contract can require
+	// +kubebuilder:validation:Optional
+	Claim *ContractClaim `json:"claim,omitempty"`
+
 	// A human oriented description
 	// +kubebuilder:validation:Optional
 	Description string `json:"description,omitempty"`
@@ -84,4 +88,8 @@ func (cContract *ClusterContract) GetSchemaRaw() []byte {
 
 func (cContract *ClusterContract) GetStatusPhase() ContractPhase {
 	return cContract.Status.Phase
+}
+
+func (cContract *ClusterContract) GetClaim() *ContractClaim {
+	return cContract.Spec.Claim
 }
