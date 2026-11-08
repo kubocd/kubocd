@@ -506,6 +506,36 @@ var controllerCmd = &cobra.Command{
 				setupLog.Error(err, "unable to create controller", "controller", "clusterConnection")
 				os.Exit(1)
 			}
+
+			// --------------------------------------------------------------------------------- Claim controller setup
+
+			if err := indexClaims(mgr.GetFieldIndexer()); err != nil {
+				setupLog.Error(err, "Unable to index Claims")
+				os.Exit(1)
+			}
+
+			claimReconciler := &controller.ClaimReconciler{
+				Client: mgr.GetClient(),
+				//nolint:staticcheck // ClaimReconciler uses record.EventRecorder for core/v1 events.
+				EventRecorder:   mgr.GetEventRecorderFor("claim"),
+				Logger:          controllerRootLog.WithName("claimReconciler"),
+				ConditionLimits: &controllerParams.conditionLimits,
+			}
+
+			err = ctrl.NewControllerManagedBy(mgr).
+				For(&kubocdv1alpha1.Claim{}).
+				Named("kubocd-claim-controller").
+				Watches(&kubocdv1alpha1.Connection{}, handler.EnqueueRequestsFromMapFunc(
+					findClaimFromConnection(mgr.GetClient(), controllerRootLog))).
+				Watches(&kubocdv1alpha1.Contract{}, handler.EnqueueRequestsFromMapFunc(
+					findClaimFromContract(mgr.GetClient(), controllerRootLog))).
+				Watches(&kubocdv1alpha1.ClusterContract{}, handler.EnqueueRequestsFromMapFunc(
+					findClaimFromContract(mgr.GetClient(), controllerRootLog))).
+				Complete(claimReconciler)
+			if err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "claim")
+				os.Exit(1)
+			}
 		}
 
 		// -------------------------------------------------------------------------------------- Config controller setup

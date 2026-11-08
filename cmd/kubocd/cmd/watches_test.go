@@ -68,6 +68,12 @@ func mapFunctions() map[string]mapFunction {
 		"findConnectionFromContract": {findConnectionFromContract, &kubocdv1alpha1.Contract{ObjectMeta: named},
 			"findConnectionFromContract(): Unable to find contract bindings",
 			controller.ContractIndexOnConnection + "=" + watchCanary},
+		"findClaimFromConnection": {findClaimFromConnection, &kubocdv1alpha1.Connection{ObjectMeta: named},
+			"findClaimFromConnection(): Unable to find claim bindings",
+			controller.ClaimIndexOnTargetConnection + "=" + watchCanary},
+		"findClaimFromContract": {findClaimFromContract, &kubocdv1alpha1.Contract{ObjectMeta: named},
+			"findClaimFromContract(): Unable to find claim bindings",
+			controller.ClaimIndexOnContract + "=" + watchCanary},
 		"findClusterConnectionFromClusterContract": {findClusterConnectionFromClusterContract,
 			&kubocdv1alpha1.ClusterContract{ObjectMeta: clusterNamed},
 			"findClusterConnectionFromClusterContract(): Unable to find contract bindings",
@@ -132,6 +138,8 @@ func twoObjects(list client.ObjectList) error {
 			item = &kubocdv1alpha1.Release{}
 		case *kubocdv1alpha1.ContextList:
 			item = &kubocdv1alpha1.Context{}
+		case *kubocdv1alpha1.ClaimList:
+			item = &kubocdv1alpha1.Claim{}
 		default:
 			return fmt.Errorf("unexpected list %T", list)
 		}
@@ -242,5 +250,42 @@ func TestAnIndexOfTheReleasesThatCannotBeCreatedIsReturned(t *testing.T) {
 	indexer := &failingIndexer{}
 	if err := indexReleases(indexer); err != nil || !slices.Equal(indexer.created, names) {
 		t.Fatalf("got error %v and the indexes %q, want %q", err, indexer.created, names)
+	}
+}
+
+// recordingIndexer keeps the function of each index it creates.
+type recordingIndexer map[string]client.IndexerFunc
+
+func (r recordingIndexer) IndexField(_ context.Context, _ client.Object, field string,
+	extract client.IndexerFunc) error {
+	r[field] = extract
+	return nil
+}
+
+func TestTheIndexesOfTheClaimsHoldOnlyTheClaimsThatNameAConnection(t *testing.T) {
+	for _, name := range []string{controller.ClaimIndexOnContract, controller.ClaimIndexOnTargetConnection} {
+		err := indexClaims(&failingIndexer{failing: name})
+		want := "could not create the index " + name + " of the Claims: unable to get the informer"
+		if err == nil || err.Error() != want {
+			t.Errorf("got %v, want %q", err, want)
+		}
+	}
+	indexer := recordingIndexer{}
+	if err := indexClaims(indexer); err != nil {
+		t.Fatal(err)
+	}
+	toConnection := &kubocdv1alpha1.Claim{Spec: kubocdv1alpha1.ClaimSpec{Contract: "database-v1",
+		Target: kubocdv1alpha1.ClaimTarget{Connection: "ext-pg"}}}
+	toProvisioner := &kubocdv1alpha1.Claim{Spec: kubocdv1alpha1.ClaimSpec{Contract: "database-v1",
+		Target: kubocdv1alpha1.ClaimTarget{Provisioner: "postgresql"}}}
+	for index, want := range map[string][]string{
+		controller.ClaimIndexOnContract: {"database-v1"}, controller.ClaimIndexOnTargetConnection: {"ext-pg"},
+	} {
+		if got := indexer[index](toConnection); !slices.Equal(got, want) {
+			t.Errorf("%s of a claim on a connection: got %q, want %q", index, got, want)
+		}
+		if got := indexer[index](toProvisioner); len(got) != 0 {
+			t.Errorf("%s of a claim on a provisioner: got %q, want nothing", index, got)
+		}
 	}
 }
