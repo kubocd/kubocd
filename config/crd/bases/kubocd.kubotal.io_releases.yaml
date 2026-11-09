@@ -463,6 +463,29 @@ spec:
                   Protected result of Release.spec.protected defaulted to package.spec.protected
                   The webhook checks it when Release.spec.protected is not set
                 type: boolean
+              provisioners:
+                description: The provisioners the Release runs, from its package
+                items:
+                  description: ReleaseProvisioner is a provisioner a Release runs,
+                    which binds the claims that name it
+                  properties:
+                    contract:
+                      description: The contract of the claims it binds
+                      type: string
+                    name:
+                      description: The name a claim gives as target
+                      type: string
+                    namespaces:
+                      description: The namespaces whose claims it binds
+                      items:
+                        type: string
+                      type: array
+                  required:
+                  - contract
+                  - name
+                  - namespaces
+                  type: object
+                type: array
               readyOutputConnections:
                 description: |-
                   ReadyOutputConnections is a string to display X/Y connection ready. Not technically used, but intended to be displayed

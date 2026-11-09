@@ -37,6 +37,7 @@ func Kubo2openAPI(schema KuboSchema, additionalProperties bool) (map[string]inte
 	_, ok := schema["$schema"]
 	if ok {
 		// It is already an openAPI schema
+		shapeClaims(schema)
 		return schema, nil
 	}
 	//_, ok = schema["properties"]

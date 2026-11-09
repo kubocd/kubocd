@@ -37,9 +37,12 @@ func TestDesugarClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	for parameters, valid := range map[string]bool{
-		`{"db": {"provisioner": "postgresql"}}`:                    true,
-		`{"db": {"connection": "ext-pg"}}`:                         true,
-		`{"db": {}}`:                                               false,
+		`{"db": {"provisioner": "postgresql"}}`:                             true,
+		`{"db": {"connection": "ext-pg"}}`:                                  true,
+		`{"db": {"provisioner": "pg", "requirements": {"dbName": "hive"}}}`: true,
+		`{"db": {"requirements": {"dbName": "hive"}}}`:                      false,
+		`{"db": {"provisioner": "pg", "requirements": "hive"}}`:             false,
+		`{"db": {}}`: false,
 		`{"db": {"provisioner": "postgresql", "connection": "x"}}`: false,
 		`{"db": {"provisioner": ""}}`:                              false,
 		`{"db": {"storageClass": "fast"}}`:                         false,
@@ -50,6 +53,42 @@ func TestDesugarClaim(t *testing.T) {
 		if err != nil || result.Valid() != valid {
 			t.Errorf("%s: got valid %v (%v), want %v", parameters, result.Valid(), err, valid)
 		}
+	}
+}
+
+func TestAClaimMarkerInAnOpenAPISchemaGetsTheClaimShape(t *testing.T) {
+	marker := map[string]interface{}{"contract": "database-v1", "requirements": map[string]interface{}{"engines": []interface{}{"postgresql"}}}
+	openAPI, err := Kubo2openAPI(KuboSchema{
+		"$schema":  "http://json-schema.org/schema#",
+		"type":     "object",
+		"required": []interface{}{"db"},
+		"properties": map[string]interface{}{
+			"db": map[string]interface{}{"type": "object", "title": "Metastore", MarkerClaim: marker},
+		},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decls, err := CollectClaimDecls(openAPI, false)
+	want := []ClaimDecl{{Path: []string{"db"}, Contract: "database-v1", Required: true, Requirements: marker["requirements"].(map[string]interface{})}}
+	if err != nil || !reflect.DeepEqual(decls, want) {
+		t.Fatalf("got %+v, %v", decls, err)
+	}
+	sugared, err := Kubo2openAPI(claimSchema(map[string]interface{}{
+		"type": TypeClaim, "contract": "database-v1", "required": true, "title": "Metastore", "requirements": marker["requirements"],
+	}), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := openAPI["properties"].(map[string]interface{})["db"]
+	if sugaredDB := sugared["properties"].(map[string]interface{})["db"]; !reflect.DeepEqual(db, sugaredDB) {
+		t.Errorf("the marker gives %v, the claim type gives %v", db, sugaredDB)
+	}
+
+	if _, err := CollectClaimDecls(map[string]interface{}{"properties": map[string]interface{}{
+		"db": map[string]interface{}{MarkerClaim: map[string]interface{}{}},
+	}}, false); err == nil || !strings.Contains(err.Error(), "names no contract") {
+		t.Errorf("a marker without contract: got %v", err)
 	}
 }
 

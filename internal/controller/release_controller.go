@@ -554,6 +554,11 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		op.release.Status.Dependencies = op.dependencies
 		forceUpdate = true
 	}
+	if !reflect.DeepEqual(rendered.Provisioners, op.release.Status.Provisioners) &&
+		len(rendered.Provisioners)+len(op.release.Status.Provisioners) > 0 {
+		op.release.Status.Provisioners = rendered.Provisioners
+		forceUpdate = true
+	}
 
 	// --------------------------------------- Build a map of module by name for intra-package dependencies handling.
 	op.helmReleaseNameByModuleName = make(map[string]string)
