@@ -40,8 +40,43 @@ var claimAllowedProperties = map[string]bool{
 	"requirements": true,
 }
 
-// desugarClaim turns a claim node into an object with exactly one of
-// provisioner and connection, carrying the marker.
+// shapeClaim gives a node carrying the marker the object a claim parameter takes: exactly one of
+// provisioner and connection, and the requirements the Release adds to those of the package.
+func shapeClaim(node map[string]interface{}) {
+	node["type"] = "object"
+	node["additionalProperties"] = false
+	node["properties"] = map[string]interface{}{
+		"provisioner":  map[string]interface{}{"type": "string", "minLength": 1},
+		"connection":   map[string]interface{}{"type": "string", "minLength": 1},
+		"requirements": map[string]interface{}{"type": "object"},
+	}
+	node["oneOf"] = []interface{}{
+		map[string]interface{}{"required": []interface{}{"provisioner"}},
+		map[string]interface{}{"required": []interface{}{"connection"}},
+	}
+	delete(node, "minProperties")
+	delete(node, "maxProperties")
+}
+
+// shapeClaims shapes the claim parameters of an openAPI schema, which carry the marker only.
+func shapeClaims(node map[string]interface{}) {
+	if _, ok := node[MarkerClaim].(map[string]interface{}); ok {
+		shapeClaim(node)
+		return
+	}
+	if properties, ok := node["properties"].(map[string]interface{}); ok {
+		for _, v := range properties {
+			if child, ok := v.(map[string]interface{}); ok {
+				shapeClaims(child)
+			}
+		}
+	}
+	if items, ok := node["items"].(map[string]interface{}); ok {
+		shapeClaims(items)
+	}
+}
+
+// desugarClaim turns a claim node into the claim object, carrying the marker.
 func desugarClaim(path string, node map[string]interface{}) (map[string]interface{}, bool, error) {
 	contract, err := contractOf(path, node)
 	if err != nil {
@@ -58,17 +93,8 @@ func desugarClaim(path string, node map[string]interface{}) (map[string]interfac
 	if err != nil {
 		return nil, false, fmt.Errorf("node '%s': %w", path, err)
 	}
-	object := map[string]interface{}{
-		"type":                 "object",
-		"additionalProperties": false,
-		"minProperties":        1,
-		"maxProperties":        1,
-		"properties": map[string]interface{}{
-			"provisioner": map[string]interface{}{"type": "string", "minLength": 1},
-			"connection":  map[string]interface{}{"type": "string", "minLength": 1},
-		},
-		MarkerClaim: marker,
-	}
+	object := map[string]interface{}{MarkerClaim: marker}
+	shapeClaim(object)
 	for _, key := range []string{"title", "description"} {
 		if value, ok := node[key]; ok {
 			object[key] = value
@@ -113,6 +139,9 @@ func collectClaimDecls(node map[string]interface{}, path []string, required bool
 			return err
 		}
 		contract, _ := marker["contract"].(string)
+		if contract == "" {
+			return fmt.Errorf("node '%s': the %s marker names no contract", pathStr, MarkerClaim)
+		}
 		requirements, _ := marker["requirements"].(map[string]interface{})
 		*decls = append(*decls, ClaimDecl{Path: append([]string{}, path...), Contract: contract, Required: required,
 			Requirements: requirements})

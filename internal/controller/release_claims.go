@@ -22,8 +22,9 @@ import (
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
-	"kubocd/internal/kuboschema"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -51,7 +52,7 @@ func (r *ReleaseReconciler) handleClaims(op *releaseOperation, parameters map[st
 	messages := make([]string, 0)
 	for _, decl := range op.pckContainer.ParamClaimDecls {
 		alias := formatAlias(decl.Path, false)
-		target, ok := claimTargetAt(parameters, decl.Path)
+		target, added, ok := claimValueAt(parameters, decl.Path)
 		if !ok {
 			if decl.Required {
 				return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s' is required: no claim target provided", alias), true, "ClaimParameters")
@@ -69,7 +70,11 @@ func (r *ReleaseReconciler) handleClaims(op *releaseOperation, parameters map[st
 			return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s' gives the claim name '%s' of another parameter", alias, name), true, "ClaimParameters")
 		}
 		op.claimNames[name] = struct{}{}
-		claim, message, reconcileError := r.handleClaim(op, name, decl, target)
+		requirements, err := mergeRequirements(decl.Requirements, added)
+		if err != nil {
+			return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s': %w", alias, err), true, "ClaimParameters")
+		}
+		claim, message, reconcileError := r.handleClaim(op, name, decl.Contract, target, requirements)
 		if reconcileError != nil {
 			return nil, nil, nil, reconcileError
 		}
@@ -86,33 +91,51 @@ func (r *ReleaseReconciler) handleClaims(op *releaseOperation, parameters map[st
 	return claimInputs, bindings, messages, nil
 }
 
-// claimTargetAt reads the target of a claim parameter in the parameters.
-func claimTargetAt(parameters map[string]interface{}, path []string) (kv1alpha1.ClaimTarget, bool) {
+// claimValueAt reads the target of a claim parameter in the parameters, and the requirements the Release adds.
+func claimValueAt(parameters map[string]interface{}, path []string) (kv1alpha1.ClaimTarget, map[string]interface{}, bool) {
 	var node interface{} = parameters
 	for _, seg := range path {
 		nodeMap, ok := node.(map[string]interface{})
 		if !ok {
-			return kv1alpha1.ClaimTarget{}, false
+			return kv1alpha1.ClaimTarget{}, nil, false
 		}
 		if node, ok = nodeMap[seg]; !ok {
-			return kv1alpha1.ClaimTarget{}, false
+			return kv1alpha1.ClaimTarget{}, nil, false
 		}
 	}
 	values, ok := node.(map[string]interface{})
 	if !ok {
-		return kv1alpha1.ClaimTarget{}, false
+		return kv1alpha1.ClaimTarget{}, nil, false
 	}
 	provisioner, _ := values["provisioner"].(string)
 	connection, _ := values["connection"].(string)
-	return kv1alpha1.ClaimTarget{Provisioner: provisioner, Connection: connection}, provisioner != "" || connection != ""
+	requirements, _ := values["requirements"].(map[string]interface{})
+	return kv1alpha1.ClaimTarget{Provisioner: provisioner, Connection: connection}, requirements,
+		provisioner != "" || connection != ""
+}
+
+// mergeRequirements adds the requirements of the Release to those of the package, which it cannot change.
+func mergeRequirements(pck, release map[string]interface{}) (map[string]interface{}, error) {
+	if len(release) == 0 {
+		return pck, nil
+	}
+	merged := make(map[string]interface{}, len(pck)+len(release))
+	maps.Copy(merged, pck)
+	for _, name := range slices.Sorted(maps.Keys(release)) {
+		if _, set := pck[name]; set {
+			return nil, fmt.Errorf("requirement '%s' is set by the package", name)
+		}
+		merged[name] = release[name]
+	}
+	return merged, nil
 }
 
 // handleClaim makes the Claim name match the declaration, and returns it, or why it is not bound.
-func (r *ReleaseReconciler) handleClaim(op *releaseOperation, name string, decl kuboschema.ClaimDecl,
-	target kv1alpha1.ClaimTarget) (*kv1alpha1.Claim, string, ReconcileError) {
-	desired := kv1alpha1.ClaimSpec{Contract: decl.Contract, Target: target}
-	if len(decl.Requirements) > 0 {
-		raw, err := json.Marshal(decl.Requirements)
+func (r *ReleaseReconciler) handleClaim(op *releaseOperation, name, contract string, target kv1alpha1.ClaimTarget,
+	requirements map[string]interface{}) (*kv1alpha1.Claim, string, ReconcileError) {
+	desired := kv1alpha1.ClaimSpec{Contract: contract, Target: target}
+	if len(requirements) > 0 {
+		raw, err := json.Marshal(requirements)
 		if err != nil {
 			return nil, "", NewReconcileError(fmt.Errorf("claim '%s': unable to marshal the requirements", name), true, "ClaimParameters")
 		}

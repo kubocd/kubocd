@@ -97,6 +97,8 @@ type Package struct {
 	Conditions KcdTemplateObjectList `json:"conditions,omitempty"`
 	// List of outputs, to generate connections
 	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
+	// The provisioners the package runs, published in the status of the Release
+	Provisioners KcdTemplateObjectList `json:"provisioners,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -213,6 +215,11 @@ func (pck *Package) Groom(configSore configstore.ConfigStore, functions tmpl.Fun
 		return fmt.Errorf("could not parse 'conditions' template: %w", err)
 	}
 
+	pck.templates.provisioners, err = tmpl.NewFromAny("", pck.Provisioners, pck.TemplateHeader, functions)
+	if err != nil {
+		return fmt.Errorf("could not parse 'provisioners' template: %w", err)
+	}
+
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -225,6 +232,7 @@ type packageTemplates struct {
 	outputs      tmpl.Tmpl
 	inputs       tmpl.Tmpl
 	conditions   tmpl.Tmpl
+	provisioners tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release of a package.
@@ -240,6 +248,7 @@ type Rendered struct {
 	Inputs               []*InputRendered // Warning: Lifecycle is different. Computed in advance
 	Conditions           []*ConditionRendered
 	Outputs              []*OutputRendered
+	Provisioners         []kv1alpha1.ReleaseProvisioner
 }
 
 // OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
@@ -366,6 +375,22 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 			return nil, fmt.Errorf("output[%d]: duplicate output name", idx)
 		}
 		dupDetect[output.Name] = struct{}{}
+	}
+
+	// ------------------------- Render provisioners
+	r.Provisioners = make([]kv1alpha1.ReleaseProvisioner, 0)
+	if err = pck.templates.provisioners.RenderInto(model, &r.Provisioners); err != nil {
+		return nil, fmt.Errorf("could not render 'provisioners' template: %w", err)
+	}
+	declared := make(map[string]struct{})
+	for idx, p := range r.Provisioners {
+		if p.Name == "" || p.Contract == "" || len(p.Namespaces) == 0 {
+			return nil, fmt.Errorf("provisioners[%d]: 'name', 'contract' and 'namespaces' are required", idx)
+		}
+		if _, ok := declared[p.Name+"/"+p.Contract]; ok {
+			return nil, fmt.Errorf("provisioners[%d]: provisioner '%s' of contract '%s' is declared twice", idx, p.Name, p.Contract)
+		}
+		declared[p.Name+"/"+p.Contract] = struct{}{}
 	}
 
 	// ------------------------- Render conditions

@@ -20,6 +20,7 @@ package controller
 import (
 	"context"
 	kv1alpha1 "kubocd/api/v1alpha1"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -133,6 +134,59 @@ func TestAClaimParameterWaitsForItsProvisionerThenReadsTheBoundConnection(t *tes
 	if !strings.Contains(string(helmRelease.Spec.Values.Raw), `"db":"pg.demo"`) {
 		t.Fatalf("got values %s", helmRelease.Spec.Values.Raw)
 	}
+}
+
+func TestTheReleaseAddsRequirementsToItsClaim(t *testing.T) {
+	bed := newReleaseTestbed(t, claimPackage, `{"db": {"provisioner": "postgresql", "requirements": {"dbName": "hive"}}}`, "")
+	bed.reconcile(t)
+	if claim := bed.claim(t, "demo-db"); claim == nil ||
+		string(claim.Spec.Requirements.Raw) != `{"dbName":"hive","engines":["postgresql"]}` {
+		t.Fatalf("got claim %+v", claim)
+	}
+
+	bed.setParameters(t, `{"db": {"provisioner": "postgresql", "requirements": {"dbName": "metastore"}}}`)
+	bed.reconcile(t)
+	if claim := bed.claim(t, "demo-db"); string(claim.Spec.Requirements.Raw) != `{"dbName":"metastore","engines":["postgresql"]}` {
+		t.Fatalf("a changed requirement is not patched: %s", claim.Spec.Requirements.Raw)
+	}
+
+	bed.setParameters(t, `{"db": {"provisioner": "postgresql", "requirements": {"engines": ["mysql"]}}}`)
+	bed.reconcile(t).mustReportEvent(t, "parameter 'parameters.db': requirement 'engines' is set by the package")
+}
+
+// provisionerPackage runs a provisioner of database-v1 for the namespace of its Release.
+const provisionerPackage = `
+apiVersion: v1alpha1
+name: demo
+tag: 0.1.0
+modules:
+  - name: main
+    source:
+      helmRepository:
+        url: https://example.com/charts
+        chart: demo
+        version: 1.0.0
+provisioners: |
+  - name: {{ .Release.metadata.name }}
+    contract: database-v1
+    namespaces: [{{ .Release.metadata.namespace }}]
+`
+
+func TestAReleasePublishesTheProvisionersOfItsPackage(t *testing.T) {
+	bed := newReleaseTestbed(t, provisionerPackage, "", "")
+	bed.reconcile(t)
+	release := &kv1alpha1.Release{}
+	if err := bed.client.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
+		t.Fatal(err)
+	}
+	want := []kv1alpha1.ReleaseProvisioner{{Name: "demo", Contract: "database-v1", Namespaces: []string{"apps"}}}
+	if !reflect.DeepEqual(release.Status.Provisioners, want) {
+		t.Fatalf("got provisioners %+v", release.Status.Provisioners)
+	}
+
+	incomplete := strings.Replace(provisionerPackage, "    namespaces: [{{ .Release.metadata.namespace }}]\n", "", 1)
+	newReleaseTestbed(t, incomplete, "", "").reconcile(t).
+		mustReportEvent(t, "provisioners[0]: 'name', 'contract' and 'namespaces' are required")
 }
 
 func TestAStaleBindingOfAClaimIsNotUsed(t *testing.T) {
