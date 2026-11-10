@@ -20,7 +20,6 @@ package controller
 import (
 	"context"
 	kv1alpha1 "kubocd/api/v1alpha1"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -170,6 +169,8 @@ provisioners: |
   - name: {{ .Release.metadata.name }}
     contract: database-v1
     namespaces: [{{ .Release.metadata.namespace }}]
+    values:
+      port: 5432
 `
 
 func TestAReleasePublishesTheProvisionersOfItsPackage(t *testing.T) {
@@ -179,14 +180,34 @@ func TestAReleasePublishesTheProvisionersOfItsPackage(t *testing.T) {
 	if err := bed.client.Get(context.Background(), types.NamespacedName{Namespace: "apps", Name: "demo"}, release); err != nil {
 		t.Fatal(err)
 	}
-	want := []kv1alpha1.ReleaseProvisioner{{Name: "demo", Contract: "database-v1", Namespaces: []string{"apps"}}}
-	if !reflect.DeepEqual(release.Status.Provisioners, want) {
+	want := []kv1alpha1.ReleaseProvisioner{{Name: "demo", Contract: "database-v1", Namespaces: []string{"apps"},
+		Values: &apiextensionsv1.JSON{Raw: []byte(`{"port":5432}`)}}}
+	if !sameProvisioners(release.Status.Provisioners, want) {
 		t.Fatalf("got provisioners %+v", release.Status.Provisioners)
 	}
 
 	incomplete := strings.Replace(provisionerPackage, "    namespaces: [{{ .Release.metadata.namespace }}]\n", "", 1)
 	newReleaseTestbed(t, incomplete, "", "").reconcile(t).
 		mustReportEvent(t, "provisioners[0]: 'name', 'contract' and 'namespaces' are required")
+
+	notAnObject := strings.Replace(provisionerPackage, "      port: 5432\n", "", 1)
+	notAnObject = strings.Replace(notAnObject, "    values:\n", "    values: [5432]\n", 1)
+	newReleaseTestbed(t, notAnObject, "", "").reconcile(t).
+		mustReportEvent(t, "provisioners[0]: 'values' must be an object")
+}
+
+func TestSameProvisionersIgnoresTheLayoutOfTheValues(t *testing.T) {
+	a := []kv1alpha1.ReleaseProvisioner{{Name: "s", Contract: "c", Namespaces: []string{"n"},
+		Values: &apiextensionsv1.JSON{Raw: []byte(`{"b": 1, "a": "x"}`)}}}
+	b := []kv1alpha1.ReleaseProvisioner{{Name: "s", Contract: "c", Namespaces: []string{"n"},
+		Values: &apiextensionsv1.JSON{Raw: []byte(`{"a":"x","b":1}`)}}}
+	if !sameProvisioners(a, b) {
+		t.Fatal("the same values laid out differently must compare equal")
+	}
+	b[0].Values = &apiextensionsv1.JSON{Raw: []byte(`{"a":"y","b":1}`)}
+	if sameProvisioners(a, b) {
+		t.Fatal("different values must not compare equal")
+	}
 }
 
 func TestAStaleBindingOfAClaimIsNotUsed(t *testing.T) {

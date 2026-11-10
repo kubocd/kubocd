@@ -17,6 +17,7 @@ limitations under the License.
 package kubopackage
 
 import (
+	"bytes"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -378,19 +379,8 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 	}
 
 	// ------------------------- Render provisioners
-	r.Provisioners = make([]kv1alpha1.ReleaseProvisioner, 0)
-	if err = pck.templates.provisioners.RenderInto(model, &r.Provisioners); err != nil {
-		return nil, fmt.Errorf("could not render 'provisioners' template: %w", err)
-	}
-	declared := make(map[string]struct{})
-	for idx, p := range r.Provisioners {
-		if p.Name == "" || p.Contract == "" || len(p.Namespaces) == 0 {
-			return nil, fmt.Errorf("provisioners[%d]: 'name', 'contract' and 'namespaces' are required", idx)
-		}
-		if _, ok := declared[p.Name+"/"+p.Contract]; ok {
-			return nil, fmt.Errorf("provisioners[%d]: provisioner '%s' of contract '%s' is declared twice", idx, p.Name, p.Contract)
-		}
-		declared[p.Name+"/"+p.Contract] = struct{}{}
+	if r.Provisioners, err = pck.renderProvisioners(model); err != nil {
+		return nil, err
 	}
 
 	// ------------------------- Render conditions
@@ -501,3 +491,28 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 //	}
 //	return result, nil
 //}
+
+func isJSONObject(raw []byte) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{"))
+}
+
+func (pck *Package) renderProvisioners(model map[string]interface{}) ([]kv1alpha1.ReleaseProvisioner, error) {
+	provisioners := make([]kv1alpha1.ReleaseProvisioner, 0)
+	if err := pck.templates.provisioners.RenderInto(model, &provisioners); err != nil {
+		return nil, fmt.Errorf("could not render 'provisioners' template: %w", err)
+	}
+	declared := make(map[string]struct{})
+	for idx, p := range provisioners {
+		if p.Name == "" || p.Contract == "" || len(p.Namespaces) == 0 {
+			return nil, fmt.Errorf("provisioners[%d]: 'name', 'contract' and 'namespaces' are required", idx)
+		}
+		if p.Values != nil && !isJSONObject(p.Values.Raw) {
+			return nil, fmt.Errorf("provisioners[%d]: 'values' must be an object", idx)
+		}
+		if _, ok := declared[p.Name+"/"+p.Contract]; ok {
+			return nil, fmt.Errorf("provisioners[%d]: provisioner '%s' of contract '%s' is declared twice", idx, p.Name, p.Contract)
+		}
+		declared[p.Name+"/"+p.Contract] = struct{}{}
+	}
+	return provisioners, nil
+}

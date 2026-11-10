@@ -1477,6 +1477,10 @@ spec:
                       items:
                         type: string
                       type: array
+                    values:
+                      description: Values every connection it writes carries, known
+                        before any claim binds
+                      x-kubernetes-preserve-unknown-fields: true
                   required:
                   - contract
                   - name

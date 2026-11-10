@@ -232,3 +232,14 @@ func (r *ReleaseReconciler) deleteOrphanClaims(op *releaseOperation) ReconcileEr
 	}
 	return nil
 }
+
+// sameProvisioners compares the values decoded: the API server may give them back laid out differently.
+func sameProvisioners(a, b []kv1alpha1.ReleaseProvisioner) bool {
+	decode := func(p []kv1alpha1.ReleaseProvisioner) any {
+		var out any
+		raw, _ := json.Marshal(p)
+		_ = json.Unmarshal(raw, &out)
+		return out
+	}
+	return reflect.DeepEqual(decode(a), decode(b))
+}
