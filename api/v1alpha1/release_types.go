@@ -189,6 +189,9 @@ type ReleaseProvisioner struct {
 	Contract string `json:"contract"`
 	// The namespaces whose claims it binds
 	Namespaces []string `json:"namespaces"`
+	// Values every connection it writes carries, known before any claim binds
+	// +kubebuilder:validation:Optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
 }
 
 // ReleaseOutputConnection describe the state of a managed (output) connection or clusterConnection, inside Release status
