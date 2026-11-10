@@ -34,6 +34,7 @@ import (
 	"kubocd/internal/kubopackage"
 	"kubocd/internal/misc"
 	"kubocd/internal/tmpl"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -303,18 +304,39 @@ var renderCmd = &cobra.Command{
 				return err
 			}
 			cmn.Dump(output, "inputs.yaml", inputsRendered)
+			// ------------------------------- Inputs of the connection parameters and of the claims, as the controller does
+			inputs := inputsRendered
+			generatedInputs, refBindings, err := controller.GenerateRefInputs(pkgContainer.ParamConnectionDecls,
+				pkgContainer.ContextConnectionDecls, parameters, kcontext, release.Namespace, inputs)
+			if err != nil {
+				return err
+			}
+			inputs = append(inputs, generatedInputs...)
+			claims, err := controller.PreviewClaims(context.Background(), k8sClient, release, pkgContainer.ParamClaimDecls,
+				parameters, inputs)
+			if err != nil {
+				return err
+			}
+			cmn.Dump(output, "claims.yaml", claims.Previews)
+			inputs = append(inputs, claims.Inputs...)
+			refBindings = append(refBindings, claims.Bindings...)
 			// -------------------------------------------------------------------- Enrich model with inputs
 			helper := &buildInputModelHelper{
 				Client: k8sClient,
 			}
 
-			buildInputModelResult, err := controller.BuildInputModel(context.Background(), helper, inputsRendered)
+			buildInputModelResult, err := controller.BuildInputModel(context.Background(), helper, inputs)
 			if err != nil {
 				return err
 			}
 			cmn.Dump(output, "watchedInputConnections.yaml", buildInputModelResult.WatchedInputConnections)
 			if len(buildInputModelResult.Messages) > 0 {
 				return fmt.Errorf("missing connection(s):\n  %s", strings.Join(buildInputModelResult.Messages, "\n  "))
+			}
+			maps.Copy(buildInputModelResult.InputModel, claims.Values)
+			err = controller.ApplyRefBindings(refBindings, buildInputModelResult.InputModel, parameters, kcontext)
+			if err != nil {
+				return err
 			}
 			model["Inputs"] = buildInputModelResult.InputModel
 			model["InputLists"] = buildInputModelResult.InputListModel

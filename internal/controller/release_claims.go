@@ -22,6 +22,7 @@ import (
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/kubopackage"
+	"kubocd/internal/kuboschema"
 	"maps"
 	"reflect"
 	"slices"
@@ -38,55 +39,82 @@ import (
 
 // +kubebuilder:rbac:groups=kubocd.kubotal.io,resources=claims,verbs=get;list;watch;create;patch;delete
 
+// claimParameter is a claim parameter set in the Release: the Claim it makes and its target.
+type claimParameter struct {
+	Alias        string
+	Name         string
+	Path         []string
+	Contract     string
+	Target       kv1alpha1.ClaimTarget
+	Requirements map[string]interface{}
+}
+
+// claimParameters reads the claim parameters set in the Release, and refuses the ill-formed ones.
+func claimParameters(release string, decls []kuboschema.ClaimDecl, parameters map[string]interface{},
+	inputs []*kubopackage.InputRendered) ([]claimParameter, error) {
+	aliases := make(map[string]bool, len(inputs))
+	for _, input := range inputs {
+		aliases[input.Alias] = true
+	}
+	names := make(map[string]struct{})
+	out := make([]claimParameter, 0, len(decls))
+	for _, decl := range decls {
+		alias := formatAlias(decl.Path, false)
+		target, added, ok := claimValueAt(parameters, decl.Path)
+		if !ok {
+			if decl.Required {
+				return nil, fmt.Errorf("parameter '%s' is required: no claim target provided", alias)
+			}
+			continue
+		}
+		if aliases[alias] {
+			return nil, fmt.Errorf("the inputs stanza alias '%s' collides with a claim parameter", alias)
+		}
+		name := strings.ToLower(release + "-" + strings.Join(decl.Path, "-"))
+		if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+			return nil, fmt.Errorf("parameter '%s' gives the invalid claim name '%s'", alias, name)
+		}
+		if _, ok := names[name]; ok {
+			return nil, fmt.Errorf("parameter '%s' gives the claim name '%s' of another parameter", alias, name)
+		}
+		names[name] = struct{}{}
+		requirements, err := mergeRequirements(decl.Requirements, added)
+		if err != nil {
+			return nil, fmt.Errorf("parameter '%s': %w", alias, err)
+		}
+		out = append(out, claimParameter{Alias: alias, Name: name, Path: decl.Path, Contract: decl.Contract,
+			Target: target, Requirements: requirements})
+	}
+	return out, nil
+}
+
 // handleClaims creates or updates the Claim of each claim parameter set, then returns the inputs and the
 // bindings of the bound ones, like a connectionRef, and why the others are not bound.
 func (r *ReleaseReconciler) handleClaims(op *releaseOperation, parameters map[string]interface{},
 	inputs []*kubopackage.InputRendered) ([]*kubopackage.InputRendered, []RefBinding, []string, ReconcileError) {
-	aliases := make(map[string]bool, len(inputs))
-	for _, input := range inputs {
-		aliases[input.Alias] = true
+	params, err := claimParameters(op.release.Name, op.pckContainer.ParamClaimDecls, parameters, inputs)
+	if err != nil {
+		return nil, nil, nil, NewReconcileError(err, true, "ClaimParameters")
 	}
 	op.claimNames = make(map[string]struct{})
 	claimInputs := make([]*kubopackage.InputRendered, 0)
 	bindings := make([]RefBinding, 0)
 	messages := make([]string, 0)
-	for _, decl := range op.pckContainer.ParamClaimDecls {
-		alias := formatAlias(decl.Path, false)
-		target, added, ok := claimValueAt(parameters, decl.Path)
-		if !ok {
-			if decl.Required {
-				return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s' is required: no claim target provided", alias), true, "ClaimParameters")
-			}
-			continue
-		}
-		if aliases[alias] {
-			return nil, nil, nil, NewReconcileError(fmt.Errorf("the inputs stanza alias '%s' collides with a claim parameter", alias), true, "ClaimParameters")
-		}
-		name := strings.ToLower(op.release.Name + "-" + strings.Join(decl.Path, "-"))
-		if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
-			return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s' gives the invalid claim name '%s'", alias, name), true, "ClaimParameters")
-		}
-		if _, ok := op.claimNames[name]; ok {
-			return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s' gives the claim name '%s' of another parameter", alias, name), true, "ClaimParameters")
-		}
-		op.claimNames[name] = struct{}{}
-		requirements, err := mergeRequirements(decl.Requirements, added)
-		if err != nil {
-			return nil, nil, nil, NewReconcileError(fmt.Errorf("parameter '%s': %w", alias, err), true, "ClaimParameters")
-		}
-		claim, message, reconcileError := r.handleClaim(op, name, decl.Contract, target, requirements)
+	for _, param := range params {
+		op.claimNames[param.Name] = struct{}{}
+		claim, message, reconcileError := r.handleClaim(op, param.Name, param.Contract, param.Target, param.Requirements)
 		if reconcileError != nil {
 			return nil, nil, nil, reconcileError
 		}
 		if message != "" {
-			messages = append(messages, fmt.Sprintf("claim '%s': %s", name, message))
+			messages = append(messages, fmt.Sprintf("claim '%s': %s", param.Name, message))
 			continue
 		}
-		input := &kubopackage.InputRendered{Contract: decl.Contract, Kind: kv1alpha1.KindConnection, Alias: alias}
+		input := &kubopackage.InputRendered{Contract: param.Contract, Kind: kv1alpha1.KindConnection, Alias: param.Alias}
 		input.ConnectionRef.Name = claim.Status.Connection
 		input.ConnectionRef.Namespace = op.release.Namespace
 		claimInputs = append(claimInputs, input)
-		bindings = append(bindings, RefBinding{Alias: alias, Path: decl.Path})
+		bindings = append(bindings, RefBinding{Alias: param.Alias, Path: param.Path})
 	}
 	return claimInputs, bindings, messages, nil
 }
