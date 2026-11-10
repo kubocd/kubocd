@@ -79,10 +79,12 @@ func HandleParameters(release *kv1alpha1.Release, kcontext map[string]interface{
 	}
 
 	parameters := misc.MergeMaps(pckContainer.DefaultParameters, releaseParameters)
-	if len(pckContainer.ParamConnectionDecls) > 0 {
+	if len(pckContainer.ParamConnectionDecls) > 0 || len(pckContainer.ParamClaimDecls) > 0 {
 		// The merge shares subtrees with the cached package defaults: the
 		// in-place substitution of resolved connections needs an owned copy
 		parameters = DeepCopyTree(parameters)
+	}
+	if len(pckContainer.ParamConnectionDecls) > 0 {
 		// Templated defaults of connectionRef parameters are rendered against
 		// the Context (a literal default is rejected at groom time)
 		err = RenderRefDefaults(pckContainer.ParamConnectionDecls, parameters, releaseParameters, pModel)

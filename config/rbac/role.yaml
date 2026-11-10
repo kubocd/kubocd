@@ -37,6 +37,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - claims
   - clusterconnections
   - connections
   verbs:
@@ -49,6 +50,7 @@ rules:
 - apiGroups:
   - kubocd.kubotal.io
   resources:
+  - claims/status
   - clusterconnections/status
   - clustercontracts/status
   - connections/status

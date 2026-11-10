@@ -17,6 +17,7 @@ limitations under the License.
 package kubopackage
 
 import (
+	"bytes"
 	"fmt"
 	kv1alpha1 "kubocd/api/v1alpha1"
 	"kubocd/internal/configstore"
@@ -97,6 +98,8 @@ type Package struct {
 	Conditions KcdTemplateObjectList `json:"conditions,omitempty"`
 	// List of outputs, to generate connections
 	Outputs KcdTemplateObjectList `json:"outputs,omitempty"`
+	// The provisioners the package runs, published in the status of the Release
+	Provisioners KcdTemplateObjectList `json:"provisioners,omitempty"`
 	// ------------------- Private part
 	templates *packageTemplates
 }
@@ -213,6 +216,11 @@ func (pck *Package) Groom(configSore configstore.ConfigStore, functions tmpl.Fun
 		return fmt.Errorf("could not parse 'conditions' template: %w", err)
 	}
 
+	pck.templates.provisioners, err = tmpl.NewFromAny("", pck.Provisioners, pck.TemplateHeader, functions)
+	if err != nil {
+		return fmt.Errorf("could not parse 'provisioners' template: %w", err)
+	}
+
 	// NB We can't test intra-module dependencies here, as it is a template. Will be checked after rendering
 	return nil
 }
@@ -225,6 +233,7 @@ type packageTemplates struct {
 	outputs      tmpl.Tmpl
 	inputs       tmpl.Tmpl
 	conditions   tmpl.Tmpl
+	provisioners tmpl.Tmpl
 }
 
 // Rendered object is a proxy for a release of a package.
@@ -240,6 +249,7 @@ type Rendered struct {
 	Inputs               []*InputRendered // Warning: Lifecycle is different. Computed in advance
 	Conditions           []*ConditionRendered
 	Outputs              []*OutputRendered
+	Provisioners         []kv1alpha1.ReleaseProvisioner
 }
 
 // OutputRendered NB: This is yaml/json serializable for dump on render kubocd CLI command
@@ -368,6 +378,11 @@ func (pck *Package) Render(model map[string]interface{}, release *kv1alpha1.Rele
 		dupDetect[output.Name] = struct{}{}
 	}
 
+	// ------------------------- Render provisioners
+	if r.Provisioners, err = pck.renderProvisioners(model); err != nil {
+		return nil, err
+	}
+
 	// ------------------------- Render conditions
 	conditions := make([]*ConditionRendered, 0)
 	err = pck.templates.conditions.RenderInto(model, &conditions)
@@ -476,3 +491,28 @@ func (pck *Package) RenderInputs(model map[string]interface{}, defaultNamespace 
 //	}
 //	return result, nil
 //}
+
+func isJSONObject(raw []byte) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{"))
+}
+
+func (pck *Package) renderProvisioners(model map[string]interface{}) ([]kv1alpha1.ReleaseProvisioner, error) {
+	provisioners := make([]kv1alpha1.ReleaseProvisioner, 0)
+	if err := pck.templates.provisioners.RenderInto(model, &provisioners); err != nil {
+		return nil, fmt.Errorf("could not render 'provisioners' template: %w", err)
+	}
+	declared := make(map[string]struct{})
+	for idx, p := range provisioners {
+		if p.Name == "" || p.Contract == "" || len(p.Namespaces) == 0 {
+			return nil, fmt.Errorf("provisioners[%d]: 'name', 'contract' and 'namespaces' are required", idx)
+		}
+		if p.Values != nil && !isJSONObject(p.Values.Raw) {
+			return nil, fmt.Errorf("provisioners[%d]: 'values' must be an object", idx)
+		}
+		if _, ok := declared[p.Name+"/"+p.Contract]; ok {
+			return nil, fmt.Errorf("provisioners[%d]: provisioner '%s' of contract '%s' is declared twice", idx, p.Name, p.Contract)
+		}
+		declared[p.Name+"/"+p.Contract] = struct{}{}
+	}
+	return provisioners, nil
+}

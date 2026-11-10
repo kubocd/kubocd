@@ -37,6 +37,7 @@ func Kubo2openAPI(schema KuboSchema, additionalProperties bool) (map[string]inte
 	_, ok := schema["$schema"]
 	if ok {
 		// It is already an openAPI schema
+		shapeClaims(schema)
 		return schema, nil
 	}
 	//_, ok = schema["properties"]
@@ -100,6 +101,8 @@ func handleNode(path string, node2 map[string]interface{}, additionalProperties 
 	switch typ {
 	case TypeConnectionRef:
 		return desugarConnectionRef(path, node)
+	case TypeClaim:
+		return desugarClaim(path, node)
 	case "string", "integer", "number", "boolean":
 		// It is a scalar type. Can use the openAPI directly, except 'required'
 		required, err := handleRequired(node)
@@ -192,6 +195,7 @@ func handleRequired(node map[string]interface{}) (bool, error) {
 
 var allowedPropertiesByTypes = map[string]map[string]bool{
 	TypeConnectionRef: connectionRefAllowedProperties,
+	TypeClaim:         claimAllowedProperties,
 	"string": {
 		"type":        true,
 		"title":       true,

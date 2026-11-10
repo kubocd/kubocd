@@ -165,6 +165,7 @@ const ReleasePhaseWaitHelmReleases = ReleasePhase("WAIT_HREL")
 const ReleasePhaseWaitOutputConnections = ReleasePhase("WAIT_OCNX")
 const ReleasePhaseWaitDependencies = ReleasePhase("WAIT_DEPS")
 const ReleasePhaseWaitInputConnections = ReleasePhase("WAIT_ICNX")
+const ReleasePhaseWaitClaims = ReleasePhase("WAIT_CLAIM")
 const ReleasePhaseSuspended = ReleasePhase("SUSPENDED")
 const ReleasePhaseWaitConditions = ReleasePhase("WAIT_COND")
 
@@ -178,6 +179,19 @@ type InputConnectionReference struct {
 	Kind      Kind   `json:"kind"` // Connection or ClusterConnection
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+}
+
+// ReleaseProvisioner is a provisioner a Release runs, which binds the claims that name it
+type ReleaseProvisioner struct {
+	// The name a claim gives as target
+	Name string `json:"name"`
+	// The contract of the claims it binds
+	Contract string `json:"contract"`
+	// The namespaces whose claims it binds
+	Namespaces []string `json:"namespaces"`
+	// Values every connection it writes carries, known before any claim binds
+	// +kubebuilder:validation:Optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
 }
 
 // ReleaseOutputConnection describe the state of a managed (output) connection or clusterConnection, inside Release status
@@ -248,6 +262,10 @@ type ReleaseStatus struct {
 
 	// The result of the package template and release value
 	Roles []string `json:"roles"`
+
+	// The provisioners the Release runs, from its package
+	// +kubebuilder:validation:Optional
+	Provisioners []ReleaseProvisioner `json:"provisioners,omitempty"`
 
 	// Human friendly last error message
 	Message string `json:"message,omitempty"`

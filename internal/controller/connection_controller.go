@@ -139,9 +139,18 @@ func (r *ConnectionReconciler) reconcile2(ctx context.Context, req ctrl.Request,
 // refused read gives the reason of the answer only, as an output renders the
 // name of its contract.
 func findContract(ctx context.Context, reader client.Reader, connection kv1alpha1.ConnectionFacade) (kv1alpha1.ContractFacade, error) {
+	namespace := ""
 	if connection.GetKind() == kv1alpha1.KindConnection {
+		namespace = connection.GetNamespace()
+	}
+	return findContractNamed(ctx, reader, connection.GetContract(), namespace)
+}
+
+// findContractNamed returns the Contract of the namespace, if any, else the ClusterContract, nil when missing.
+func findContractNamed(ctx context.Context, reader client.Reader, name, namespace string) (kv1alpha1.ContractFacade, error) {
+	if namespace != "" {
 		contract := &kv1alpha1.Contract{}
-		err := reader.Get(ctx, types.NamespacedName{Name: connection.GetContract(), Namespace: connection.GetNamespace()}, contract)
+		err := reader.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, contract)
 		if err == nil {
 			return contract, nil
 		}
@@ -150,7 +159,7 @@ func findContract(ctx context.Context, reader client.Reader, connection kv1alpha
 		}
 	}
 	clusterContract := &kv1alpha1.ClusterContract{}
-	err := reader.Get(ctx, types.NamespacedName{Name: connection.GetContract()}, clusterContract)
+	err := reader.Get(ctx, types.NamespacedName{Name: name}, clusterContract)
 	if err == nil {
 		return clusterContract, nil
 	}

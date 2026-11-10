@@ -49,6 +49,7 @@ rules:
     resources:
       - connections
       - clusterconnections
+      - claims
     verbs:
       - get
       - list
@@ -109,6 +110,7 @@ rules:
       - clusterconnections/status
       - contracts/status
       - clustercontracts/status
+      - claims/status
     verbs:
       - patch
   - apiGroups:
