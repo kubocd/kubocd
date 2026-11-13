@@ -16,7 +16,7 @@
 # Pin the builder to the *build* platform so the toolchain runs natively and Go
 # cross-compiles via GOARCH below (fast). Without this, buildx runs the builder
 # under QEMU emulation for the non-native arch, which is much slower.
-FROM --platform=$BUILDPLATFORM docker.io/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
+FROM --platform=$BUILDPLATFORM docker.io/golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a9ce75f0d1e AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
