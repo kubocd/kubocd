@@ -27,7 +27,7 @@ func controllerRules(replications bool) []rbacv1.PolicyRule {
 		rbacRule("kubocd.kubotal.io", "connections,clusterconnections,claims", "get,list,watch,create,patch,delete"),
 		rbacRule("kubocd.kubotal.io",
 			"connections/status,clusterconnections/status,contracts/status,clustercontracts/status,claims/status", "patch"),
-		rbacRule("source.toolkit.fluxcd.io", "ocirepositories", "get,list,watch,create,patch"),
+		rbacRule("source.toolkit.fluxcd.io", "ocirepositories", "get,list,watch,create,patch,delete"),
 		rbacRule("source.toolkit.fluxcd.io", "helmrepositories", "get,list,watch,create,patch,delete"),
 		rbacRule("helm.toolkit.fluxcd.io", "helmreleases", "get,list,watch,create,patch,delete"),
 		rbacRule("", "events", "create,patch"),
@@ -143,6 +143,11 @@ func TestControllerChartExactRBAC(t *testing.T) {
 						main := &rbacv1.ClusterRole{}
 						decodeStrict(t, docs, "ClusterRole", names.role, main)
 						assertRules(t, main.Rules, controllerRules(replications))
+						for _, tuple := range permissionTuples(t, main.Rules) {
+							if strings.HasPrefix(tuple, "/pods:") {
+								t.Errorf("controller ClusterRole unexpectedly grants pods permission: %s", tuple)
+							}
+						}
 						if main.Namespace != "" {
 							t.Errorf("ClusterRole has namespace %q", main.Namespace)
 						}

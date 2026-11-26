@@ -38,6 +38,7 @@ var readyReasons = map[kv1alpha1.ReleasePhase]string{
 	kv1alpha1.ReleasePhaseWaitClaims:            "WaitingForClaims",
 	kv1alpha1.ReleasePhaseSuspended:             "Suspended",
 	kv1alpha1.ReleasePhaseWaitConditions:        "WaitingForConditions",
+	kv1alpha1.ReleasePhaseDeleting:              "Deleting",
 }
 
 // readyMessage is the message of a Ready condition that is True.

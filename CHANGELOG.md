@@ -1,9 +1,25 @@
 # Unreleased
 
+- The deletion of a Release is ordered. When waiting on children or retrying a deletion error, the Release goes to the
+  phase `DELETING`, with `Ready` `False` and the reason `Deleting`, and keeps its finalizer until each step is over:
+  1. It deletes its child HelmReleases, a HelmRelease only once no other child that lists it in `spec.dependsOn` is
+     left, and waits until they are gone. Its HelmRepository, OCIRepository and chart folder stay in place meanwhile, so
+     helm-controller uninstalls from a source that still exists. HelmReleases that depend on each other in a cycle are
+     deleted together, once no HelmRelease out of the cycle depends on one of them. While a HelmRelease under
+     uninstallation depends on one already gone, no other one is deleted.
+  2. Once the HelmReleases are gone, it deletes its Claims, output Connections and ClusterConnections, HelmRepository
+     and OCIRepository, waits until they are gone, then removes its chart folder and its finalizer.
+
+  A status that cannot be written does not stop the deletion. Deletion errors are written to `status.message` and
+  emitted as `Warning` `DeletionError` events. Ordered deletion assumes default background propagation (as used by Flux
+  prune and `kubectl delete`): deleting a Release with `--cascade=foreground` or deleting its namespace with
+  `kubectl delete namespace` bypasses ordered deletion because Kubernetes garbage collection deletes owned children in
+  parallel. The controller needs `delete` on `ocirepositories`: the chart grants it.
+
 - A Release status has `observedGeneration`, the generation it was written for, and a `Ready` condition with the same
   `observedGeneration`. `Ready` is `True` in the phase `READY` only: the Flux sources and the child HelmReleases are
-  ready for the generation of their current spec, and they hold the rendering of the Contexts and input connections
-  read by that reconciliation. In any other phase it is `False`, with a reason that names the phase
+  ready for the generation of their current spec, and they hold the rendering of the Contexts and input connections read
+  by that reconciliation. In any other phase it is `False`, with a reason that names the phase
   (`WaitingForHelmReleases`, `Suspended`, `Failed`, ...) and the status message. A change of the Release spec that
   leaves the phase as it is still updates both, so a client that compares them with `metadata.generation`, as kstatus
   does, never reads a `Ready` of an older generation as current. A change of a Context or of an input connection does
@@ -11,15 +27,33 @@
   previous rendering.
 - A Release whose `spec.package.interval`, `spec.package.timeout`, `spec.moduleOverrides[].timeout` or
   `spec.moduleOverrides[].interval` holds a text that is not a Go duration goes to the phase `ERROR` with a message
-  naming the field, with no retry. The API server accepts such a text: a value beyond the range of a Go duration
-  (about `2562047h`, so `9999999h`) on any of the four fields, and any string on the module overrides (the patterns of
-  `spec.package` refuse the other malformed values, and hours on `spec.package.timeout`). A Release holding one used to
-  make the controller fail to list every Release. The controller now lists and reconciles the others, the text stays
+  naming the field, with no retry. The API server accepts such a text: a value beyond the range of a Go duration (about
+  `2562047h`, for example `999999999m`) on any of the four fields, and any string on the module overrides (the patterns
+  of `spec.package` refuse the other malformed values, and hours on `spec.package.timeout`). A Release holding one used
+  to make the controller fail to list every Release. The controller now lists and reconciles the others, the text stays
   in the Release as written, and the deletion webhook applies its usual rules to it. `kubocd render` refuses the same
   Release file.
 - A negative module override duration goes to the phase `ERROR` as well.
-- Go API: these four fields have the type `v1alpha1.Duration` instead of `metav1.Duration`. `NewDuration` builds
-  one, its `Duration` field is the `time.Duration`, and `MetaV1` and `MetaV1Ptr` convert to `metav1.Duration`.
+- BREAKING (Go API): `PackageSourceSpec.Interval`, `PackageSourceSpec.Timeout`, `ModuleOverrideSpec.Timeout` and
+  `ModuleOverrideSpec.Interval` have the type `v1alpha1.Duration` (or `*v1alpha1.Duration`) instead of
+  `metav1.Duration` (or `*metav1.Duration`). `NewDuration` builds one, its `Duration` field is the `time.Duration`, and
+  the `MetaV1` and nil-safe `MetaV1Ptr` methods convert to `metav1.Duration`.
+
+## Upgrading from v0.4.3
+
+- Manually reapply the `releases.kubocd.kubotal.io` CRD when running `helm upgrade`, because Helm does not update CRDs
+  in `crds/` on upgrade. Without the updated CRD, the API server strips `status.observedGeneration` and
+  `status.conditions` from Release status updates.
+- If you maintain custom controller RBAC instead of using the `kubocd-ctrl` chart ClusterRole, add `delete` on
+  `ocirepositories` in API group `source.toolkit.fluxcd.io`.
+- Go consumers importing `kubocd/api/v1alpha1` must update code touching the four Release duration fields from
+  `metav1.Duration` to `v1alpha1.Duration` (use `NewDuration`, `.Duration`, `.MetaV1()`, or `.MetaV1Ptr()`).
+- Ordered deletion requires background propagation on the Release itself. Deleting with `--cascade=foreground` or
+  running `kubectl delete namespace` bypasses ordered deletion and lets Kubernetes garbage collection delete owned
+  children in parallel.
+- The validating deletion webhook remains fail-closed: if the controller has not yet computed a Release's protection
+  (for example on a Release whose package never loaded or whose duration is invalid), set `spec.protected: false` before
+  deleting it.
 
 # v0.4.3
 

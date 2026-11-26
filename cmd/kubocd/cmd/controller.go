@@ -93,7 +93,8 @@ var controllerParams struct {
 func newReleaseReconciler(mgr ctrl.Manager, packageFetcher *controller.PackageFetcher, serverRoot string,
 	theConfigStore configstore.ConfigStore, roleStore rolestore.RoleStore) *controller.ReleaseReconciler {
 	return &controller.ReleaseReconciler{
-		Client: mgr.GetClient(),
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
 		//nolint:staticcheck // ReleaseReconciler uses record.EventRecorder for core/v1 events.
 		EventRecorder:   mgr.GetEventRecorderFor("release"),
 		Logger:          controllerRootLog.WithName("ReleaseReconciler"),

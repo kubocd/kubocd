@@ -70,10 +70,12 @@ type authorizationExpectation struct {
 func controllerAuthorizationExpectations(replications bool) []authorizationExpectation {
 	allVerbs := strings.Split("get,list,watch,create,update,patch,delete,deletecollection,bind,escalate,impersonate", ",")
 	expected := controllerRules(replications)
-	// Include every removed generated subresource, even ones never granted by the chart.
-	inventory := append(controllerRules(true), rbacRule("kubocd.kubotal.io",
-		"configs/status,configs/finalizers,contexts/finalizers,contracts/finalizers,clustercontracts/finalizers,"+
-			"connections/finalizers,clusterconnections/finalizers,replications/finalizers,claims/finalizers", "update"))
+	// Include every removed generated subresource and removed pods access, even ones never granted by the chart.
+	inventory := append(controllerRules(true),
+		rbacRule("", "pods", "list,delete"),
+		rbacRule("kubocd.kubotal.io",
+			"configs/status,configs/finalizers,contexts/finalizers,contracts/finalizers,clustercontracts/finalizers,"+
+				"connections/finalizers,clusterconnections/finalizers,replications/finalizers,claims/finalizers", "update"))
 	var result []authorizationExpectation
 	for _, rule := range inventory {
 		for _, resource := range rule.Resources {

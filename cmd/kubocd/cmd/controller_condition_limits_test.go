@@ -15,10 +15,17 @@ import (
 type releaseConstructionManager struct {
 	ctrl.Manager
 	kubeClient client.Client
+	apiReader  client.Reader
 	recorder   record.EventRecorder
 }
 
 func (m releaseConstructionManager) GetClient() client.Client { return m.kubeClient }
+func (m releaseConstructionManager) GetAPIReader() client.Reader {
+	if m.apiReader != nil {
+		return m.apiReader
+	}
+	return m.kubeClient
+}
 func (m releaseConstructionManager) GetEventRecorderFor(string) record.EventRecorder {
 	return m.recorder
 }
@@ -61,5 +68,22 @@ func TestControllerConditionCELFlagsReachReconciler(t *testing.T) {
 				t.Fatalf("reconciler condition limits = %+v, want %+v", *reconciler.ConditionLimits, tc.want)
 			}
 		})
+	}
+}
+
+func TestNewReleaseReconcilerSetsAPIReader(t *testing.T) {
+	cachedClient := fake.NewClientBuilder().Build()
+	directReader := fake.NewClientBuilder().Build()
+	manager := releaseConstructionManager{
+		kubeClient: cachedClient,
+		apiReader:  directReader,
+		recorder:   record.NewFakeRecorder(1),
+	}
+	reconciler := newReleaseReconciler(manager, nil, t.TempDir(), nil, nil)
+	if reconciler.APIReader == nil {
+		t.Fatal("newReleaseReconciler left APIReader nil")
+	}
+	if reconciler.APIReader != directReader {
+		t.Fatalf("newReleaseReconciler set APIReader to %p, want manager APIReader %p", reconciler.APIReader, directReader)
 	}
 }
