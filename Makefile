@@ -31,8 +31,8 @@ REGISTRY ?= ""
 # The product VERSIONS below are intentionally NOT overridable from dev.env or from environment.
 # They are code-bound and git-controlled (see the ':=' assignment type).
 
-APP_VERSION := v0.4.3
-HELM_VERSION := v0.4.3
+APP_VERSION := v0.5.0
+HELM_VERSION := v0.5.0
 
 IMG_REPO := $(REGISTRY)/exec/kubocd
 

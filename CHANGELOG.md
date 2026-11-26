@@ -1,5 +1,6 @@
-# Unreleased
+# v0.5.0
 
+- `kubocd render` resolves connection parameters and claims the same way the controller does.
 - The deletion of a Release is ordered. When waiting on children or retrying a deletion error, the Release goes to the
   phase `DELETING`, with `Ready` `False` and the reason `Deleting`, and keeps its finalizer until each step is over:
   1. It deletes its child HelmReleases, a HelmRelease only once no other child that lists it in `spec.dependsOn` is
