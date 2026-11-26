@@ -70,7 +70,10 @@ type ReleaseReconciler struct {
 	ConditionLimits *ConditionLimits
 	AllowDNSLookups bool
 	ConnectionsGate bool // On when the controllers that check connections run
-	statusFailures  statusFailures
+	// APIReader reads the child HelmReleases, Claims, Connections, ClusterConnections and Flux sources around the
+	// cache during a deletion. The Client reads them when it is nil.
+	APIReader      client.Reader
+	statusFailures statusFailures
 
 	// OCIRepositoryOptions controls the package source policy for creation and updates.
 	OCIRepositoryOptions OCIRepositoryOptions
@@ -217,33 +220,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	helmRepositoryPath := path.Join("hr", op.release.Namespace, op.release.Name)
 	helmRepositoryFolder := path.Join(r.ServerRoot, helmRepositoryPath)
 
-	if !release.ObjectMeta.DeletionTimestamp.IsZero() {
-		// Deletion is requested
-		r.RoleStore.UnRegisterRelease(req.NamespacedName)
-		r.statusFailures.clear(req.NamespacedName)
-		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
-			// No finalizer at all. Nothing to do anymore
-			return ctrl.Result{}, nil
-		}
-		logger.V(0).Info("Deleting release")
-		// Perform deletion cleanup.
-		err := misc.SafeRemove(helmRepositoryFolder)
-		if err != nil {
-			// Just log, without any other action
-			op.logger.Error(err, "Failed to remove helm repository folder", "folder", helmRepositoryFolder)
-		}
-		// The ClusterConnections of the Release have no owner reference: the finalizer is what removes them
-		if err := r.deleteOutputClusterConnections(op); err != nil {
-			return ctrl.Result{}, err
-		}
-		// Deletion OK
-		controllerutil.RemoveFinalizer(release, global.FinalizerName)
-		logger.V(1).Info(">-> Update resource (Remove finalizer)")
-		if err := r.Update(ctx, release); err != nil {
-			return ctrl.Result{}, fmt.Errorf("could not remove the finalizer of the Release: %s", apiError(err))
-		}
-		return ctrl.Result{}, nil
-	}
 	// As we want Status to be explicit about provided information, we don't use 'omitempty' in its definition.
 	// This means we must set some empty default value, otherwise status write will fail
 	if release.Status.HelmReleaseStates == nil {
@@ -262,6 +238,15 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		release.Status.EffectiveInputConnections = make([]kv1alpha1.InputConnectionReference, 0)
 	}
 
+	if !release.DeletionTimestamp.IsZero() {
+		r.RoleStore.UnRegisterRelease(req.NamespacedName)
+		if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
+			r.statusFailures.clear(req.NamespacedName)
+			return ctrl.Result{}, nil
+		}
+		return r.reconcileDelete(op, helmRepositoryFolder)
+	}
+
 	// Not under deletion. Add a finalizer if not already set
 	if !controllerutil.ContainsFinalizer(release, global.FinalizerName) {
 		logger.V(1).Info("Add finalizer")
@@ -273,7 +258,7 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, nil // we reschedule, to avoid an 'object has been modified' on next status update
 	}
 
-	// Before GroomRelease, which would replace an invalid interval by the default one
+	// Validate user durations before grooming and reconciliation
 	if err := release.Spec.ValidateDurations(); err != nil {
 		return r.reportError(op, NewReconcileError(err, true, "InvalidDuration"), false)
 	}
@@ -781,25 +766,6 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 	}
 	// Final return
 	return r.updateStatus(op, kv1alpha1.ReleasePhaseReady, "", forceUpdate)
-}
-
-// deleteOutputClusterConnections deletes the ClusterConnections that the
-// Release created, and returns the first error once each deletion is tried.
-func (r *ReleaseReconciler) deleteOutputClusterConnections(op *releaseOperation) error {
-	clusterConnections, listErr := r.FindOutputClusterConnectionsFromRelease(op.ctx, op.request.NamespacedName)
-	if listErr != nil {
-		return fmt.Errorf("could not list the ClusterConnections of the Release: %s", apiError(listErr.GetBaseError()))
-	}
-	var failed error
-	for i := range clusterConnections {
-		if err := client.IgnoreNotFound(r.Delete(op.ctx, &clusterConnections[i])); err != nil {
-			op.logger.Error(errors.New(apiError(err)), "Failed to delete ClusterConnection", "clusterConnection", clusterConnections[i].Name)
-			if failed == nil {
-				failed = fmt.Errorf("could not delete the ClusterConnections of the Release: %s", apiError(err))
-			}
-		}
-	}
-	return failed
 }
 
 func computeReadyConnection(op *releaseOperation) (string, bool) {

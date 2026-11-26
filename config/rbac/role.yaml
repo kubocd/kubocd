@@ -91,19 +91,10 @@ rules:
   - source.toolkit.fluxcd.io
   resources:
   - helmrepositories
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - source.toolkit.fluxcd.io
-  resources:
   - ocirepositories
   verbs:
   - create
+  - delete
   - get
   - list
   - patch

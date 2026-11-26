@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -49,8 +50,10 @@ type statusTestbed struct {
 func newStatusTestbed(t *testing.T, releases ...*kv1alpha1.Release) *statusTestbed {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	if err := kv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
+	for _, add := range []func(*runtime.Scheme) error{kv1alpha1.AddToScheme, corev1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
 	}
 	objects := make([]client.Object, len(releases))
 	for i := range releases {
