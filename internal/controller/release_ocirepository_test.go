@@ -80,12 +80,12 @@ func verificationAddons(name string) kv1alpha1.OciAddOn {
 
 // verificationRelease is a Release whose package has distinctive addon values.
 func verificationRelease() *kv1alpha1.Release {
-	timeout := metav1.Duration{Duration: 3 * time.Minute}
+	timeout := kv1alpha1.NewDuration(3 * time.Minute)
 	return &kv1alpha1.Release{
 		ObjectMeta: metav1.ObjectMeta{Name: "verify-demo", Namespace: "verify-apps", UID: types.UID("verify-release-uid")},
 		Spec: kv1alpha1.ReleaseSpec{Package: kv1alpha1.PackageSourceSpec{
 			Repository: verifySourceRepository, Tag: verifySourceTag, OciAddOn: verificationAddons("release"),
-			Interval: metav1.Duration{Duration: 7 * time.Minute}, Timeout: &timeout,
+			Interval: kv1alpha1.NewDuration(7 * time.Minute), Timeout: &timeout,
 		}},
 	}
 }
@@ -148,7 +148,7 @@ func TestPopulateOciRepositoryVerifyPrecedence(t *testing.T) {
 							redirect.OldPrefix = "unmatched.example/"
 						}
 						pkg := release.Spec.Package
-						original := expectedVerificationSpec(pkg.Repository, pkg.Tag, pkg.OciAddOn, pkg.Interval, pkg.Timeout)
+						original := expectedVerificationSpec(pkg.Repository, pkg.Tag, pkg.OciAddOn, pkg.Interval.MetaV1(), pkg.Timeout.MetaV1Ptr())
 						want := original
 						if matched {
 							want = expectedVerificationSpec(repository, tag, redirect.OciAddOn, redirect.Interval, redirect.Timeout)
@@ -323,7 +323,7 @@ func TestPopulateOciRepositoryInsecurePolicy(t *testing.T) {
 							redirect.NewPrefix = ""
 						}
 						pkg := release.Spec.Package
-						destination := &sourcev1.OCIRepository{Spec: expectedVerificationSpec(verifyMirrorRepository, verifyMirrorTag, verificationAddons("untouched"), pkg.Interval, pkg.Timeout)}
+						destination := &sourcev1.OCIRepository{Spec: expectedVerificationSpec(verifyMirrorRepository, verifyMirrorTag, verificationAddons("untouched"), pkg.Interval.MetaV1(), pkg.Timeout.MetaV1Ptr())}
 						before := destination.DeepCopy()
 						err := PopulateOciRepository(destination, release, global.PackageContentMediaType, verifyOperation, storeOf(t, spec),
 							OCIRepositoryOptions{AllowReleaseInsecureSource: rollback})
@@ -714,7 +714,7 @@ func TestReleaseInsecureSourceRollback(t *testing.T) {
 						}
 						got := fetchedVerificationSource(t, b.r, b.op)
 						pkg := b.op.release.Spec.Package
-						want := expectedVerificationSpec(pkg.Repository, pkg.Tag, pkg.OciAddOn, pkg.Interval, pkg.Timeout)
+						want := expectedVerificationSpec(pkg.Repository, pkg.Tag, pkg.OciAddOn, pkg.Interval.MetaV1(), pkg.Timeout.MetaV1Ptr())
 						if route != verifyNoRedirect {
 							redirect := spec.PackageRedirects[0]
 							want = expectedVerificationSpec(verifyMirrorRepository, verifyMirrorTag, redirect.OciAddOn, redirect.Interval, redirect.Timeout)

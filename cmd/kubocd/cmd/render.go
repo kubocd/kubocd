@@ -158,6 +158,9 @@ var renderCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("error loading release: %w", err)
 			}
+			if err := release.Spec.ValidateDurations(); err != nil {
+				return fmt.Errorf("invalid release: %w", err)
+			}
 			target, output, err := misc.PrepareOutput(output, release.Name)
 			if err != nil {
 				return fmt.Errorf("error ensuring output file exists: %w", err)

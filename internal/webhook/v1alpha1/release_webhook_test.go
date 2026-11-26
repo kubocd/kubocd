@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -102,5 +103,27 @@ var _ = Describe("Release webhook", func() {
 		Expect(k8sClient.Update(ctx, release)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, release)).To(Succeed())
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, release))).To(BeTrue())
+	})
+
+	It("decodes a Release whose duration is out of range, and follows the same protection rules", func() {
+		release := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": kubocdv1alpha1.GroupVersion.String(), "kind": "Release",
+			"metadata": map[string]interface{}{"name": "overflow", "namespace": "default"},
+			"spec": map[string]interface{}{"package": map[string]interface{}{
+				"repository": "registry.example/packages/demo", "tag": "0.1.0", "interval": "9999999h"}},
+		}}
+		Expect(k8sClient.Create(ctx, release)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, release)).To(MatchError(ContainSubstring("release overflow may be protected by its " +
+			"package, and the controller has not computed its protection yet: set spec.protected to false to delete it anyway")))
+		key := types.NamespacedName{Namespace: "default", Name: "overflow"}
+		typed := &kubocdv1alpha1.Release{}
+		Expect(k8sClient.Get(ctx, key, typed)).To(Succeed())
+		typed.Spec.Protected = protection(false)
+		Expect(k8sClient.Update(ctx, typed)).To(Succeed())
+		Expect(k8sClient.Get(ctx, key, release)).To(Succeed())
+		interval, _, _ := unstructured.NestedString(release.Object, "spec", "package", "interval")
+		Expect(interval).To(Equal("9999999h"), "the typed update does not keep the text of the user")
+		Expect(k8sClient.Delete(ctx, release)).To(Succeed())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, typed))).To(BeTrue())
 	})
 })

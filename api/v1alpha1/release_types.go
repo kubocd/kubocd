@@ -41,14 +41,14 @@ type PackageSourceSpec struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +kubebuilder:default="5m"
 	// +optional
-	Interval metav1.Duration `json:"interval"`
+	Interval Duration `json:"interval"`
 
 	// The timeout for remote OCI Repository operations like pulling, defaults to 60s.
 	// +kubebuilder:default="60s"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m))+$"
 	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout *Duration `json:"timeout,omitempty"`
 }
 
 type ModuleOverrideSpec struct {
@@ -63,10 +63,10 @@ type ModuleOverrideSpec struct {
 	OnFailureStrategy string `json:"onFailureStrategy,omitempty"`
 	// Will be set as spec.timeout of the generated HelmRelease, thus providing timeout on Helm deployment.
 	// If provided, override package provided value
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout *Duration `json:"timeout,omitempty"`
 	// Will be set as spec.interval of the generated HelmRelease, thus providing interval to which reconcile the helmRelease
 	// +kubebuilder:validation:Optional
-	Interval *metav1.Duration `json:"interval,omitempty"`
+	Interval *Duration `json:"interval,omitempty"`
 }
 
 type ReleaseDebug struct {
@@ -275,7 +275,24 @@ type ReleaseStatus struct {
 
 	// Array by input#. The selected connection for each input
 	EffectiveInputConnections []InputConnectionReference `json:"effectiveInputConnections"`
+
+	// The .metadata.generation of the Release this status was written for
+	// +kubebuilder:validation:Optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Conditions holds the Ready condition. Ready is True, for the generation it observed, only when the
+	// phase is READY: the Flux sources and the child HelmReleases are ready for the generation of their
+	// current spec, and hold the rendering of the Contexts and input connections read by that reconciliation.
+	// A change of a Context or of an input connection does not bump the generation of the Release: until the
+	// reconciliation it triggers, Ready describes the previous rendering.
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:Optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+// ReleaseConditionReady is the type of the condition that tells whether the Release is READY.
+const ReleaseConditionReady = "Ready"
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

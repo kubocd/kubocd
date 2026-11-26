@@ -196,9 +196,7 @@ func GroomRelease(release *kv1alpha1.Release, logger logr.Logger, configStore co
 		release.Spec.Debug = &kv1alpha1.ReleaseDebug{}
 	}
 	if misc.IsZero(release.Spec.Package.Interval) {
-		release.Spec.Package.Interval = metav1.Duration{
-			Duration: configStore.GetDefaultPackageInterval(),
-		}
+		release.Spec.Package.Interval = kv1alpha1.NewDuration(configStore.GetDefaultPackageInterval())
 	}
 	for i := range release.Spec.Contexts {
 		kCtx := &release.Spec.Contexts[i]

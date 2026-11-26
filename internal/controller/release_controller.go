@@ -40,6 +40,7 @@ import (
 	"github.com/go-logr/logr"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -272,6 +273,10 @@ func (r *ReleaseReconciler) reconcile2(ctx context.Context, req ctrl.Request, lo
 		return ctrl.Result{}, nil // we reschedule, to avoid an 'object has been modified' on next status update
 	}
 
+	// Before GroomRelease, which would replace an invalid interval by the default one
+	if err := release.Spec.ValidateDurations(); err != nil {
+		return r.reportError(op, NewReconcileError(err, true, "InvalidDuration"), false)
+	}
 	GroomRelease(release, logger, r.ConfigStore)
 
 	// ----------------------------------------------------------Setup our companion OCIRepository and wait its readiness
@@ -830,13 +835,17 @@ func (r *ReleaseReconciler) updateStatus(op *releaseOperation, phase kv1alpha1.R
 	} else {
 		r.RoleStore.UnRegisterRelease(op.request.NamespacedName)
 	}
-	if op.release.Status.Phase == phase && op.release.Status.Message == message && !force {
+	observed := op.release.Status.ObservedGeneration == op.release.Generation &&
+		readyConditionUpToDate(op.release.Status.Conditions, phase, message, op.release.Generation)
+	if op.release.Status.Phase == phase && op.release.Status.Message == message && observed && !force {
 		op.logger.V(1).Info("Release phase and message are already up-to-date", "phase", phase, "message", message)
 		return ctrl.Result{}, nil
 	}
 	op.logger.V(1).Info("Updating status", "newPhase", phase, "oldPhase", op.release.Status.Phase, "newMessage", message, "force", force)
 	op.release.Status.Phase = phase
 	op.release.Status.Message = message
+	op.release.Status.ObservedGeneration = op.release.Generation
+	apimeta.SetStatusCondition(&op.release.Status.Conditions, readyCondition(phase, message, op.release.Generation))
 	err := r.Status().Update(op.ctx, op.release)
 	if err != nil {
 		//fmt.Printf("***********************: %s    (%T)\n", phase, err)
