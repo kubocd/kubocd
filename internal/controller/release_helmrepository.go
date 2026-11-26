@@ -122,7 +122,7 @@ func (r *ReleaseReconciler) handleHelmRepository(op *releaseOperation, revision 
 
 func PopulateHelmRepository(helmRepository *sourcev1.HelmRepository, release *kv1alpha1.Release, repoUrl string) {
 	// As helmRepository is rebuild on change, we don't need a short value. So take the package one.
-	helmRepository.Spec.Interval = release.Spec.Package.Interval
+	helmRepository.Spec.Interval = release.Spec.Package.Interval.MetaV1()
 	helmRepository.Spec.URL = repoUrl
 }
 

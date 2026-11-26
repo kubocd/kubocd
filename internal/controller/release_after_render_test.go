@@ -491,7 +491,7 @@ func withOverride(t *testing.T, override kv1alpha1.ModuleOverrideSpec) func(*Rel
 func TestASpecPatchValueThatTheReleaseReplacesIsAccepted(t *testing.T) {
 	manifest := fmt.Sprintf(afterRenderPackage, "", `    specPatch: |
       timeout: {{ .Context.db.password }}`)
-	override := kv1alpha1.ModuleOverrideSpec{Module: "main", Timeout: &metav1.Duration{Duration: 5 * time.Minute}}
+	override := kv1alpha1.ModuleOverrideSpec{Module: "main", Timeout: new(kv1alpha1.NewDuration(5 * time.Minute))}
 	got := reconcileRelease(t, manifest, "", afterRenderContext, withOverride(t, override))
 	if want := "HelmRelease main: Deploying..."; got.err != nil || got.status != want {
 		t.Fatalf("got error %v and status %q, want status %q", got.err, got.status, want)
@@ -511,7 +511,7 @@ func TestAFieldThatTheReleaseAddsIsNotBlamedOnSpecPatch(t *testing.T) {
 func TestASpecPatchValueThatTheReleaseReplacesIsNotBlamed(t *testing.T) {
 	manifest := fmt.Sprintf(afterRenderPackage, "", `    specPatch: |
       timeout: {{ .Context.db.password }}`)
-	override := kv1alpha1.ModuleOverrideSpec{Module: "main", Timeout: &metav1.Duration{Duration: 5 * time.Minute},
+	override := kv1alpha1.ModuleOverrideSpec{Module: "main", Timeout: new(kv1alpha1.NewDuration(5 * time.Minute)),
 		SpecPatch: &apiextensionsv1.JSON{Raw: []byte(`{"nope":1}`)}}
 	got := reconcileRelease(t, manifest, "", afterRenderContext, withOverride(t, override))
 	got.mustReport(t, "failed to populate HelmRelease 'demo-main': failed to unmarshal spec into HelmRelease for module 'main': "+

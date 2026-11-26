@@ -181,8 +181,8 @@ func PopulateOciRepository(
 		ociRepository.Spec.ServiceAccountName = release.Spec.Package.ServiceAccountName
 		ociRepository.Spec.CertSecretRef = release.Spec.Package.CertSecretRef
 		ociRepository.Spec.ProxySecretRef = release.Spec.Package.ProxySecretRef
-		ociRepository.Spec.Interval = release.Spec.Package.Interval
-		ociRepository.Spec.Timeout = release.Spec.Package.Timeout
+		ociRepository.Spec.Interval = release.Spec.Package.Interval.MetaV1()
+		ociRepository.Spec.Timeout = release.Spec.Package.Timeout.MetaV1Ptr()
 		ociRepository.Spec.Ignore = release.Spec.Package.Ignore
 		ociRepository.Spec.Insecure = release.Spec.Package.Insecure
 		ociRepository.Spec.Suspend = release.Spec.Package.Suspend
